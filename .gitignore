@@ -1,0 +1,10 @@
+node_modules/
+cache/
+agent-config.json
+config-*.json
+.env
+.env.local
+.env.*
+media-a/
+media-b/
+.DS_Store

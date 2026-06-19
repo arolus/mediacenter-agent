@@ -1,0 +1,19 @@
+{
+  "name": "mediacenter-agent",
+  "version": "1.0.0",
+  "description": "Slave-агент MediaCenter: сканирует медиатеку, распознаёт фильмы/сериалы через TMDb, выполняет команды хаба и переносит файлы между устройствами по WebTorrent.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "firebase": "^10.12.2",
+    "node-html-parser": "^6.1.13",
+    "parse-torrent-title": "^3.0.1",
+    "webtorrent": "^1.9.7"
+  }
+}

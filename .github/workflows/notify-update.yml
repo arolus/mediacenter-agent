@@ -1,0 +1,31 @@
+# (Опционально) Мгновенное обновление нод при пуше в репозиторий агента.
+# На каждый push в main пишет sha коммита в Firestore-док config/version.
+# Агенты слушают этот док (onSnapshot) и, увидев новый sha, перезапускаются с git pull.
+# Без этого workflow обновление всё равно работает — агенты опрашивают git раз в ~10 минут.
+#
+# Настройка (один раз):
+#   1. В Google Cloud Console создай service account с ролью "Cloud Datastore User".
+#   2. Скачай его JSON-ключ и положи в GitHub Secrets как FIREBASE_SA.
+#   3. Впиши свой PROJECT_ID ниже.
+name: notify-update
+on:
+  push:
+    branches: [ main ]
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    env:
+      PROJECT_ID: REPLACE_WITH_FIREBASE_PROJECT_ID
+    steps:
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Write config/version
+        run: |
+          TOKEN=$(gcloud auth print-access-token)
+          curl -s -X PATCH \
+            "https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents/config/version?updateMask.fieldPaths=sha&updateMask.fieldPaths=updatedAt" \
+            -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" \
+            -d "{\"fields\":{\"sha\":{\"stringValue\":\"${GITHUB_SHA}\"},\"updatedAt\":{\"timestampValue\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}}"

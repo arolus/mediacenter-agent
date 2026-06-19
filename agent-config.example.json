@@ -1,0 +1,29 @@
+{
+  "firebase": {
+    "apiKey": "REPLACE_ME",
+    "authDomain": "REPLACE_ME.firebaseapp.com",
+    "projectId": "REPLACE_ME",
+    "storageBucket": "REPLACE_ME.appspot.com",
+    "messagingSenderId": "REPLACE_ME",
+    "appId": "REPLACE_ME"
+  },
+  "auth": {
+    "email": "owner@example.com",
+    "password": "REPLACE_ME"
+  },
+  "device": {
+    "id": "phone-a",
+    "name": "Pixel в гостиной"
+  },
+  "mediaDir": "/storage/emulated/0/Movies",
+  "tmdbApiKey": "REPLACE_ME",
+  "tmdbLang": "ru-RU",
+  "rutracker": {
+    "user": "REPLACE_ME",
+    "pass": "REPLACE_ME",
+    "useragent": "Mozilla/5.0",
+    "hostname": "https://rutracker.org",
+    "antigateKey": "REPLACE_ME"
+  },
+  "videoExtensions": ["mkv", "mp4", "avi", "mov", "wmv", "m4v", "mpg", "mpeg", "mpe", "mpv"]
+}
