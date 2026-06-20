@@ -8,7 +8,8 @@
 //   5) обслуживает P2P-переносы (seed / download) через WebTorrent.
 const fs = require("fs");
 const path = require("path");
-const { doc, setDoc, serverTimestamp } = require("firebase/firestore");
+const { doc, getDoc, setDoc, serverTimestamp } = require("firebase/firestore");
+const { ensureDirs } = require("./lib/media");
 const { initFirebase } = require("./lib/firebase");
 const { loadTmdbCreds } = require("./lib/env");
 const { syncLibrary } = require("./lib/library");
@@ -17,6 +18,8 @@ const { watchTransfers } = require("./lib/transfer");
 const { watchSearches } = require("./lib/searches");
 const { watchDownloads } = require("./lib/downloads");
 const { watchUpdates, currentSha, currentBranch } = require("./lib/updater");
+const { startLocalServer } = require("./lib/localserver");
+const { watchLibrary } = require("./lib/watcher");
 
 const VERSION = (currentSha() || "").slice(0, 7) || "dev";
 const HEARTBEAT_MS = 30_000;
@@ -28,8 +31,9 @@ function loadConfig() {
     process.exit(1);
   }
   const config = JSON.parse(fs.readFileSync(file, "utf8"));
-  if (!config.mediaDir || String(config.mediaDir).includes("REPLACE_ME")) {
-    console.error('Не заполнено поле "mediaDir" в конфиге.');
+  if ((!config.mediaRoot || String(config.mediaRoot).includes("REPLACE_ME")) &&
+      (!config.mediaDir || String(config.mediaDir).includes("REPLACE_ME"))) {
+    console.error('Не заполнено поле "mediaRoot" в конфиге (напр. "/storage/emulated/0").');
     process.exit(1);
   }
   // Если ключ TMDb не задан в конфиге — пробуем подтянуть из .env / .env.local.
@@ -40,12 +44,11 @@ function loadConfig() {
     else if (creds.v3) { config.tmdbApiKey = creds.v3; console.log("✓ TMDb: v3-ключ из", creds.source); }
   }
   if ((!config.tmdbApiKey || String(config.tmdbApiKey).includes("REPLACE_ME")) && !config.tmdbBearer) {
-    console.warn('⚠️ TMDb ключ не найден — распознавание выключено, файлы будут как "не распознан".');
+    console.warn("⚠️ TMDb ключ не найден — метаданные при скачивании с торрента подтягиваться не будут.");
   }
-  if (!fs.existsSync(config.mediaDir)) {
-    console.error(`Медиапапка не найдена: ${config.mediaDir}`);
-    process.exit(1);
-  }
+  // Создаём папки Movies/Series/Cartoons под mediaRoot, если их нет.
+  const dirs = ensureDirs(config);
+  console.log("медиапапки:", Object.entries(dirs).map(([t, d]) => `${t}→${d}`).join("  "));
   return config;
 }
 
@@ -55,13 +58,18 @@ async function main() {
   Object.assign(ctx, await initFirebase(config));
 
   const deviceRef = doc(ctx.db, "devices", config.device.id);
-  await setDoc(deviceRef, {
-    name: config.device.name || config.device.id,
+  // Имя из дашборда имеет приоритет: ставим имя из конфига только при первой регистрации.
+  const existing = await getDoc(deviceRef).catch(() => null);
+  const base = {
     online: true,
     version: VERSION,
     branch: currentBranch(),
     lastSeen: serverTimestamp()
-  }, { merge: true });
+  };
+  if (!existing || !existing.exists() || !existing.data().name) {
+    base.name = config.device.name || config.device.id;
+  }
+  await setDoc(deviceRef, base, { merge: true });
   console.log(`✓ Устройство зарегистрировано: ${config.device.name} (${config.device.id})`);
 
   // Heartbeat
@@ -70,8 +78,9 @@ async function main() {
       .catch((e) => console.error("heartbeat:", e.message));
   }, HEARTBEAT_MS);
 
-  // Первичный скан
+  // Первичный скан + слежение за папками (авто-подхват новых/удалённых файлов)
   await syncLibrary(ctx).catch((e) => console.error("initial scan:", e.message));
+  const stopWatch = watchLibrary(ctx);
 
   // Подписки
   const stopCommands = watchCommands(ctx);
@@ -79,17 +88,20 @@ async function main() {
   const stopSearches = watchSearches(ctx);
   const stopDownloads = watchDownloads(ctx);
   const stopUpdates = watchUpdates(ctx);
+  const stopLocal = startLocalServer(ctx);
   console.log("✓ Агент готов. Слушаю команды, переносы, поиск, загрузки и обновления…");
 
   // Аккуратное завершение
   async function shutdown() {
     console.log("\nЗавершаюсь…");
     clearInterval(heartbeat);
+    stopWatch();
     stopCommands();
     stopTransfers();
     stopSearches();
     stopDownloads();
     stopUpdates();
+    stopLocal();
     await setDoc(deviceRef, { online: false, lastSeen: serverTimestamp() }, { merge: true }).catch(() => {});
     process.exit(0);
   }

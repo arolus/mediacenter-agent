@@ -15,7 +15,9 @@
     "id": "phone-a",
     "name": "Pixel в гостиной"
   },
-  "mediaDir": "/storage/emulated/0/Movies",
+  "mediaRoot": "/storage/emulated/0",
+  "localPort": 8088,
+  "player": { "package": "org.videolan.vlc" },
   "tmdbApiKey": "REPLACE_ME",
   "tmdbLang": "ru-RU",
   "rutracker": {
