@@ -1,102 +1,223 @@
-// TV-режим: браузинг локальной коллекции + запуск плеера. Навигация пультом (Flirc = клавиши).
-const TMDB_IMG = "https://image.tmdb.org/t/p/w342";
-const SECTIONS = [
-  { type: "movie", title: "Фильмы" },
-  { type: "cartoon", title: "Мультфильмы" },
-  { type: "series", title: "Сериалы" }
-];
+// TV-режим: категории → сетка 4×2 с описанием слева → страница фильма с Play.
+// Навигация пультом (Flirc = клавиши): стрелки, OK/Enter, Back (Esc/Backspace).
+const IMG = "https://image.tmdb.org/t/p";
+const poster = (p) => (p ? `${IMG}/w342${p}` : null);
+const backdrop = (p) => (p ? `${IMG}/w1280${p}` : null);
+const shot = (p) => `${IMG}/w500${p}`;
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
-async function init() {
+const CATS = [
+  { type: "movie", label: "Фильмы", emoji: "🎬" },
+  { type: "cartoon", label: "Мультфильмы", emoji: "🧸" },
+  { type: "series", label: "Сериалы", emoji: "📺" }
+];
+
+const app = document.getElementById("app");
+let deviceName = "";
+let items = [];
+let state = { screen: "categories", type: "movie" };
+
+async function load() {
+  try { deviceName = (await (await fetch("/api/device")).json()).name || ""; } catch (_) {}
+  await reloadLibrary();
+  render();
+  // live-обновление: любое изменение (скан, «Исправить» из дашборда, переименование) прилетает сюда
   try {
-    const dev = await (await fetch("/api/device")).json();
-    document.getElementById("tv-device").textContent = dev.name || "";
+    const es = new EventSource("/api/events");
+    es.onmessage = async () => { await reloadLibrary(); rerenderKeepingFocus(); };
   } catch (_) {}
+}
 
-  let items = [];
-  try { items = await (await fetch("/api/library")).json(); }
-  catch (_) { document.getElementById("tv-loading").textContent = "Не удалось загрузить коллекцию"; return; }
+async function reloadLibrary() {
+  try { items = await (await fetch("/api/library")).json(); } catch (_) { items = items || []; }
+}
 
-  const main = document.getElementById("tv-main");
-  main.innerHTML = "";
-  for (const sec of SECTIONS) {
-    const list = items.filter((i) => i.type === sec.type)
-      .sort((a, b) => (a.title || "").localeCompare(b.title || ""));
-    if (!list.length) continue;
-    const h = document.createElement("h2");
-    h.className = "tv-section-title";
-    h.textContent = `${sec.title} · ${list.length}`;
-    const row = document.createElement("div");
-    row.className = "tv-row";
-    row.innerHTML = list.map(cardHtml).join("");
-    main.append(h, row);
+const byType = (t) => items.filter((i) => i.type === t).sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+
+function render() {
+  if (state.screen === "categories") renderCategories();
+  else if (state.screen === "grid") renderGrid();
+  else if (state.screen === "detail") renderDetail();
+}
+
+// При live-обновлении перерисовываем текущий экран, сохраняя фокус по id.
+function rerenderKeepingFocus() {
+  const focusedId = document.activeElement?.dataset?.id;
+  if (state.screen === "detail" && state.current && !items.find((i) => i.id === state.current.id)) {
+    state.screen = "grid"; // фильм исчез — назад в сетку
   }
-
-  const cards = [...document.querySelectorAll(".tv-card")];
-  if (!cards.length) { main.innerHTML = '<p class="tv-empty">Коллекция пуста. Добавь контент из дашборда.</p>'; return; }
-  cards.forEach((c) => c.addEventListener("click", () => play(c.dataset.id)));
-  cards[0].focus();
+  render();
+  if (focusedId) {
+    const el = app.querySelector(`[data-id="${CSS.escape(focusedId)}"]`);
+    if (el) el.focus();
+  }
 }
 
-function cardHtml(i) {
-  const poster = i.poster
-    ? `<div class="tv-poster" style="background-image:url('${TMDB_IMG}${i.poster}')"></div>`
-    : `<div class="tv-poster">${esc(i.title)}</div>`;
-  const meta = [i.year, i.season ? `S${i.season}${i.episode ? "E" + i.episode : ""}` : null].filter(Boolean).join(" · ");
-  return `<div class="tv-card" tabindex="0" data-id="${esc(i.id)}">
-    ${poster}
-    <div class="tv-card-body">
-      <div class="tv-card-title">${esc(i.title)}</div>
-      <div class="tv-card-meta">${esc(meta)}</div>
-    </div>
-  </div>`;
+/* ---------- Категории ---------- */
+function renderCategories() {
+  app.innerHTML = `
+    <div class="cat-screen">
+      <div class="cat-head"><span class="cat-brand">🎬 MediaCenter</span><span class="cat-device">${esc(deviceName)}</span></div>
+      <div class="cat-tiles">
+        ${CATS.map((c) => `
+          <div class="cat-tile" tabindex="0" data-type="${c.type}">
+            <div class="emoji">${c.emoji}</div>
+            <div class="label">${c.label}</div>
+            <div class="count">${byType(c.type).length} шт.</div>
+          </div>`).join("")}
+      </div>
+    </div>`;
+  app.querySelectorAll(".cat-tile").forEach((t) => t.addEventListener("click", () => enterGrid(t.dataset.type)));
+  const idx = CATS.findIndex((c) => c.type === state.type);
+  app.querySelectorAll(".cat-tile")[idx >= 0 ? idx : 0].focus();
 }
 
-// ---- Навигация пультом ----
-let fullscreenTried = false;
+/* ---------- Сетка ---------- */
+function computeCardWidth() {
+  const side = Math.min(460, Math.max(280, window.innerWidth * 0.32));
+  const gap = 20, gridPad = 80, headerH = 70, titleH = 50;
+  const byW = (window.innerWidth - side - gridPad - 3 * gap) / 4;
+  const byH = ((window.innerHeight - headerH) / 2 - gap - titleH) / 1.5; // 2 ряда, постер 2:3
+  const w = Math.max(120, Math.floor(Math.min(byW, byH)));
+  document.documentElement.style.setProperty("--card-w", w + "px");
+}
+
+function renderGrid() {
+  computeCardWidth();
+  const list = byType(state.type);
+  const cat = CATS.find((c) => c.type === state.type);
+  app.innerHTML = `
+    <div class="grid-screen">
+      <div class="grid-info" id="grid-info"></div>
+      <div class="grid-wrap">
+        <h2 class="grid-cat-title">${cat.label} · ${list.length}</h2>
+        <div class="tv-grid">
+          ${list.map((i) => `
+            <div class="tv-card" tabindex="0" data-id="${esc(i.id)}">
+              ${poster(i.poster) ? `<div class="tv-poster" style="background-image:url('${poster(i.poster)}')"></div>` : `<div class="tv-poster">${esc(i.title)}</div>`}
+              <div class="tv-card-title">${esc(i.title)}</div>
+            </div>`).join("") || '<p class="tv-empty">Пусто</p>'}
+        </div>
+      </div>
+    </div>`;
+  app.querySelectorAll(".tv-card").forEach((card) => {
+    const item = list.find((i) => i.id === card.dataset.id);
+    card.addEventListener("focus", () => updateInfo(item));
+    card.addEventListener("click", () => enterDetail(item));
+  });
+  const first = app.querySelector(".tv-card");
+  if (first) first.focus();
+}
+
+function updateInfo(i) {
+  const el = document.getElementById("grid-info");
+  if (!el || !i) return;
+  const bg = backdrop(i.backdrop) || poster(i.poster);
+  const meta = [i.year, i.rating ? `★ ${Number(i.rating).toFixed(1)}` : null].filter(Boolean).join(" · ");
+  el.innerHTML = `
+    <div class="gi-back" style="${bg ? `background-image:url('${bg}')` : ""}"></div>
+    <div class="gi-title">${esc(i.title)}</div>
+    <div class="gi-meta">${esc(meta)}</div>
+    <div class="gi-overview">${esc(i.overview || "Нет описания")}</div>
+    ${i.cast && i.cast.length ? `<div class="gi-cast">${esc(i.cast.slice(0, 5).join(", "))}</div>` : ""}`;
+}
+
+/* ---------- Деталь фильма ---------- */
+function renderDetail() {
+  const i = state.current;
+  if (!i) { state.screen = "grid"; return render(); }
+  const bg = backdrop(i.backdrop) || poster(i.poster);
+  const meta = [i.year, i.rating ? `★ ${Number(i.rating).toFixed(1)}` : null, i.season ? `S${i.season}${i.episode ? "E" + i.episode : ""}` : null].filter(Boolean).join(" · ");
+  app.innerHTML = `
+    <div class="detail">
+      <div class="detail-backdrop" style="${bg ? `background-image:url('${bg}')` : ""}"></div>
+      <div class="detail-grad"></div>
+      <div class="detail-body">
+        <div class="detail-title">${esc(i.title)}</div>
+        <div class="detail-meta">${esc(meta)}</div>
+        <div class="detail-overview">${esc(i.overview || "Нет описания")}</div>
+        ${i.cast && i.cast.length ? `<div class="detail-cast">В ролях: ${esc(i.cast.join(", "))}</div>` : ""}
+        <div class="detail-shots" id="detail-shots"></div>
+        <button class="detail-play" id="detail-play" data-id="${esc(i.id)}">▶ Смотреть</button>
+      </div>
+    </div>`;
+  const playBtn = document.getElementById("detail-play");
+  playBtn.addEventListener("click", () => play(i.id));
+  playBtn.focus(); // фокус сразу на Play
+  loadShots(i.id);
+}
+
+async function loadShots(id) {
+  try {
+    const { backdrops } = await (await fetch("/api/images?id=" + encodeURIComponent(id))).json();
+    const el = document.getElementById("detail-shots");
+    if (el && backdrops && backdrops.length) {
+      el.innerHTML = backdrops.slice(0, 5).map((p) => `<img src="${shot(p)}" alt="" />`).join("");
+    }
+  } catch (_) {}
+}
+
+/* ---------- Переходы ---------- */
+function enterGrid(type) { state = { screen: "grid", type }; render(); }
+function enterDetail(item) { state = { screen: "detail", type: state.type, current: item }; render(); }
+function back() {
+  if (state.screen === "detail") { state = { screen: "grid", type: state.type }; render(); }
+  else if (state.screen === "grid") { state = { screen: "categories", type: state.type }; render(); }
+}
+
+/* ---------- Навигация пультом ---------- */
+let fsTried = false;
 document.addEventListener("keydown", (e) => {
+  if (["Escape", "Backspace", "GoBack", "BrowserBack"].includes(e.key)) { e.preventDefault(); back(); return; }
   const cur = document.activeElement;
-  if (!cur || !cur.classList || !cur.classList.contains("tv-card")) {
-    const first = document.querySelector(".tv-card");
-    if (first) { first.focus(); e.preventDefault(); }
+
+  if (state.screen === "categories") {
+    const tiles = [...app.querySelectorAll(".cat-tile")];
+    const idx = tiles.indexOf(cur);
+    if (e.key === "ArrowRight") { e.preventDefault(); tiles[Math.min(tiles.length - 1, idx + 1)]?.focus(); }
+    else if (e.key === "ArrowLeft") { e.preventDefault(); tiles[Math.max(0, idx - 1)]?.focus(); }
+    else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); cur?.dataset?.type && enterGrid(cur.dataset.type); }
     return;
   }
-  const dirs = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" };
-  if (dirs[e.key]) {
-    e.preventDefault();
-    if (!fullscreenTried) { fullscreenTried = true; document.documentElement.requestFullscreen?.().catch(() => {}); }
-    const next = nearest(cur, dirs[e.key]);
-    if (next) { next.focus(); next.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" }); }
-  } else if (e.key === "Enter" || e.key === " " || e.key === "MediaPlayPause") {
-    e.preventDefault();
-    play(cur.dataset.id);
+
+  if (state.screen === "grid") {
+    if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) {
+      e.preventDefault();
+      if (!fsTried) { fsTried = true; document.documentElement.requestFullscreen?.().catch(() => {}); }
+      const next = nearest(cur, { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" }[e.key]);
+      if (next) { next.focus(); next.scrollIntoView({ block: "nearest", behavior: "smooth" }); }
+    } else if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault(); cur?.click();
+    }
+    return;
+  }
+
+  if (state.screen === "detail") {
+    if (e.key === "Enter" || e.key === " " || e.key === "MediaPlayPause") { e.preventDefault(); cur?.click(); }
   }
 });
 
-// Ближайшая карточка в заданном направлении (пространственная навигация).
 function nearest(cur, dir) {
-  const cards = [...document.querySelectorAll(".tv-card")];
-  const cr = cur.getBoundingClientRect();
-  const cx = cr.left + cr.width / 2, cy = cr.top + cr.height / 2;
+  if (!cur || !cur.classList.contains("tv-card")) return app.querySelector(".tv-card");
+  const cards = [...app.querySelectorAll(".tv-card")];
+  const cr = cur.getBoundingClientRect(), cx = cr.left + cr.width / 2, cy = cr.top + cr.height / 2;
   let best = null, bestScore = Infinity;
   for (const el of cards) {
     if (el === cur) continue;
-    const r = el.getBoundingClientRect();
-    const x = r.left + r.width / 2, y = r.top + r.height / 2;
+    const r = el.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
     const dx = x - cx, dy = y - cy;
-    let primary, secondary;
-    if (dir === "left") { if (dx >= -2) continue; primary = -dx; secondary = Math.abs(dy); }
-    else if (dir === "right") { if (dx <= 2) continue; primary = dx; secondary = Math.abs(dy); }
-    else if (dir === "up") { if (dy >= -2) continue; primary = -dy; secondary = Math.abs(dx); }
-    else { if (dy <= 2) continue; primary = dy; secondary = Math.abs(dx); }
-    const score = primary + secondary * 2;
+    let p, s;
+    if (dir === "left") { if (dx >= -2) continue; p = -dx; s = Math.abs(dy); }
+    else if (dir === "right") { if (dx <= 2) continue; p = dx; s = Math.abs(dy); }
+    else if (dir === "up") { if (dy >= -2) continue; p = -dy; s = Math.abs(dx); }
+    else { if (dy <= 2) continue; p = dy; s = Math.abs(dx); }
+    const score = p + s * 2;
     if (score < bestScore) { bestScore = score; best = el; }
   }
   return best;
 }
 
 async function play(id) {
-  if (!id) return;
   showOverlay("▶ Запускаю плеер…");
   try {
     const r = await (await fetch("/api/play?id=" + encodeURIComponent(id))).json();
@@ -104,11 +225,8 @@ async function play(id) {
   } catch (_) { showOverlay("⚠️ Не удалось запустить"); }
   setTimeout(hideOverlay, 2500);
 }
-
-function showOverlay(text) {
-  document.getElementById("tv-overlay-text").textContent = text;
-  document.getElementById("tv-overlay").classList.remove("hidden");
-}
+function showOverlay(t) { document.getElementById("tv-overlay-text").textContent = t; document.getElementById("tv-overlay").classList.remove("hidden"); }
 function hideOverlay() { document.getElementById("tv-overlay").classList.add("hidden"); }
 
-init();
+window.addEventListener("resize", () => { if (state.screen === "grid") computeCardWidth(); });
+load();
