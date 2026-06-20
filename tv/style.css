@@ -47,7 +47,14 @@ body { color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Sego
 .grid-info .gi-cast { font-size: 15px; color: var(--dim); }
 
 .grid-wrap { flex: 1; padding: 28px 40px; overflow-y: auto; }
-.grid-cat-title { font-size: 24px; font-weight: 700; margin: 0 0 18px; }
+.grid-top { display: flex; align-items: center; gap: 18px; margin: 0 0 18px; }
+.grid-cat-title { font-size: 24px; font-weight: 700; margin: 0; }
+.grid-back {
+  background: var(--card); color: var(--text); border: 2px solid transparent;
+  padding: 10px 20px; border-radius: 10px; font-size: 18px; font-weight: 600; outline: none; cursor: pointer;
+  transition: transform .12s, box-shadow .12s, border-color .12s;
+}
+.grid-back:focus { transform: scale(1.06); border-color: var(--focus); box-shadow: 0 0 0 4px rgba(79,140,255,.35); }
 .tv-grid { display: grid; grid-template-columns: repeat(4, var(--card-w)); gap: var(--gap); justify-content: start; }
 .tv-card { width: var(--card-w); border-radius: 12px; background: var(--card); overflow: hidden; outline: none; cursor: pointer;
   transition: transform .12s, box-shadow .12s; }

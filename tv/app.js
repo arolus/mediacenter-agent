@@ -20,6 +20,7 @@ let state = { screen: "categories", type: "movie" };
 async function load() {
   try { deviceName = (await (await fetch("/api/device")).json()).name || ""; } catch (_) {}
   await reloadLibrary();
+  history.replaceState({ screen: "categories" }, ""); // корневая запись истории
   render();
   // live-обновление: любое изменение (скан, «Исправить» из дашборда, переименование) прилетает сюда
   try {
@@ -90,7 +91,10 @@ function renderGrid() {
     <div class="grid-screen">
       <div class="grid-info" id="grid-info"></div>
       <div class="grid-wrap">
-        <h2 class="grid-cat-title">${cat.label} · ${list.length}</h2>
+        <div class="grid-top">
+          <button class="grid-back" tabindex="0">← Назад</button>
+          <h2 class="grid-cat-title">${cat.label} · ${list.length}</h2>
+        </div>
         <div class="tv-grid">
           ${list.map((i) => `
             <div class="tv-card" tabindex="0" data-id="${esc(i.id)}">
@@ -105,7 +109,8 @@ function renderGrid() {
     card.addEventListener("focus", () => updateInfo(item));
     card.addEventListener("click", () => enterDetail(item));
   });
-  const first = app.querySelector(".tv-card");
+  app.querySelector(".grid-back").addEventListener("click", back);
+  const first = app.querySelector(".tv-card") || app.querySelector(".grid-back");
   if (first) first.focus();
 }
 
@@ -157,13 +162,18 @@ async function loadShots(id) {
   } catch (_) {}
 }
 
-/* ---------- Переходы ---------- */
-function enterGrid(type) { state = { screen: "grid", type }; render(); }
-function enterDetail(item) { state = { screen: "detail", type: state.type, current: item }; render(); }
-function back() {
-  if (state.screen === "detail") { state = { screen: "grid", type: state.type }; render(); }
-  else if (state.screen === "grid") { state = { screen: "categories", type: state.type }; render(); }
+/* ---------- Переходы (через History API: браузерная «Назад» тоже работает) ---------- */
+function applyState(s) {
+  state = { screen: s.screen || "categories", type: s.type || state.type, current: null };
+  if (state.screen === "detail") state.current = items.find((i) => i.id === s.id) || null;
+  render();
 }
+function navigate(s) { history.pushState(s, ""); applyState(s); }
+function enterGrid(type) { navigate({ screen: "grid", type }); }
+function enterDetail(item) { navigate({ screen: "detail", type: state.type, id: item.id }); }
+// Назад: кнопка «Назад», Esc/Backspace пульта И браузерная «Назад» — всё через историю.
+function back() { if (state.screen !== "categories") history.back(); }
+window.addEventListener("popstate", (e) => applyState(e.state || { screen: "categories" }));
 
 /* ---------- Навигация пультом ---------- */
 let fsTried = false;
@@ -198,8 +208,9 @@ document.addEventListener("keydown", (e) => {
 });
 
 function nearest(cur, dir) {
-  if (!cur || !cur.classList.contains("tv-card")) return app.querySelector(".tv-card");
-  const cards = [...app.querySelectorAll(".tv-card")];
+  const SEL = ".tv-card, .grid-back";
+  if (!cur || !cur.matches(SEL)) return app.querySelector(".tv-card") || app.querySelector(".grid-back");
+  const cards = [...app.querySelectorAll(SEL)];
   const cr = cur.getBoundingClientRect(), cx = cr.left + cr.width / 2, cy = cr.top + cr.height / 2;
   let best = null, bestScore = Infinity;
   for (const el of cards) {
