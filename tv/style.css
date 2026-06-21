@@ -76,6 +76,13 @@ body { color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Sego
 .detail-cast { font-size: 17px; color: var(--dim); }
 .detail-shots { display: flex; gap: 14px; margin-top: 8px; overflow: hidden; }
 .detail-shots img { height: 150px; border-radius: 10px; flex: none; }
+.detail-back {
+  align-self: flex-start;
+  background: rgba(255,255,255,.1); color: var(--text); border: 2px solid transparent;
+  padding: 10px 22px; border-radius: 10px; font-size: 18px; font-weight: 600; outline: none; cursor: pointer;
+  transition: transform .12s, box-shadow .12s, border-color .12s;
+}
+.detail-back:focus { transform: scale(1.06); border-color: var(--focus); box-shadow: 0 0 0 4px rgba(79,140,255,.35); }
 .detail-play {
   margin-top: auto; align-self: flex-start;
   padding: 18px 56px; font-size: 24px; font-weight: 700;

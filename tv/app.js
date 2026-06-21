@@ -138,6 +138,7 @@ function renderDetail() {
       <div class="detail-backdrop" style="${bg ? `background-image:url('${bg}')` : ""}"></div>
       <div class="detail-grad"></div>
       <div class="detail-body">
+        <button class="detail-back" id="detail-back">← Назад</button>
         <div class="detail-title">${esc(i.title)}</div>
         <div class="detail-meta">${esc(meta)}</div>
         <div class="detail-overview">${esc(i.overview || "Нет описания")}</div>
@@ -146,6 +147,7 @@ function renderDetail() {
         <button class="detail-play" id="detail-play" data-id="${esc(i.id)}">▶ Смотреть</button>
       </div>
     </div>`;
+  document.getElementById("detail-back").addEventListener("click", back);
   const playBtn = document.getElementById("detail-play");
   playBtn.addEventListener("click", () => play(i.id));
   playBtn.focus(); // фокус сразу на Play
@@ -203,7 +205,9 @@ document.addEventListener("keydown", (e) => {
   }
 
   if (state.screen === "detail") {
-    if (e.key === "Enter" || e.key === " " || e.key === "MediaPlayPause") { e.preventDefault(); cur?.click(); }
+    if (["ArrowUp", "ArrowLeft"].includes(e.key)) { e.preventDefault(); document.getElementById("detail-back")?.focus(); }
+    else if (["ArrowDown", "ArrowRight"].includes(e.key)) { e.preventDefault(); document.getElementById("detail-play")?.focus(); }
+    else if (e.key === "Enter" || e.key === " " || e.key === "MediaPlayPause") { e.preventDefault(); cur?.click(); }
   }
 });
 
