@@ -377,7 +377,12 @@ function renderDetail() {
         <!-- Фиксированная шапка: «Назад» + название, всплывающее когда заголовок ушёл за экран -->
         <div class="flex items-center space-x-4 px-16 pb-2 pt-[clamp(10px,calc(var(--uivh)*2.5),24px)]">
           <button class="dfoc flex flex-none cursor-pointer items-center rounded-xl border border-white/10 bg-white/5 py-2 pl-3 pr-6 text-[clamp(15px,calc(var(--uivh)*2.4),18px)] font-semibold outline-none backdrop-blur transition duration-150 focus:scale-105 focus:border-violet-400 focus:ring-4 focus:ring-violet-500/30" id="detail-back">${ICONS.back("mr-1.5 h-5 w-5")} Назад</button>
-          <div id="detail-topname" class="min-w-0 truncate text-[clamp(17px,calc(var(--uivh)*3),24px)] font-bold tracking-tight opacity-0 transition-opacity duration-200">${esc(i.title)}</div>
+          <div id="detail-topname" class="flex min-w-0 items-center space-x-3 opacity-0 transition-opacity duration-200">
+            <span class="min-w-0 truncate text-[clamp(17px,calc(var(--uivh)*3),24px)] font-bold tracking-tight">${esc(i.title)}</span>
+            ${i.year ? `<span class="flex-none rounded-full bg-zinc-800/90 px-2.5 py-0.5 text-[13px] font-medium text-zinc-300">${i.year}</span>` : ""}
+            ${i.rating ? `<span class="flex flex-none items-center rounded-full bg-amber-400/10 px-2.5 py-0.5 text-[13px] font-semibold text-amber-400 ring-1 ring-amber-400/20">${ICONS.star("mr-1 h-3.5 w-3.5")}${Number(i.rating).toFixed(1)}</span>` : ""}
+            ${multi ? `<span class="flex-none rounded-full bg-zinc-800/90 px-2.5 py-0.5 text-[13px] font-medium text-zinc-300">${eps.length} серий</span>` : ""}
+          </div>
         </div>
         <!-- Остальное скроллится единым потоком (описание, кадры, серии) -->
         <div id="detail-scroll" class="flex-1 space-y-[clamp(8px,calc(var(--uivh)*1.8),16px)] overflow-y-auto px-16 pb-[clamp(16px,calc(var(--uivh)*4),48px)] pt-1">
