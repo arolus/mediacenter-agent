@@ -167,10 +167,10 @@ document.addEventListener("pointerdown", armOrientation, { once: true, capture: 
 /* ---------- Категории ---------- */
 function renderCategories() {
   app.innerHTML = `
-    <div class="flex h-screen flex-col overflow-y-auto">
-      <div class="flex items-center space-x-5 px-12 pt-[clamp(12px,3vh,32px)]">
-        ${logo("h-[clamp(36px,6vh,48px)] w-[clamp(36px,6vh,48px)]")}
-        <span class="text-[clamp(22px,4vh,30px)] font-extrabold tracking-tight">MediaCenter</span>
+    <div class="flex h-full flex-col overflow-y-auto">
+      <div class="flex items-center space-x-5 px-12 pt-[clamp(12px,calc(var(--uivh)*3),32px)]">
+        ${logo("h-[clamp(36px,calc(var(--uivh)*6),48px)] w-[clamp(36px,calc(var(--uivh)*6),48px)]")}
+        <span class="text-[clamp(22px,calc(var(--uivh)*4),30px)] font-extrabold tracking-tight">MediaCenter</span>
         ${deviceName ? `<span class="rounded-full border border-zinc-800 bg-zinc-900/80 px-4 py-1.5 text-lg text-zinc-400">${esc(deviceName)}</span>` : ""}
       </div>
       ${playerMissing ? `
@@ -179,12 +179,12 @@ function renderCategories() {
         </button>` : ""}
       <div class="flex flex-1 items-center justify-center space-x-10 px-12">
         ${CATS.map((c) => `
-          <div class="cat-tile group flex h-[clamp(250px,60vh,420px)] w-[clamp(220px,24vw,340px)] cursor-pointer flex-col items-center justify-center space-y-[clamp(12px,3vh,28px)] rounded-[28px] border border-zinc-800 bg-zinc-900/70 outline-none backdrop-blur transition duration-150 focus:scale-105 focus:border-violet-500/60 focus:shadow-[0_0_70px_-12px_rgba(139,92,246,.55)] focus:ring-4 focus:ring-violet-500/25" tabindex="0" data-type="${c.type}">
-            <div class="grid h-[clamp(64px,16vh,112px)] w-[clamp(64px,16vh,112px)] place-items-center rounded-3xl bg-gradient-to-br from-violet-500/15 to-indigo-500/5 text-violet-300 ring-1 ring-violet-500/20 transition duration-150 group-focus:from-violet-500 group-focus:to-indigo-600 group-focus:text-white group-focus:shadow-lg group-focus:shadow-violet-500/40 group-focus:ring-0">
+          <div class="cat-tile group flex h-[clamp(250px,calc(var(--uivh)*60),420px)] w-[clamp(220px,calc(var(--uivw)*24),340px)] cursor-pointer flex-col items-center justify-center space-y-[clamp(12px,calc(var(--uivh)*3),28px)] rounded-[28px] border border-zinc-800 bg-zinc-900/70 outline-none backdrop-blur transition duration-150 focus:scale-105 focus:border-violet-500/60 focus:shadow-[0_0_70px_-12px_rgba(139,92,246,.55)] focus:ring-4 focus:ring-violet-500/25" tabindex="0" data-type="${c.type}">
+            <div class="grid h-[clamp(64px,calc(var(--uivh)*16),112px)] w-[clamp(64px,calc(var(--uivh)*16),112px)] place-items-center rounded-3xl bg-gradient-to-br from-violet-500/15 to-indigo-500/5 text-violet-300 ring-1 ring-violet-500/20 transition duration-150 group-focus:from-violet-500 group-focus:to-indigo-600 group-focus:text-white group-focus:shadow-lg group-focus:shadow-violet-500/40 group-focus:ring-0">
               ${c.icon("h-1/2 w-1/2")}
             </div>
-            <div class="text-[clamp(20px,3.6vh,30px)] font-bold tracking-tight">${c.label}</div>
-            <div class="rounded-full bg-zinc-800/80 px-4 py-1 text-[clamp(14px,2.2vh,18px)] text-zinc-400">${loaded ? entriesForType(c.type).length + " шт." : "…"}</div>
+            <div class="text-[clamp(20px,calc(var(--uivh)*3.6),30px)] font-bold tracking-tight">${c.label}</div>
+            <div class="rounded-full bg-zinc-800/80 px-4 py-1 text-[clamp(14px,calc(var(--uivh)*2.2),18px)] text-zinc-400">${loaded ? entriesForType(c.type).length + " шт." : "…"}</div>
           </div>`).join("")}
       </div>
     </div>`;
@@ -208,13 +208,19 @@ async function installVLC() {
 }
 
 /* ---------- Сетка ---------- */
+// Размер UI-вьюпорта: в портрете интерфейс повёрнут на 90° (#rot), поэтому оси меняются местами.
+const isPortrait = () => matchMedia("(orientation: portrait)").matches;
+const uiW = () => (isPortrait() ? window.innerHeight : window.innerWidth);
+const uiH = () => (isPortrait() ? window.innerWidth : window.innerHeight);
+
 function computeCardWidth() {
-  // На небольших экранах (телефон в ландшафте) — 3 карточки в ряд, на TV — 4.
-  const cols = window.innerWidth < 1000 ? 3 : 4;
-  const side = Math.min(460, Math.max(280, window.innerWidth * 0.32));
+  // На небольших экранах (телефон) — 3 карточки в ряд, на TV — 4.
+  const W = uiW(), H = uiH();
+  const cols = W < 1000 ? 3 : 4;
+  const side = Math.min(460, Math.max(280, W * 0.32));
   const gap = 20, gridPad = 80, headerH = 70, titleH = 50;
-  const byW = (window.innerWidth - side - gridPad - (cols - 1) * gap) / cols;
-  const byH = ((window.innerHeight - headerH) / 2 - gap - titleH) / 1.5; // 2 ряда, постер 2:3
+  const byW = (W - side - gridPad - (cols - 1) * gap) / cols;
+  const byH = ((H - headerH) / 2 - gap - titleH) / 1.5; // 2 ряда, постер 2:3
   const w = Math.max(96, Math.floor(Math.min(byW, byH)));
   document.documentElement.style.setProperty("--card-w", w + "px");
   document.documentElement.style.setProperty("--cols", cols);
@@ -239,7 +245,7 @@ function renderGrid() {
   const list = entriesForType(state.type);
   const cat = CATS.find((c) => c.type === state.type);
   app.innerHTML = `
-    <div class="flex h-screen">
+    <div class="flex h-full">
       <div class="flex w-[32%] min-w-[280px] max-w-[460px] flex-col space-y-3.5 overflow-hidden border-r border-white/5 bg-zinc-900/60 px-9 py-10 backdrop-blur-xl" id="grid-info"></div>
       <div class="flex-1 overflow-y-auto px-10 py-7">
         <div class="mb-5 flex items-center space-x-4">
@@ -269,7 +275,7 @@ function renderCollection() {
   const col = state.current;
   if (!col || !col.isCollection) { state.screen = "grid"; return render(); }
   app.innerHTML = `
-    <div class="flex h-screen flex-col overflow-y-auto px-10 py-7">
+    <div class="flex h-full flex-col overflow-y-auto px-10 py-7">
       <div class="mb-5 flex items-center space-x-4">
         <button class="grid-back flex cursor-pointer items-center rounded-xl border border-white/10 bg-white/5 py-2.5 pl-3 pr-5 text-lg font-semibold outline-none backdrop-blur transition duration-150 focus:scale-105 focus:border-violet-400 focus:ring-4 focus:ring-violet-500/30" tabindex="0">${ICONS.back("mr-1.5 h-5 w-5")} Назад</button>
         <h2 class="m-0 truncate text-2xl font-bold tracking-tight">${esc(col.title)}</h2>
@@ -299,7 +305,7 @@ function updateInfo(i) {
   if (!el || !i) return;
   const bg = backdrop(i.backdrop) || poster(i.poster);
   el.innerHTML = `
-    <div class="h-[clamp(140px,38vh,320px)] w-full flex-none rounded-2xl bg-zinc-800 bg-cover bg-center shadow-2xl shadow-black/50 ring-1 ring-white/10" style="${bg ? `background-image:url('${bg}')` : ""}"></div>
+    <div class="h-[clamp(140px,calc(var(--uivh)*38),320px)] w-full flex-none rounded-2xl bg-zinc-800 bg-cover bg-center shadow-2xl shadow-black/50 ring-1 ring-white/10" style="${bg ? `background-image:url('${bg}')` : ""}"></div>
     <div class="mt-1 text-3xl font-bold leading-tight tracking-tight">${esc(i.title)}</div>
     <div class="flex flex-wrap space-x-2">${metaChips(i)}${i.episodes && i.episodes.length > 1 ? `<span class="rounded-full bg-zinc-800/90 px-3 py-1 text-base font-medium text-zinc-300">${i.episodes.length} серий</span>` : ""}</div>
     <div class="line-clamp-6 text-[17px] leading-relaxed text-zinc-300">${esc(i.overview || "Нет описания")}</div>
@@ -318,17 +324,17 @@ function renderDetail() {
   const eps = i.episodes && i.episodes.length ? i.episodes : [i];
   const multi = eps.length > 1;
   app.innerHTML = `
-    <div class="relative h-screen overflow-hidden">
+    <div class="relative h-full overflow-hidden">
       <div class="absolute top-0 right-0 bottom-0 left-0 bg-black bg-cover bg-center brightness-[.38] saturate-[1.1]" style="${bg ? `background-image:url('${bg}')` : ""}"></div>
       <div class="absolute top-0 right-0 bottom-0 left-0 bg-gradient-to-r from-zinc-950/95 via-zinc-950/65 to-zinc-950/30"></div>
       <div class="absolute right-0 bottom-0 left-0 h-40 bg-gradient-to-t from-zinc-950/90 to-transparent"></div>
-      <div class="relative flex h-full max-w-[1100px] flex-col space-y-[clamp(8px,1.8vh,16px)] overflow-y-auto px-16 py-[clamp(16px,4vh,48px)]">
-        <button class="dfoc flex cursor-pointer items-center self-start rounded-xl border border-white/10 bg-white/5 py-2 pl-3 pr-6 text-[clamp(15px,2.4vh,18px)] font-semibold outline-none backdrop-blur transition duration-150 focus:scale-105 focus:border-violet-400 focus:ring-4 focus:ring-violet-500/30" id="detail-back">${ICONS.back("mr-1.5 h-5 w-5")} Назад</button>
-        <div class="mt-1 text-[clamp(28px,7vh,48px)] font-extrabold tracking-tight drop-shadow-lg">${esc(i.title)}</div>
+      <div class="relative flex h-full max-w-[1100px] flex-col space-y-[clamp(8px,calc(var(--uivh)*1.8),16px)] overflow-y-auto px-16 py-[clamp(16px,calc(var(--uivh)*4),48px)]">
+        <button class="dfoc flex cursor-pointer items-center self-start rounded-xl border border-white/10 bg-white/5 py-2 pl-3 pr-6 text-[clamp(15px,calc(var(--uivh)*2.4),18px)] font-semibold outline-none backdrop-blur transition duration-150 focus:scale-105 focus:border-violet-400 focus:ring-4 focus:ring-violet-500/30" id="detail-back">${ICONS.back("mr-1.5 h-5 w-5")} Назад</button>
+        <div class="mt-1 text-[clamp(28px,calc(var(--uivh)*7),48px)] font-extrabold tracking-tight drop-shadow-lg">${esc(i.title)}</div>
         <div class="flex flex-wrap space-x-2">${metaChips(i)}${multi ? `<span class="rounded-full bg-zinc-800/90 px-3 py-1 text-base font-medium text-zinc-300">${eps.length} серий</span>` : ""}</div>
-        <div class="line-clamp-5 max-w-[780px] text-[clamp(15px,2.7vh,20px)] leading-relaxed text-zinc-200 drop-shadow">${esc(i.overview || "Нет описания")}</div>
-        ${i.cast && i.cast.length ? `<div class="max-w-[780px] text-[clamp(13px,2.2vh,16px)] text-zinc-400">В ролях: ${esc(i.cast.join(", "))}</div>` : ""}
-        ${multi ? "" : `<div class="mt-1 flex space-x-4 overflow-hidden">${(i.backdrops || []).slice(0, 5).map((p) => `<img class="h-[clamp(80px,20vh,150px)] flex-none rounded-xl shadow-xl shadow-black/40 ring-1 ring-white/10" src="${shot(p)}" alt="" />`).join("")}</div>`}
+        <div class="line-clamp-5 max-w-[780px] text-[clamp(15px,calc(var(--uivh)*2.7),20px)] leading-relaxed text-zinc-200 drop-shadow">${esc(i.overview || "Нет описания")}</div>
+        ${i.cast && i.cast.length ? `<div class="max-w-[780px] text-[clamp(13px,calc(var(--uivh)*2.2),16px)] text-zinc-400">В ролях: ${esc(i.cast.join(", "))}</div>` : ""}
+        ${multi ? "" : `<div class="mt-1 flex space-x-4 overflow-hidden">${(i.backdrops || []).slice(0, 5).map((p) => `<img class="h-[clamp(80px,calc(var(--uivh)*20),150px)] flex-none rounded-xl shadow-xl shadow-black/40 ring-1 ring-white/10" src="${shot(p)}" alt="" />`).join("")}</div>`}
         ${multi ? `
         <div class="max-w-[640px] flex-1 space-y-1.5 overflow-y-auto pr-2">
           ${eps.map((ep) => `
@@ -338,7 +344,7 @@ function renderDetail() {
               ${ep.watched ? `<span class="ml-auto pl-3 text-xs text-emerald-400">просмотрено</span>` : ""}
             </button>`).join("")}
         </div>` : `
-        <button class="dfoc !mt-auto flex cursor-pointer items-center self-start rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-[clamp(28px,5vw,48px)] py-[clamp(10px,2.2vh,16px)] text-[clamp(18px,3.2vh,24px)] font-bold text-white shadow-xl shadow-violet-600/40 outline-none transition focus:scale-[1.04] focus:ring-4 focus:ring-violet-400/50" id="detail-play" data-id="${esc(i.id)}">${ICONS.play("mr-3 h-[1.2em] w-[1.2em]")} Смотреть</button>`}
+        <button class="dfoc !mt-auto flex cursor-pointer items-center self-start rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-[clamp(28px,calc(var(--uivw)*5),48px)] py-[clamp(10px,calc(var(--uivh)*2.2),16px)] text-[clamp(18px,calc(var(--uivh)*3.2),24px)] font-bold text-white shadow-xl shadow-violet-600/40 outline-none transition focus:scale-[1.04] focus:ring-4 focus:ring-violet-400/50" id="detail-play" data-id="${esc(i.id)}">${ICONS.play("mr-3 h-[1.2em] w-[1.2em]")} Смотреть</button>`}
       </div>
     </div>`;
   document.getElementById("detail-back").addEventListener("click", back);
@@ -449,5 +455,7 @@ function showOverlay(t, withPlay) {
 }
 function hideOverlay() { document.getElementById("tv-overlay").classList.add("hidden"); }
 
-window.addEventListener("resize", () => { if (state.screen === "grid") computeCardWidth(); });
+window.addEventListener("resize", () => {
+  if (state.screen === "grid" || state.screen === "collection") computeCardWidth();
+});
 load();

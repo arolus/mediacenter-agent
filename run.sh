@@ -21,7 +21,12 @@ while true; do
   fi
 
   echo "[$(date)] запускаю агента…"
+  START=$(date +%s)
   node index.js "$CONFIG"
-  echo "[$(date)] агент вышел (код $?). Перезапуск через 3с…"
-  sleep 3
+  CODE=$?
+  DUR=$(( $(date +%s) - START ))
+  # Быстрое падение (< 30с — напр. нет сети/Firebase): не молотим цикл, ждём подольше.
+  if [ "$DUR" -lt 30 ]; then PAUSE=15; else PAUSE=3; fi
+  echo "[$(date)] агент вышел (код $CODE, работал ${DUR}с). Перезапуск через ${PAUSE}с…"
+  sleep $PAUSE
 done

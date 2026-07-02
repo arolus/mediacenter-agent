@@ -23,48 +23,45 @@
         radial-gradient(900px 500px at 110% 110%, rgba(79, 70, 229, .12), transparent 60%),
         #09090b; }
     .hidden { display: none !important; }
-    /* Подсказка «поверни телефон» — только в портрете */
-    #rotate-hint { display: none; }
-    @media (orientation: portrait) { #rotate-hint:not(.dismissed) { display: flex; } }
+    /* ПРИНУДИТЕЛЬНЫЙ ЛАНДШАФТ: если устройство в портрете, поворачиваем весь UI на 90°.
+       Все размеры внутри считаются от "UI-вьюпорта": --uivh/--uivw подменяют vh/vw. */
+    :root { --uivh: 1vh; --uivw: 1vw; }
+    #rot { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; overflow: hidden; }
+    @media (orientation: portrait) {
+      :root { --uivh: 1vw; --uivw: 1vh; }
+      #rot {
+        width: 100vh; height: 100vw;
+        transform: rotate(90deg) translateY(-100%);
+        transform-origin: top left;
+      }
+    }
+    #app { height: 100%; }
   </style>
   <!-- Tailwind (Play CDN, завендорен локально — ноды работают без интернета) -->
   <script src="/tailwind.js"></script>
 </head>
 <body>
-  <div id="app">
-    <div class="flex h-screen w-full flex-col items-center justify-center space-y-4">
-      <svg class="h-10 w-10 animate-spin text-violet-400" viewBox="0 0 24 24" fill="none">
-        <circle class="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-        <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
-      </svg>
-      <div class="text-lg text-zinc-400">Загружаю медиатеку…</div>
+  <div id="rot">
+    <div id="app">
+      <div class="flex h-full w-full flex-col items-center justify-center space-y-4">
+        <svg class="h-10 w-10 animate-spin text-violet-400" viewBox="0 0 24 24" fill="none">
+          <circle class="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+          <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+        </svg>
+        <div class="text-lg text-zinc-400">Загружаю медиатеку…</div>
+      </div>
     </div>
-  </div>
 
-  <!-- Оверлей статуса (запуск плеера, установка VLC) -->
-  <!-- Chrome на нодах бывает старый (83): без inset-0 / aspect-ratio / flex-gap — только top/left/right/bottom, padding-трюк и space-* -->
-  <div id="tv-overlay" class="hidden fixed top-0 right-0 bottom-0 left-0 z-30 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-    <div class="flex items-center space-x-4 rounded-3xl border border-white/10 bg-zinc-900/90 px-10 py-6 text-2xl font-semibold shadow-2xl shadow-black/60 backdrop-blur" id="tv-overlay-text"></div>
-  </div>
-
-  <!-- Портрет: TV-режим рассчитан на ландшафт -->
-  <div id="rotate-hint" class="fixed top-0 right-0 bottom-0 left-0 z-40 flex-col items-center justify-center space-y-6 bg-zinc-950/95 p-10 text-center backdrop-blur">
-    <svg class="h-20 w-20 text-violet-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-      <rect x="7" y="3" width="10" height="18" rx="2"/>
-      <path d="M2.5 9.5A9.5 9.5 0 0 1 6 4.2M21.5 14.5a9.5 9.5 0 0 1-3.5 5.3"/>
-      <path d="m2 6 .5 3.5L6 9M22 18l-.5-3.5L18 15"/>
-    </svg>
-    <div class="text-2xl font-bold">Поверни телефон горизонтально</div>
-    <div class="max-w-md text-lg text-zinc-400">TV-режим рассчитан на ландшафтную ориентацию (телефон → HDMI → телевизор)</div>
-    <button id="rotate-dismiss" class="mt-2 cursor-pointer rounded-xl border border-zinc-700 bg-zinc-900 px-6 py-2.5 text-base font-semibold text-zinc-300">Продолжить так</button>
+    <!-- Оверлей статуса (запуск плеера, установка VLC); fixed внутри #rot = поверх повёрнутого UI -->
+    <div id="tv-overlay" class="hidden fixed top-0 right-0 bottom-0 left-0 z-30 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+      <div class="flex items-center space-x-4 rounded-3xl border border-white/10 bg-zinc-900/90 px-10 py-6 text-2xl font-semibold shadow-2xl shadow-black/60 backdrop-blur" id="tv-overlay-text"></div>
+    </div>
   </div>
 
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
     }
-    document.getElementById("rotate-dismiss").addEventListener("click", () =>
-      document.getElementById("rotate-hint").classList.add("dismissed"));
   </script>
   <script src="/app.js"></script>
 </body>
