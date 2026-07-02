@@ -213,6 +213,31 @@ const isPortrait = () => matchMedia("(orientation: portrait)").matches;
 const uiW = () => (isPortrait() ? window.innerHeight : window.innerWidth);
 const uiH = () => (isPortrait() ? window.innerWidth : window.innerHeight);
 
+/* ---------- Тач-скролл в повёрнутом режиме ----------
+   Старый Chrome на нодах не умеет скроллить жестами контейнеры внутри transform:rotate.
+   Транслируем свайп вручную: физическая ось X экрана = UI-ось Y повёрнутого интерфейса. */
+function nearestScrollable(el) {
+  for (let n = el; n && n !== document.documentElement; n = n.parentElement) {
+    const s = getComputedStyle(n);
+    if (/(auto|scroll)/.test(s.overflowY) && n.scrollHeight > n.clientHeight + 1) return n;
+  }
+  return null;
+}
+let touchLastX = 0, touchEl = null;
+document.addEventListener("touchstart", (e) => {
+  if (!isPortrait()) return;
+  touchLastX = e.touches[0].clientX;
+  touchEl = nearestScrollable(e.target);
+}, { passive: true });
+document.addEventListener("touchmove", (e) => {
+  if (!isPortrait() || !touchEl) return;
+  const x = e.touches[0].clientX;
+  // поворот на 90°: движение пальца по физическому X = прокрутка по UI-оси Y
+  touchEl.scrollTop += (touchLastX - x);
+  touchLastX = x;
+  e.preventDefault();
+}, { passive: false });
+
 function computeCardWidth() {
   // На небольших экранах (телефон) — 3 карточки в ряд, на TV — 4.
   const W = uiW(), H = uiH();
