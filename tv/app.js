@@ -285,15 +285,17 @@ function renderGrid() {
   app.innerHTML = `
     <div class="flex h-full">
       <div class="flex w-[32%] min-w-[280px] max-w-[460px] flex-col space-y-3.5 overflow-hidden border-r border-white/5 bg-zinc-900/60 px-9 py-10 backdrop-blur-xl" id="grid-info"></div>
-      <div class="flex-1 overflow-y-auto px-10 py-7">
-        <div class="mb-5 flex items-center space-x-4">
+      <div class="flex flex-1 flex-col px-10 pt-7">
+        <div class="mb-5 flex flex-none items-center space-x-4">
           <button class="grid-back flex cursor-pointer items-center rounded-xl border border-white/10 bg-white/5 py-2.5 pl-3 pr-5 text-lg font-semibold outline-none backdrop-blur transition duration-150 focus:scale-105 focus:border-violet-400 focus:ring-4 focus:ring-violet-500/30" tabindex="0">${ICONS.back("mr-1.5 h-5 w-5")} Назад</button>
           <span class="text-violet-400">${cat.icon("h-7 w-7")}</span>
           <h2 class="m-0 text-2xl font-bold tracking-tight">${cat.label}</h2>
           <span class="rounded-full bg-zinc-800/80 px-3 py-0.5 text-base text-zinc-400">${list.length}</span>
         </div>
-        <div class="grid grid-cols-[repeat(var(--cols),var(--card-w))] justify-start gap-5">
-          ${list.map(cardHtml).join("") || (loaded ? '<p class="tv-empty p-14 text-2xl text-zinc-400">Пусто</p>' : spinner("Загружаю медиатеку…"))}
+        <div class="flex-1 overflow-y-auto pb-7">
+          <div class="grid grid-cols-[repeat(var(--cols),var(--card-w))] justify-start gap-5">
+            ${list.map(cardHtml).join("") || (loaded ? '<p class="tv-empty p-14 text-2xl text-zinc-400">Пусто</p>' : spinner("Загружаю медиатеку…"))}
+          </div>
         </div>
       </div>
     </div>`;
@@ -313,14 +315,16 @@ function renderCollection() {
   const col = state.current;
   if (!col || !col.isCollection) { state.screen = "grid"; return render(); }
   app.innerHTML = `
-    <div class="flex h-full flex-col overflow-y-auto px-10 py-7">
-      <div class="mb-5 flex items-center space-x-4">
+    <div class="flex h-full flex-col px-10 pt-7">
+      <div class="mb-5 flex flex-none items-center space-x-4">
         <button class="grid-back flex cursor-pointer items-center rounded-xl border border-white/10 bg-white/5 py-2.5 pl-3 pr-5 text-lg font-semibold outline-none backdrop-blur transition duration-150 focus:scale-105 focus:border-violet-400 focus:ring-4 focus:ring-violet-500/30" tabindex="0">${ICONS.back("mr-1.5 h-5 w-5")} Назад</button>
         <h2 class="m-0 truncate text-2xl font-bold tracking-tight">${esc(col.title)}</h2>
         <span class="rounded-full bg-zinc-800/80 px-3 py-0.5 text-base text-zinc-400">${col.parts.length} части</span>
       </div>
-      <div class="grid grid-cols-[repeat(var(--cols),var(--card-w))] justify-start gap-5">
-        ${col.parts.map((p) => cardHtml({ ...p, isCollectionPart: true })).join("")}
+      <div class="flex-1 overflow-y-auto pb-7">
+        <div class="grid grid-cols-[repeat(var(--cols),var(--card-w))] justify-start gap-5">
+          ${col.parts.map((p) => cardHtml({ ...p, isCollectionPart: true })).join("")}
+        </div>
       </div>
     </div>`;
   app.querySelectorAll(".tv-card").forEach((card) => {
@@ -366,29 +370,43 @@ function renderDetail() {
       <div class="absolute top-0 right-0 bottom-0 left-0 bg-black bg-cover bg-center brightness-[.38] saturate-[1.1]" style="${bg ? `background-image:url('${bg}')` : ""}"></div>
       <div class="absolute top-0 right-0 bottom-0 left-0 bg-gradient-to-r from-zinc-950/95 via-zinc-950/65 to-zinc-950/30"></div>
       <div class="absolute right-0 bottom-0 left-0 h-40 bg-gradient-to-t from-zinc-950/90 to-transparent"></div>
-      <div class="relative flex h-full max-w-[1100px] flex-col space-y-[clamp(8px,calc(var(--uivh)*1.8),16px)] overflow-y-auto px-16 py-[clamp(16px,calc(var(--uivh)*4),48px)]">
-        <button class="dfoc flex cursor-pointer items-center self-start rounded-xl border border-white/10 bg-white/5 py-2 pl-3 pr-6 text-[clamp(15px,calc(var(--uivh)*2.4),18px)] font-semibold outline-none backdrop-blur transition duration-150 focus:scale-105 focus:border-violet-400 focus:ring-4 focus:ring-violet-500/30" id="detail-back">${ICONS.back("mr-1.5 h-5 w-5")} Назад</button>
-        <div class="mt-1 text-[clamp(28px,calc(var(--uivh)*7),48px)] font-extrabold tracking-tight drop-shadow-lg">${esc(i.title)}</div>
-        <div class="flex flex-wrap space-x-2">${metaChips(i)}${multi ? `<span class="rounded-full bg-zinc-800/90 px-3 py-1 text-base font-medium text-zinc-300">${eps.length} серий</span>` : ""}</div>
-        <div class="line-clamp-5 max-w-[780px] text-[clamp(15px,calc(var(--uivh)*2.7),20px)] leading-relaxed text-zinc-200 drop-shadow">${esc(i.overview || "Нет описания")}</div>
-        ${i.cast && i.cast.length ? `<div class="max-w-[780px] text-[clamp(13px,calc(var(--uivh)*2.2),16px)] text-zinc-400">В ролях: ${esc(i.cast.join(", "))}</div>` : ""}
-        ${multi ? "" : `<div class="mt-1 flex space-x-4 overflow-hidden">${(i.backdrops || []).slice(0, 5).map((p) => `<img class="h-[clamp(80px,calc(var(--uivh)*20),150px)] flex-none rounded-xl shadow-xl shadow-black/40 ring-1 ring-white/10" src="${shot(p)}" alt="" />`).join("")}</div>`}
-        ${multi ? `
-        <div class="max-w-[640px] flex-1 space-y-1.5 overflow-y-auto pr-2">
-          ${eps.map((ep) => `
-            <button class="dfoc ep flex w-full cursor-pointer items-center rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-left text-[15px] outline-none backdrop-blur transition focus:border-violet-400 focus:bg-violet-500/15 focus:ring-2 focus:ring-violet-500/40 ${ep.watched ? "opacity-60" : ""}" data-id="${esc(ep.id)}">
-              <span class="mr-3 ${ep.watched ? "text-emerald-400" : "text-violet-300"}">${ep.watched ? ICONS.check("h-4 w-4") : ICONS.play("h-4 w-4")}</span>
-              <span class="truncate">${esc(epLabel(ep))}</span>
-              ${ep.watched ? `<span class="ml-auto pl-3 text-xs text-emerald-400">просмотрено</span>` : ""}
-            </button>`).join("")}
-        </div>` : `
-        <button class="dfoc !mt-auto flex cursor-pointer items-center self-start rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-[clamp(28px,calc(var(--uivw)*5),48px)] py-[clamp(10px,calc(var(--uivh)*2.2),16px)] text-[clamp(18px,calc(var(--uivh)*3.2),24px)] font-bold text-white shadow-xl shadow-violet-600/40 outline-none transition focus:scale-[1.04] focus:ring-4 focus:ring-violet-400/50" id="detail-play" data-id="${esc(i.id)}">${ICONS.play("mr-3 h-[1.2em] w-[1.2em]")} Смотреть</button>`}
+      <div class="relative flex h-full max-w-[1100px] flex-col">
+        <!-- Фиксированная шапка: «Назад» + название, всплывающее когда заголовок ушёл за экран -->
+        <div class="flex items-center space-x-4 px-16 pb-2 pt-[clamp(10px,calc(var(--uivh)*2.5),24px)]">
+          <button class="dfoc flex flex-none cursor-pointer items-center rounded-xl border border-white/10 bg-white/5 py-2 pl-3 pr-6 text-[clamp(15px,calc(var(--uivh)*2.4),18px)] font-semibold outline-none backdrop-blur transition duration-150 focus:scale-105 focus:border-violet-400 focus:ring-4 focus:ring-violet-500/30" id="detail-back">${ICONS.back("mr-1.5 h-5 w-5")} Назад</button>
+          <div id="detail-topname" class="min-w-0 truncate text-[clamp(17px,calc(var(--uivh)*3),24px)] font-bold tracking-tight opacity-0 transition-opacity duration-200">${esc(i.title)}</div>
+        </div>
+        <!-- Остальное скроллится единым потоком (описание, кадры, серии) -->
+        <div id="detail-scroll" class="flex-1 space-y-[clamp(8px,calc(var(--uivh)*1.8),16px)] overflow-y-auto px-16 pb-[clamp(16px,calc(var(--uivh)*4),48px)] pt-1">
+          <div id="detail-title" class="text-[clamp(28px,calc(var(--uivh)*7),48px)] font-extrabold tracking-tight drop-shadow-lg">${esc(i.title)}</div>
+          <div class="flex flex-wrap space-x-2">${metaChips(i)}${multi ? `<span class="rounded-full bg-zinc-800/90 px-3 py-1 text-base font-medium text-zinc-300">${eps.length} серий</span>` : ""}</div>
+          <div class="line-clamp-5 max-w-[780px] text-[clamp(15px,calc(var(--uivh)*2.7),20px)] leading-relaxed text-zinc-200 drop-shadow">${esc(i.overview || "Нет описания")}</div>
+          ${i.cast && i.cast.length ? `<div class="max-w-[780px] text-[clamp(13px,calc(var(--uivh)*2.2),16px)] text-zinc-400">В ролях: ${esc(i.cast.join(", "))}</div>` : ""}
+          ${multi ? "" : `<div class="mt-1 flex space-x-4 overflow-hidden">${(i.backdrops || []).slice(0, 5).map((p) => `<img class="h-[clamp(80px,calc(var(--uivh)*20),150px)] flex-none rounded-xl shadow-xl shadow-black/40 ring-1 ring-white/10" src="${shot(p)}" alt="" />`).join("")}</div>`}
+          ${multi ? `
+          <div class="max-w-[640px] space-y-1.5 pr-2">
+            ${eps.map((ep) => `
+              <button class="dfoc ep flex w-full cursor-pointer items-center rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-left text-[15px] outline-none backdrop-blur transition focus:border-violet-400 focus:bg-violet-500/15 focus:ring-2 focus:ring-violet-500/40 ${ep.watched ? "opacity-60" : ""}" data-id="${esc(ep.id)}">
+                <span class="mr-3 ${ep.watched ? "text-emerald-400" : "text-violet-300"}">${ep.watched ? ICONS.check("h-4 w-4") : ICONS.play("h-4 w-4")}</span>
+                <span class="truncate">${esc(epLabel(ep))}</span>
+                ${ep.watched ? `<span class="ml-auto pl-3 text-xs text-emerald-400">просмотрено</span>` : ""}
+              </button>`).join("")}
+          </div>` : `
+          <button class="dfoc mt-4 flex cursor-pointer items-center self-start rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-[clamp(28px,calc(var(--uivw)*5),48px)] py-[clamp(10px,calc(var(--uivh)*2.2),16px)] text-[clamp(18px,calc(var(--uivh)*3.2),24px)] font-bold text-white shadow-xl shadow-violet-600/40 outline-none transition focus:scale-[1.04] focus:ring-4 focus:ring-violet-400/50" id="detail-play" data-id="${esc(i.id)}">${ICONS.play("mr-3 h-[1.2em] w-[1.2em]")} Смотреть</button>`}
+        </div>
       </div>
     </div>`;
   document.getElementById("detail-back").addEventListener("click", back);
   app.querySelectorAll(".ep").forEach((b) => b.addEventListener("click", () => play(b.dataset.id)));
   const playBtn = document.getElementById("detail-play");
   if (playBtn) playBtn.addEventListener("click", () => play(i.id));
+  // Название в шапке появляется, когда большой заголовок скрылся при скролле.
+  const sc = document.getElementById("detail-scroll");
+  const big = document.getElementById("detail-title");
+  const topName = document.getElementById("detail-topname");
+  sc.addEventListener("scroll", () => {
+    topName.style.opacity = sc.scrollTop > big.offsetTop + big.offsetHeight - 8 ? "1" : "0";
+  });
   (app.querySelector(".ep") || playBtn || document.getElementById("detail-back")).focus();
 }
 
