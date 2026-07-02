@@ -23,6 +23,15 @@ const { watchLibrary } = require("./lib/watcher");
 const VERSION = (currentSha() || "").slice(0, 7) || "dev";
 const HEARTBEAT_MS = 30_000;
 
+// LAN-адрес устройства — по нему дашборд стримит видео с TV-сервера ноды.
+const os = require("os");
+function lanIp() {
+  for (const ifaces of Object.values(os.networkInterfaces())) {
+    for (const i of ifaces || []) if (i.family === "IPv4" && !i.internal) return i.address;
+  }
+  return null;
+}
+
 function loadConfig() {
   const file = path.resolve(process.argv[2] || "agent-config.json");
   if (!fs.existsSync(file)) {
@@ -54,6 +63,9 @@ async function main() {
     online: true,
     version: VERSION,
     branch: currentBranch(),
+    // адрес TV-сервера в локальной сети — дашборд стримит видео прямо с устройства
+    lanIp: lanIp(),
+    tvPort: config.localPort || 8088,
     lastSeen: serverTimestamp()
   };
   if (!existing || !existing.exists() || !existing.data().name) {
@@ -62,9 +74,9 @@ async function main() {
   await setDoc(deviceRef, base, { merge: true });
   console.log(`✓ Устройство зарегистрировано: ${config.device.name} (${config.device.id})`);
 
-  // Heartbeat
+  // Heartbeat (lanIp может меняться при смене Wi-Fi — обновляем)
   const heartbeat = setInterval(() => {
-    setDoc(deviceRef, { online: true, lastSeen: serverTimestamp() }, { merge: true })
+    setDoc(deviceRef, { online: true, lanIp: lanIp(), lastSeen: serverTimestamp() }, { merge: true })
       .catch((e) => console.error("heartbeat:", e.message));
   }, HEARTBEAT_MS);
 
