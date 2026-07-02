@@ -213,9 +213,10 @@ const isPortrait = () => matchMedia("(orientation: portrait)").matches;
 const uiW = () => (isPortrait() ? window.innerHeight : window.innerWidth);
 const uiH = () => (isPortrait() ? window.innerWidth : window.innerHeight);
 
-/* ---------- Тач-скролл в повёрнутом режиме ----------
-   Старый Chrome на нодах не умеет скроллить жестами контейнеры внутри transform:rotate.
-   Транслируем свайп вручную: физическая ось X экрана = UI-ось Y повёрнутого интерфейса. */
+/* ---------- Ручной тач-скролл ----------
+   Старый Chrome на нодах (83) не скроллит жестами вложенные overflow-контейнеры вообще,
+   а внутри transform:rotate — тем более. Транслируем свайп вручную в обоих режимах:
+   в портрете (UI повёрнут) палец по физическому X = UI-ось Y, в ландшафте — обычный Y. */
 function nearestScrollable(el) {
   for (let n = el; n && n !== document.documentElement; n = n.parentElement) {
     const s = getComputedStyle(n);
@@ -223,18 +224,20 @@ function nearestScrollable(el) {
   }
   return null;
 }
-let touchLastX = 0, touchEl = null;
+let tX = 0, tY = 0, tEl = null, tActive = false;
 document.addEventListener("touchstart", (e) => {
-  if (!isPortrait()) return;
-  touchLastX = e.touches[0].clientX;
-  touchEl = nearestScrollable(e.target);
+  const t = e.touches[0];
+  tX = t.clientX; tY = t.clientY; tActive = false;
+  tEl = nearestScrollable(e.target);
 }, { passive: true });
 document.addEventListener("touchmove", (e) => {
-  if (!isPortrait() || !touchEl) return;
-  const x = e.touches[0].clientX;
-  // поворот на 90°: движение пальца по физическому X = прокрутка по UI-оси Y
-  touchEl.scrollTop += (touchLastX - x);
-  touchLastX = x;
+  if (!tEl) return;
+  const t = e.touches[0];
+  const dUI = isPortrait() ? (tX - t.clientX) : (tY - t.clientY);
+  if (!tActive && Math.abs(dUI) < 8) return; // порог: не мешаем тапам
+  tActive = true;
+  tEl.scrollTop += dUI;
+  tX = t.clientX; tY = t.clientY;
   e.preventDefault();
 }, { passive: false });
 
