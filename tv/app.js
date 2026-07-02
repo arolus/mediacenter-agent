@@ -54,6 +54,24 @@ async function reloadLibrary() {
 
 const byType = (t) => items.filter((i) => i.type === t).sort((a, b) => (a.title || "").localeCompare(b.title || ""));
 
+// Серии одного сериала (общий tmdbId или одинаковое название) — ОДНА карточка со списком серий.
+function groupTitles(list) {
+  const map = new Map();
+  for (const i of list) {
+    const key = i.tmdbId ? "t:" + i.tmdbId : "n:" + String(i.title || i.fileName || i.id).toLowerCase().trim();
+    let e = map.get(key);
+    if (!e) { e = { ...i, episodes: [] }; map.set(key, e); }
+    if (i.tmdbId && !e.tmdbId) Object.assign(e, i, { episodes: e.episodes });
+    e.episodes.push(i);
+  }
+  const arr = [...map.values()];
+  for (const e of arr) {
+    e.episodes.sort((a, b) => (a.season || 0) - (b.season || 0) || (a.episode || 0) - (b.episode || 0) ||
+      String(a.fileName || "").localeCompare(String(b.fileName || "")));
+  }
+  return arr.sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+}
+
 function render() {
   if (state.screen === "categories") renderCategories();
   else if (state.screen === "grid") renderGrid();
@@ -63,8 +81,10 @@ function render() {
 // При live-обновлении перерисовываем текущий экран, сохраняя фокус по id.
 function rerenderKeepingFocus() {
   const focusedId = document.activeElement?.dataset?.id;
-  if (state.screen === "detail" && state.current && !items.find((i) => i.id === state.current.id)) {
-    state.screen = "grid"; // фильм исчез — назад в сетку
+  if (state.screen === "detail" && state.current) {
+    const cur = groupTitles(byType(state.type)).find((e) => e.id === state.current.id);
+    if (cur) state.current = cur;      // обновить состав серий
+    else state.screen = "grid";        // фильм исчез — назад в сетку
   }
   render();
   if (focusedId) {
@@ -94,7 +114,7 @@ document.addEventListener("pointerdown", armOrientation, { once: true, capture: 
 /* ---------- Категории ---------- */
 function renderCategories() {
   app.innerHTML = `
-    <div class="flex h-screen flex-col">
+    <div class="flex h-screen flex-col overflow-y-auto">
       <div class="flex items-center space-x-5 px-12 pt-[clamp(12px,3vh,32px)]">
         ${logo("h-[clamp(36px,6vh,48px)] w-[clamp(36px,6vh,48px)]")}
         <span class="text-[clamp(22px,4vh,30px)] font-extrabold tracking-tight">MediaCenter</span>
@@ -111,7 +131,7 @@ function renderCategories() {
               ${c.icon("h-1/2 w-1/2")}
             </div>
             <div class="text-[clamp(20px,3.6vh,30px)] font-bold tracking-tight">${c.label}</div>
-            <div class="rounded-full bg-zinc-800/80 px-4 py-1 text-[clamp(14px,2.2vh,18px)] text-zinc-400">${byType(c.type).length} шт.</div>
+            <div class="rounded-full bg-zinc-800/80 px-4 py-1 text-[clamp(14px,2.2vh,18px)] text-zinc-400">${groupTitles(byType(c.type)).length} шт.</div>
           </div>`).join("")}
       </div>
     </div>`;
@@ -146,7 +166,7 @@ function computeCardWidth() {
 
 function renderGrid() {
   computeCardWidth();
-  const list = byType(state.type);
+  const list = groupTitles(byType(state.type));
   const cat = CATS.find((c) => c.type === state.type);
   app.innerHTML = `
     <div class="flex h-screen">
@@ -162,6 +182,7 @@ function renderGrid() {
           ${list.map((i) => `
             <div class="tv-card relative w-[var(--card-w)] cursor-pointer overflow-hidden rounded-2xl bg-zinc-900 ring-1 ring-white/5 outline-none transition duration-150 focus:z-10 focus:scale-[1.07] focus:shadow-[0_16px_50px_-8px_rgba(139,92,246,.45)] focus:ring-[3px] focus:ring-violet-500" tabindex="0" data-id="${esc(i.id)}">
               ${poster(i.poster) ? `<div class="h-0 w-full bg-zinc-800 bg-cover bg-center pb-[150%]" style="background-image:url('${poster(i.poster)}')"></div>` : `<div class="relative h-0 w-full bg-gradient-to-br from-zinc-800 to-zinc-900 pb-[150%]"><div class="absolute top-0 right-0 bottom-0 left-0 flex items-center justify-center p-2 text-center text-sm text-zinc-400">${esc(i.title)}</div></div>`}
+              ${i.episodes.length > 1 ? `<div class="absolute top-2 right-2 rounded-full bg-black/75 px-2.5 py-1 text-xs font-semibold text-zinc-100">${i.episodes.length} серий</div>` : ""}
               <div class="truncate px-3 pb-3 pt-2 text-[15px] font-semibold leading-tight">${esc(i.title)}</div>
             </div>`).join("") || '<p class="tv-empty p-14 text-2xl text-zinc-400">Пусто</p>'}
         </div>
@@ -190,41 +211,58 @@ function updateInfo(i) {
   el.innerHTML = `
     <div class="h-[clamp(140px,38vh,320px)] w-full flex-none rounded-2xl bg-zinc-800 bg-cover bg-center shadow-2xl shadow-black/50 ring-1 ring-white/10" style="${bg ? `background-image:url('${bg}')` : ""}"></div>
     <div class="mt-1 text-3xl font-bold leading-tight tracking-tight">${esc(i.title)}</div>
-    <div class="flex flex-wrap space-x-2">${metaChips(i)}</div>
+    <div class="flex flex-wrap space-x-2">${metaChips(i)}${i.episodes && i.episodes.length > 1 ? `<span class="rounded-full bg-zinc-800/90 px-3 py-1 text-base font-medium text-zinc-300">${i.episodes.length} серий</span>` : ""}</div>
     <div class="line-clamp-6 text-[17px] leading-relaxed text-zinc-300">${esc(i.overview || "Нет описания")}</div>
     ${i.cast && i.cast.length ? `<div class="text-[15px] text-zinc-500">${esc(i.cast.slice(0, 5).join(", "))}</div>` : ""}`;
 }
 
 /* ---------- Деталь фильма ---------- */
+const epLabel = (ep) => ep.episode != null
+  ? `Серия ${ep.episode}${ep.season ? ` · сезон ${ep.season}` : ""}`
+  : (ep.fileName || "серия");
+
 function renderDetail() {
   const i = state.current;
   if (!i) { state.screen = "grid"; return render(); }
   const bg = backdrop(i.backdrop) || poster(i.poster);
+  const eps = i.episodes && i.episodes.length ? i.episodes : [i];
+  const multi = eps.length > 1;
   app.innerHTML = `
     <div class="relative h-screen overflow-hidden">
       <div class="absolute top-0 right-0 bottom-0 left-0 bg-black bg-cover bg-center brightness-[.38] saturate-[1.1]" style="${bg ? `background-image:url('${bg}')` : ""}"></div>
       <div class="absolute top-0 right-0 bottom-0 left-0 bg-gradient-to-r from-zinc-950/95 via-zinc-950/65 to-zinc-950/30"></div>
       <div class="absolute right-0 bottom-0 left-0 h-40 bg-gradient-to-t from-zinc-950/90 to-transparent"></div>
-      <div class="relative flex h-full max-w-[1100px] flex-col space-y-[clamp(8px,1.8vh,16px)] px-16 py-[clamp(16px,4vh,48px)]">
-        <button class="flex cursor-pointer items-center self-start rounded-xl border border-white/10 bg-white/5 py-2 pl-3 pr-6 text-[clamp(15px,2.4vh,18px)] font-semibold outline-none backdrop-blur transition duration-150 focus:scale-105 focus:border-violet-400 focus:ring-4 focus:ring-violet-500/30" id="detail-back">${ICONS.back("mr-1.5 h-5 w-5")} Назад</button>
+      <div class="relative flex h-full max-w-[1100px] flex-col space-y-[clamp(8px,1.8vh,16px)] overflow-y-auto px-16 py-[clamp(16px,4vh,48px)]">
+        <button class="dfoc flex cursor-pointer items-center self-start rounded-xl border border-white/10 bg-white/5 py-2 pl-3 pr-6 text-[clamp(15px,2.4vh,18px)] font-semibold outline-none backdrop-blur transition duration-150 focus:scale-105 focus:border-violet-400 focus:ring-4 focus:ring-violet-500/30" id="detail-back">${ICONS.back("mr-1.5 h-5 w-5")} Назад</button>
         <div class="mt-1 text-[clamp(28px,7vh,48px)] font-extrabold tracking-tight drop-shadow-lg">${esc(i.title)}</div>
-        <div class="flex flex-wrap space-x-2">${metaChips(i)}</div>
+        <div class="flex flex-wrap space-x-2">${metaChips(i)}${multi ? `<span class="rounded-full bg-zinc-800/90 px-3 py-1 text-base font-medium text-zinc-300">${eps.length} серий</span>` : ""}</div>
         <div class="line-clamp-5 max-w-[780px] text-[clamp(15px,2.7vh,20px)] leading-relaxed text-zinc-200 drop-shadow">${esc(i.overview || "Нет описания")}</div>
         ${i.cast && i.cast.length ? `<div class="max-w-[780px] text-[clamp(13px,2.2vh,16px)] text-zinc-400">В ролях: ${esc(i.cast.join(", "))}</div>` : ""}
-        <div class="mt-1 flex space-x-4 overflow-hidden">${(i.backdrops || []).slice(0, 5).map((p) => `<img class="h-[clamp(80px,20vh,150px)] flex-none rounded-xl shadow-xl shadow-black/40 ring-1 ring-white/10" src="${shot(p)}" alt="" />`).join("")}</div>
-        <button class="!mt-auto flex cursor-pointer items-center self-start rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-[clamp(28px,5vw,48px)] py-[clamp(10px,2.2vh,16px)] text-[clamp(18px,3.2vh,24px)] font-bold text-white shadow-xl shadow-violet-600/40 outline-none transition focus:scale-[1.04] focus:ring-4 focus:ring-violet-400/50" id="detail-play" data-id="${esc(i.id)}">${ICONS.play("mr-3 h-[1.2em] w-[1.2em]")} Смотреть</button>
+        ${multi ? "" : `<div class="mt-1 flex space-x-4 overflow-hidden">${(i.backdrops || []).slice(0, 5).map((p) => `<img class="h-[clamp(80px,20vh,150px)] flex-none rounded-xl shadow-xl shadow-black/40 ring-1 ring-white/10" src="${shot(p)}" alt="" />`).join("")}</div>`}
+        ${multi ? `
+        <div class="max-w-[640px] flex-1 space-y-1.5 overflow-y-auto pr-2">
+          ${eps.map((ep) => `
+            <button class="dfoc ep flex w-full cursor-pointer items-center rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-left text-[15px] outline-none backdrop-blur transition focus:border-violet-400 focus:bg-violet-500/15 focus:ring-2 focus:ring-violet-500/40" data-id="${esc(ep.id)}">
+              <span class="mr-3 text-violet-300">${ICONS.play("h-4 w-4")}</span>
+              <span class="truncate">${esc(epLabel(ep))}</span>
+            </button>`).join("")}
+        </div>` : `
+        <button class="dfoc !mt-auto flex cursor-pointer items-center self-start rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-[clamp(28px,5vw,48px)] py-[clamp(10px,2.2vh,16px)] text-[clamp(18px,3.2vh,24px)] font-bold text-white shadow-xl shadow-violet-600/40 outline-none transition focus:scale-[1.04] focus:ring-4 focus:ring-violet-400/50" id="detail-play" data-id="${esc(i.id)}">${ICONS.play("mr-3 h-[1.2em] w-[1.2em]")} Смотреть</button>`}
       </div>
     </div>`;
   document.getElementById("detail-back").addEventListener("click", back);
+  app.querySelectorAll(".ep").forEach((b) => b.addEventListener("click", () => play(b.dataset.id)));
   const playBtn = document.getElementById("detail-play");
-  playBtn.addEventListener("click", () => play(i.id));
-  playBtn.focus(); // фокус сразу на Play
+  if (playBtn) playBtn.addEventListener("click", () => play(i.id));
+  (app.querySelector(".ep") || playBtn || document.getElementById("detail-back")).focus();
 }
 
 /* ---------- Переходы (через History API: браузерная «Назад» тоже работает) ---------- */
 function applyState(s) {
   state = { screen: s.screen || "categories", type: s.type || state.type, current: null };
-  if (state.screen === "detail") state.current = items.find((i) => i.id === s.id) || null;
+  if (state.screen === "detail") {
+    state.current = groupTitles(byType(state.type)).find((e) => e.id === s.id) || null;
+  }
   render();
 }
 function navigate(s) { history.pushState(s, ""); applyState(s); }
@@ -268,9 +306,18 @@ document.addEventListener("keydown", (e) => {
   }
 
   if (state.screen === "detail") {
-    if (["ArrowUp", "ArrowLeft"].includes(e.key)) { e.preventDefault(); document.getElementById("detail-back")?.focus(); }
-    else if (["ArrowDown", "ArrowRight"].includes(e.key)) { e.preventDefault(); document.getElementById("detail-play")?.focus(); }
-    else if (e.key === "Enter" || e.key === " " || e.key === "MediaPlayPause") { e.preventDefault(); cur?.click(); }
+    // фокус ходит по цепочке: Назад → серии (список) → Смотреть
+    const foc = [...app.querySelectorAll(".dfoc")];
+    const idx = foc.indexOf(cur);
+    if (["ArrowDown", "ArrowRight"].includes(e.key)) {
+      e.preventDefault();
+      const n = foc[idx < 0 ? 0 : Math.min(foc.length - 1, idx + 1)];
+      if (n) { n.focus(); n.scrollIntoView({ block: "nearest", behavior: "smooth" }); }
+    } else if (["ArrowUp", "ArrowLeft"].includes(e.key)) {
+      e.preventDefault();
+      const n = foc[idx < 0 ? 0 : Math.max(0, idx - 1)];
+      if (n) { n.focus(); n.scrollIntoView({ block: "nearest", behavior: "smooth" }); }
+    } else if (e.key === "Enter" || e.key === " " || e.key === "MediaPlayPause") { e.preventDefault(); cur?.click(); }
   }
 });
 
