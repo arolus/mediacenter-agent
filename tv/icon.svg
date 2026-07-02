@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Иконка в стиле iOS: градиентный фон (полный квадрат — маску скругления
+       накладывает ОС/лаунчер) + символ SF Symbols «play.circle» белым. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#A78BFA"/>
+      <stop offset="1" stop-color="#6D28D9"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <!-- play.circle: тонкое кольцо -->
+  <circle cx="256" cy="256" r="148" fill="none" stroke="#ffffff" stroke-width="26"/>
+  <!-- play.circle: треугольник (чуть правее центра, скруглённые углы) -->
+  <path d="M224 190 L224 322 L338 256 Z" fill="#ffffff" stroke="#ffffff" stroke-width="22" stroke-linejoin="round"/>
+</svg>

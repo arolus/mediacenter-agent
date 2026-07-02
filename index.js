@@ -11,7 +11,6 @@ const path = require("path");
 const { doc, getDoc, setDoc, serverTimestamp } = require("firebase/firestore");
 const { ensureDirs } = require("./lib/media");
 const { initFirebase } = require("./lib/firebase");
-const { loadTmdbCreds } = require("./lib/env");
 const { syncLibrary } = require("./lib/library");
 const { watchCommands } = require("./lib/commands");
 const { watchTransfers } = require("./lib/transfer");
@@ -36,16 +35,7 @@ function loadConfig() {
     console.error('Не заполнено поле "mediaRoot" в конфиге (напр. "/storage/emulated/0").');
     process.exit(1);
   }
-  // Если ключ TMDb не задан в конфиге — пробуем подтянуть из .env / .env.local.
-  const hasConfigKey = config.tmdbApiKey && !String(config.tmdbApiKey).includes("REPLACE_ME");
-  if (!hasConfigKey) {
-    const creds = loadTmdbCreds(__dirname);
-    if (creds.v4) { config.tmdbBearer = creds.v4; console.log("✓ TMDb: v4-токен из", creds.source); }
-    else if (creds.v3) { config.tmdbApiKey = creds.v3; console.log("✓ TMDb: v3-ключ из", creds.source); }
-  }
-  if ((!config.tmdbApiKey || String(config.tmdbApiKey).includes("REPLACE_ME")) && !config.tmdbBearer) {
-    console.warn("⚠️ TMDb ключ не найден — метаданные при скачивании с торрента подтягиваться не будут.");
-  }
+  // TMDb-ключ агенту НЕ нужен — распознавание делает сервер (Cloud Function).
   // Создаём папки Movies/Series/Cartoons под mediaRoot, если их нет.
   const dirs = ensureDirs(config);
   console.log("медиапапки:", Object.entries(dirs).map(([t, d]) => `${t}→${d}`).join("  "));
