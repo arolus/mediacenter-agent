@@ -146,23 +146,26 @@ function rerenderKeepingFocus() {
   }
 }
 
-/* ---------- Ориентация: TV-режим живёт в ландшафте ---------- */
-let oriTried = false;
+/* ---------- Ориентация и полный экран: TV-режим живёт в ландшафтном fullscreen ---------- */
+let fullscreenAchieved = false;
 async function tryLandscape(interactive) {
-  try { await screen.orientation.lock("landscape"); return; } catch (_) {}
-  if (!interactive) return;
+  try { await screen.orientation.lock("landscape"); } catch (_) {}
+  if (!interactive || document.fullscreenElement) return;
   try {
     await document.documentElement.requestFullscreen();
+    fullscreenAchieved = true;
     await screen.orientation.lock("landscape");
   } catch (_) {}
 }
-// Первое взаимодействие (клик/клавиша) — единственный момент, когда браузер разрешит fullscreen+lock.
+// Браузер разрешает fullscreen только по жесту: пробуем на КАЖДОМ взаимодействии,
+// пока не получится (PWA-ярлык открывается fullscreen сразу через манифест).
+// После первого успешного входа больше не форсируем — уважая намеренный выход по Esc.
 function armOrientation() {
-  if (oriTried) return;
-  oriTried = true;
+  if (fullscreenAchieved || document.fullscreenElement) return;
   tryLandscape(true);
 }
-document.addEventListener("pointerdown", armOrientation, { once: true, capture: true });
+document.addEventListener("pointerdown", armOrientation, true);
+document.addEventListener("touchend", armOrientation, true);
 
 /* ---------- Категории ---------- */
 function renderCategories() {

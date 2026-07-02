@@ -4,7 +4,7 @@
   "description": "TV-режим MediaCenter — локальная медиатека и запуск плеера",
   "start_url": "/",
   "scope": "/",
-  "display": "standalone",
+  "display": "fullscreen",
   "orientation": "landscape",
   "background_color": "#09090b",
   "theme_color": "#09090b",
