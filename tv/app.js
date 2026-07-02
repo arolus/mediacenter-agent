@@ -295,7 +295,8 @@ function renderGrid() {
           <h2 class="m-0 text-2xl font-bold tracking-tight">${cat.label}</h2>
           <span class="rounded-full bg-zinc-800/80 px-3 py-0.5 text-base text-zinc-400">${list.length}</span>
         </div>
-        <div class="flex-1 overflow-y-auto pb-7">
+        <!-- pt/pl: чтобы фокус-кольцо и scale карточек не обрезались краем скролл-зоны -->
+        <div class="flex-1 overflow-y-auto pb-7 pl-2.5 pt-2.5">
           <div class="grid grid-cols-[repeat(var(--cols),var(--card-w))] justify-start gap-5">
             ${list.map(cardHtml).join("") || (loaded ? '<p class="tv-empty p-14 text-2xl text-zinc-400">Пусто</p>' : spinner("Загружаю медиатеку…"))}
           </div>
@@ -324,7 +325,7 @@ function renderCollection() {
         <h2 class="m-0 truncate text-2xl font-bold tracking-tight">${esc(col.title)}</h2>
         <span class="rounded-full bg-zinc-800/80 px-3 py-0.5 text-base text-zinc-400">${col.parts.length} части</span>
       </div>
-      <div class="flex-1 overflow-y-auto pb-7">
+      <div class="flex-1 overflow-y-auto pb-7 pl-2.5 pt-2.5">
         <div class="grid grid-cols-[repeat(var(--cols),var(--card-w))] justify-start gap-5">
           ${col.parts.map((p) => cardHtml({ ...p, isCollectionPart: true })).join("")}
         </div>
