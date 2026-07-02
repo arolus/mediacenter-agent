@@ -361,8 +361,20 @@ function applyState(s) {
     state.current = findEntry(state.type, s.id) || null;
   }
   render();
+  // Возврат «Назад»: встаём на ту же карточку, с которой уходили (и скроллим к ней).
+  if (s.focusId) {
+    const el = app.querySelector(`[data-id="${CSS.escape(s.focusId)}"]`);
+    if (el) { el.focus(); el.scrollIntoView({ block: "center" }); }
+  }
 }
-function navigate(s) { history.pushState(s, ""); applyState(s); }
+function navigate(s) {
+  // Перед уходом запоминаем текущую карточку в ТЕКУЩЕЙ записи истории —
+  // браузерная/пультовая «Назад» вернёт ровно на неё, а не в начало списка.
+  const focusId = document.activeElement?.dataset?.id || null;
+  history.replaceState({ ...(history.state || {}), focusId }, "");
+  history.pushState(s, "");
+  applyState(s);
+}
 function enterGrid(type) { navigate({ screen: "grid", type }); }
 function enterCollection(col) { navigate({ screen: "collection", type: state.type, id: col.id }); }
 function enterDetail(item) { navigate({ screen: "detail", type: state.type, id: item.id }); }
