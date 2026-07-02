@@ -31,7 +31,15 @@
   <script src="/tailwind.js"></script>
 </head>
 <body>
-  <div id="app"><p class="tv-empty p-14 text-2xl text-zinc-400">Загружаю…</p></div>
+  <div id="app">
+    <div class="flex h-screen w-full flex-col items-center justify-center space-y-4">
+      <svg class="h-10 w-10 animate-spin text-violet-400" viewBox="0 0 24 24" fill="none">
+        <circle class="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+        <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+      </svg>
+      <div class="text-lg text-zinc-400">Загружаю медиатеку…</div>
+    </div>
+  </div>
 
   <!-- Оверлей статуса (запуск плеера, установка VLC) -->
   <!-- Chrome на нодах бывает старый (83): без inset-0 / aspect-ratio / flex-gap — только top/left/right/bottom, padding-трюк и space-* -->
