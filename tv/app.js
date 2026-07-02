@@ -222,7 +222,17 @@ function nearestScrollable(el) {
     const s = getComputedStyle(n);
     if (/(auto|scroll)/.test(s.overflowY) && n.scrollHeight > n.clientHeight + 1) return n;
   }
-  return null;
+  // Палец не на скроллируемом (заголовок/описание) — крутим самый большой
+  // скроллируемый контейнер экрана (список серий, сетка…), как ожидает пользователь.
+  let best = null, bestArea = 0;
+  for (const n of app.querySelectorAll("div")) {
+    if (n.scrollHeight <= n.clientHeight + 1) continue;
+    const s = getComputedStyle(n);
+    if (!/(auto|scroll)/.test(s.overflowY)) continue;
+    const area = n.clientWidth * n.clientHeight;
+    if (area > bestArea) { bestArea = area; best = n; }
+  }
+  return best;
 }
 let tX = 0, tY = 0, tEl = null, tActive = false;
 document.addEventListener("touchstart", (e) => {
