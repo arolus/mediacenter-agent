@@ -255,29 +255,31 @@ document.addEventListener("touchmove", (e) => {
 }, { passive: false });
 
 function computeCardWidth() {
-  // На небольших экранах (телефон) — 3 карточки в ряд, на TV — 4.
-  const W = uiW(), H = uiH();
-  const cols = W < 1000 ? 3 : 4;
-  const side = Math.min(460, Math.max(280, W * 0.32));
-  const gap = 20, gridPad = 80, headerH = 70, titleH = 50;
-  const byW = (W - side - gridPad - (cols - 1) * gap) / cols;
-  const byH = ((H - headerH) / 2 - gap - titleH) / 1.5; // 2 ряда, постер 2:3
-  const w = Math.max(96, Math.floor(Math.min(byW, byH)));
+  // Широкие карточки (кадр 16:9): телефон — 2 в ряд, планшет/ноут — 3, телевизор — 4.
+  const W = uiW();
+  const cols = W < 1000 ? 2 : W < 1700 ? 3 : 4;
+  const side = Math.min(460, Math.max(280, W * 0.3));
+  const gap = 20, gridPad = 100;
+  const w = Math.max(180, Math.min(560, Math.floor((W - side - gridPad - (cols - 1) * gap) / cols)));
   document.documentElement.style.setProperty("--card-w", w + "px");
   document.documentElement.style.setProperty("--cols", cols);
 }
 
-// Карточка сетки (фильм / сериал / коллекция) — общая для сетки и страницы коллекции.
+// Карточка сетки (фильм / сериал / коллекция) — широкая, 16:9, фон = кадр из фильма.
 function cardHtml(i) {
   const badge = i.isCollection
     ? `${i.parts.length} части`
     : (i.episodes && i.episodes.length > 1 ? `${i.episodes.length} серий` : (i.isCollectionPart && i.year ? String(i.year) : ""));
+  const bg = backdrop(i.backdrop) || poster(i.poster);
   return `
-    <div class="tv-card relative w-[var(--card-w)] cursor-pointer overflow-hidden rounded-2xl bg-zinc-900 ring-1 ring-white/5 outline-none transition duration-150 focus:z-10 focus:scale-[1.07] focus:shadow-[0_16px_50px_-8px_rgba(139,92,246,.45)] focus:ring-[3px] focus:ring-violet-500" tabindex="0" data-id="${esc(i.id)}">
-      ${poster(i.poster) ? `<div class="h-0 w-full bg-zinc-800 bg-cover bg-center pb-[150%]" style="background-image:url('${poster(i.poster)}')"></div>` : `<div class="relative h-0 w-full bg-gradient-to-br from-zinc-800 to-zinc-900 pb-[150%]"><div class="absolute top-0 right-0 bottom-0 left-0 flex items-center justify-center p-2 text-center text-sm text-zinc-400">${esc(i.title)}</div></div>`}
+    <div class="tv-card relative w-[var(--card-w)] cursor-pointer overflow-hidden rounded-2xl bg-zinc-900 ring-1 ring-white/5 outline-none transition duration-150 focus:z-10 focus:scale-[1.05] focus:shadow-[0_16px_50px_-8px_rgba(139,92,246,.45)] focus:ring-[3px] focus:ring-violet-500" tabindex="0" data-id="${esc(i.id)}">
+      ${bg ? `<div class="h-0 w-full bg-zinc-800 bg-cover bg-center pb-[56%]" style="background-image:url('${bg}')"></div>` : `<div class="relative h-0 w-full bg-gradient-to-br from-zinc-800 to-zinc-900 pb-[56%]"><div class="absolute top-0 right-0 bottom-0 left-0 flex items-center justify-center p-2 text-center text-sm text-zinc-400">${esc(i.title)}</div></div>`}
       ${badge ? `<div class="absolute top-2 right-2 rounded-full bg-black/75 px-2.5 py-1 text-xs font-semibold text-zinc-100">${badge}</div>` : ""}
       ${isWatched(i) ? watchedBadge : ""}
-      <div class="truncate px-3 pb-3 pt-2 text-[15px] font-semibold leading-tight">${esc(i.title)}</div>
+      <div class="flex items-center px-3 pb-2.5 pt-2">
+        <span class="min-w-0 flex-1 truncate text-[15px] font-semibold leading-tight">${esc(i.title)}</span>
+        ${i.year && !i.isCollection ? `<span class="ml-2 flex-none text-xs text-zinc-500">${i.year}</span>` : ""}
+      </div>
     </div>`;
 }
 
@@ -339,11 +341,14 @@ function renderCollection() {
   (app.querySelector(".tv-card") || app.querySelector(".grid-back")).focus();
 }
 
+// Чипы метаданных. Каждый несёт ml-2 mt-2 — обёртка с -ml-2 -mt-2 даёт перенос строк
+// БЕЗ наложения (flex-gap нельзя: старый Chrome на нодах).
+const CHIP = "ml-2 mt-2 rounded-full px-2.5 py-0.5 text-sm font-medium";
 const metaChips = (i) => [
-  i.year ? `<span class="rounded-full bg-zinc-800/90 px-3 py-1 text-base font-medium text-zinc-300">${i.year}</span>` : "",
-  i.rating ? `<span class="flex items-center rounded-full bg-amber-400/10 px-3 py-1 text-base font-semibold text-amber-400 ring-1 ring-amber-400/20">${ICONS.star("mr-1.5 h-4 w-4")}${Number(i.rating).toFixed(1)}</span>` : "",
-  i.season ? `<span class="rounded-full bg-violet-500/10 px-3 py-1 text-base font-medium text-violet-300 ring-1 ring-violet-500/20">S${i.season}${i.episode ? "E" + i.episode : ""}</span>` : "",
-  isWatched(i) ? `<span class="flex items-center rounded-full bg-emerald-500/10 px-3 py-1 text-base font-semibold text-emerald-400 ring-1 ring-emerald-500/20">${ICONS.check("mr-1.5 h-4 w-4")}Просмотрено</span>` : ""
+  i.year ? `<span class="${CHIP} bg-zinc-800/90 text-zinc-300">${i.year}</span>` : "",
+  i.rating ? `<span class="${CHIP} flex items-center bg-amber-400/10 font-semibold text-amber-400 ring-1 ring-amber-400/20">${ICONS.star("mr-1 h-3.5 w-3.5")}${Number(i.rating).toFixed(1)}</span>` : "",
+  i.season ? `<span class="${CHIP} bg-violet-500/10 text-violet-300 ring-1 ring-violet-500/20">S${i.season}${i.episode ? "E" + i.episode : ""}</span>` : "",
+  isWatched(i) ? `<span class="${CHIP} flex items-center bg-emerald-500/10 font-semibold text-emerald-400 ring-1 ring-emerald-500/20">${ICONS.check("mr-1 h-3.5 w-3.5")}Просмотрено</span>` : ""
 ].filter(Boolean).join("");
 
 function updateInfo(i) {
@@ -352,8 +357,8 @@ function updateInfo(i) {
   const bg = backdrop(i.backdrop) || poster(i.poster);
   el.innerHTML = `
     <div class="h-[clamp(140px,calc(var(--uivh)*38),320px)] w-full flex-none rounded-2xl bg-zinc-800 bg-cover bg-center shadow-2xl shadow-black/50 ring-1 ring-white/10" style="${bg ? `background-image:url('${bg}')` : ""}"></div>
-    <div class="mt-1 text-3xl font-bold leading-tight tracking-tight">${esc(i.title)}</div>
-    <div class="flex flex-wrap space-x-2">${metaChips(i)}${i.episodes && i.episodes.length > 1 ? `<span class="rounded-full bg-zinc-800/90 px-3 py-1 text-base font-medium text-zinc-300">${i.episodes.length} серий</span>` : ""}</div>
+    <div class="mt-1 text-[clamp(17px,calc(var(--uivh)*3.4),24px)] font-bold leading-tight tracking-tight">${esc(i.title)}</div>
+    <div class="-ml-2 -mt-2 flex flex-wrap">${metaChips(i)}${i.episodes && i.episodes.length > 1 ? `<span class="${CHIP} bg-zinc-800/90 text-zinc-300">${i.episodes.length} серий</span>` : ""}</div>
     <div class="line-clamp-6 text-[17px] leading-relaxed text-zinc-300">${esc(i.overview || "Нет описания")}</div>
     ${i.cast && i.cast.length ? `<div class="text-[15px] text-zinc-500">${esc(i.cast.slice(0, 5).join(", "))}</div>` : ""}`;
 }
@@ -387,26 +392,40 @@ function renderDetail() {
         </div>
         <!-- Остальное скроллится единым потоком (описание, кадры, серии) -->
         <div id="detail-scroll" class="flex-1 space-y-[clamp(8px,calc(var(--uivh)*1.8),16px)] overflow-y-auto px-16 pb-[clamp(16px,calc(var(--uivh)*4),48px)] pt-1">
-          <div id="detail-title" class="text-[clamp(28px,calc(var(--uivh)*7),48px)] font-extrabold tracking-tight drop-shadow-lg">${esc(i.title)}</div>
-          <div class="flex flex-wrap space-x-2">${metaChips(i)}${multi ? `<span class="rounded-full bg-zinc-800/90 px-3 py-1 text-base font-medium text-zinc-300">${eps.length} серий</span>` : ""}</div>
+          <div id="detail-title" class="text-[clamp(24px,calc(var(--uivh)*5.5),38px)] font-extrabold leading-tight tracking-tight drop-shadow-lg">${esc(i.title)}</div>
+          <div class="-ml-2 -mt-2 flex flex-wrap">${metaChips(i)}${multi ? `<span class="${CHIP} bg-zinc-800/90 text-zinc-300">${eps.length} серий</span>` : ""}</div>
           <div class="line-clamp-5 max-w-[780px] text-[clamp(15px,calc(var(--uivh)*2.7),20px)] leading-relaxed text-zinc-200 drop-shadow">${esc(i.overview || "Нет описания")}</div>
           ${i.cast && i.cast.length ? `<div class="max-w-[780px] text-[clamp(13px,calc(var(--uivh)*2.2),16px)] text-zinc-400">В ролях: ${esc(i.cast.join(", "))}</div>` : ""}
           ${multi ? "" : `<div class="mt-1 flex space-x-4 overflow-hidden">${(i.backdrops || []).slice(0, 5).map((p) => `<img class="h-[clamp(80px,calc(var(--uivh)*20),150px)] flex-none rounded-xl shadow-xl shadow-black/40 ring-1 ring-white/10" src="${shot(p)}" alt="" />`).join("")}</div>`}
           ${multi ? `
-          <div class="max-w-[640px] space-y-1.5 pr-2">
+          <div class="max-w-[720px] space-y-1.5 pr-2">
             ${eps.map((ep) => `
-              <button class="dfoc ep flex w-full cursor-pointer items-center rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-left text-[15px] outline-none backdrop-blur transition focus:border-violet-400 focus:bg-violet-500/15 focus:ring-2 focus:ring-violet-500/40 ${ep.watched ? "opacity-60" : ""}" data-id="${esc(ep.id)}">
-                <span class="mr-3 ${ep.watched ? "text-emerald-400" : "text-violet-300"}">${ep.watched ? ICONS.check("h-4 w-4") : ICONS.play("h-4 w-4")}</span>
-                <span class="truncate">${esc(epLabel(ep))}</span>
-                ${ep.watched ? `<span class="ml-auto pl-3 text-xs text-emerald-400">просмотрено</span>` : ""}
-              </button>`).join("")}
+              <div class="flex items-center">
+                <button class="dfoc ep flex min-w-0 flex-1 cursor-pointer items-center rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-left text-[15px] outline-none backdrop-blur transition focus:border-violet-400 focus:bg-violet-500/15 focus:ring-2 focus:ring-violet-500/40 ${ep.watched ? "opacity-60" : ""}" data-id="${esc(ep.id)}">
+                  <img src="/thumb?id=${esc(ep.id)}" loading="lazy" alt=""
+                    class="mr-3 h-12 w-[85px] flex-none rounded-lg bg-zinc-800 object-cover"
+                    onerror="this.style.display='none'" />
+                  <span class="mr-3 flex-none ${ep.watched ? "text-emerald-400" : "text-violet-300"}">${ep.watched ? ICONS.check("h-4 w-4") : ICONS.play("h-4 w-4")}</span>
+                  <span class="truncate">${esc(epLabel(ep))}</span>
+                </button>
+                <button class="dfoc epw ml-1.5 grid h-9 w-9 flex-none cursor-pointer place-items-center rounded-lg border border-white/10 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/40 ${ep.watched ? "bg-emerald-500/20 text-emerald-400" : "bg-white/5 text-zinc-500"}"
+                  data-id="${esc(ep.id)}" data-set="${ep.watched ? 0 : 1}" title="Просмотрено / не просмотрено">${ICONS.check("h-4 w-4")}</button>
+              </div>`).join("")}
           </div>` : `
-          <button class="dfoc mt-4 flex cursor-pointer items-center self-start rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-[clamp(28px,calc(var(--uivw)*5),48px)] py-[clamp(10px,calc(var(--uivh)*2.2),16px)] text-[clamp(18px,calc(var(--uivh)*3.2),24px)] font-bold text-white shadow-xl shadow-violet-600/40 outline-none transition focus:scale-[1.04] focus:ring-4 focus:ring-violet-400/50" id="detail-play" data-id="${esc(i.id)}">${ICONS.play("mr-3 h-[1.2em] w-[1.2em]")} Смотреть</button>`}
+          <div class="mt-4 flex items-center space-x-3">
+            <button class="dfoc flex cursor-pointer items-center rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-[clamp(24px,calc(var(--uivw)*4),40px)] py-[clamp(10px,calc(var(--uivh)*2.2),16px)] text-[clamp(17px,calc(var(--uivh)*3),22px)] font-bold text-white shadow-xl shadow-violet-600/40 outline-none transition focus:scale-[1.04] focus:ring-4 focus:ring-violet-400/50" id="detail-play" data-id="${esc(i.id)}">${ICONS.play("mr-3 h-[1.2em] w-[1.2em]")} Смотреть</button>
+            <button class="dfoc epw flex cursor-pointer items-center rounded-2xl border border-white/15 px-5 py-[clamp(10px,calc(var(--uivh)*2.2),16px)] text-[clamp(14px,calc(var(--uivh)*2.4),17px)] font-semibold outline-none backdrop-blur transition focus:ring-4 ${i.watched ? "bg-emerald-500/15 text-emerald-300 focus:ring-emerald-500/40" : "bg-white/5 text-zinc-300 focus:ring-violet-500/40"}"
+              data-id="${esc(i.id)}" data-set="${i.watched ? 0 : 1}">${ICONS.check("mr-2 h-[1.1em] w-[1.1em]")}${i.watched ? "Просмотрено" : "Отметить просмотренным"}</button>
+          </div>`}
         </div>
       </div>
     </div>`;
   document.getElementById("detail-back").addEventListener("click", back);
   app.querySelectorAll(".ep").forEach((b) => b.addEventListener("click", () => play(b.dataset.id)));
+  // Отметка «Просмотрено/Не просмотрено» — агент запишет, SSE перерисует экран
+  app.querySelectorAll(".epw").forEach((b) => b.addEventListener("click", () => {
+    fetch(`/api/watched?id=${encodeURIComponent(b.dataset.id)}&set=${b.dataset.set}`).catch(() => {});
+  }));
   const playBtn = document.getElementById("detail-play");
   if (playBtn) playBtn.addEventListener("click", () => play(i.id));
   // Название в шапке появляется, когда большой заголовок скрылся при скролле.
