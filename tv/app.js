@@ -55,11 +55,22 @@ async function load() {
   history.replaceState({ screen: "categories" }, ""); // корневая запись истории
   render();
   tryLandscape(false); // PWA/standalone может залочить сразу; браузер — при первом взаимодействии
-  // live-обновление: любое изменение (скан, «Исправить» из дашборда, переименование) прилетает сюда
-  try {
-    const es = new EventSource("/api/events");
-    es.onmessage = async () => { await reloadLibrary(); rerenderKeepingFocus(); };
-  } catch (_) {}
+  // live-обновление: любое изменение (скан, «Исправить» из дашборда, переименование) прилетает сюда.
+  // SSE держим ТОЛЬКО на видимой вкладке: фоновые дубли (агент открывает страницу при каждом
+  // рестарте) иначе съедают весь пул соединений Chrome (6 на хост) — новые вкладки виснут.
+  let es = null;
+  const connectEvents = () => {
+    if (es) return;
+    try {
+      es = new EventSource("/api/events");
+      es.onmessage = async () => { await reloadLibrary(); rerenderKeepingFocus(); };
+    } catch (_) { es = null; }
+  };
+  document.addEventListener("visibilitychange", async () => {
+    if (document.hidden) { if (es) { es.close(); es = null; } }
+    else { connectEvents(); await reloadLibrary(); rerenderKeepingFocus(); } // догнать пропущенное
+  });
+  if (!document.hidden) connectEvents();
 }
 
 async function reloadLibrary() {
