@@ -447,7 +447,6 @@ function renderDetail() {
   const BTN = "dfoc flex flex-none cursor-pointer items-center rounded-2xl border border-white/15 px-4 py-[clamp(7px,calc(var(--uivh)*1.8),12px)] text-[clamp(12px,calc(var(--uivh)*2.2),15px)] font-semibold outline-none backdrop-blur transition focus:ring-4";
   const metaTable = `
     ${metaRow("Режиссёр", personLinks(i.director))}
-    ${metaRow("Сценарий", personLinks(i.writers))}
     ${metaRow("Рейтинг", i.rating ? `<span class="font-semibold text-amber-400">★ ${Number(i.rating).toFixed(1)}</span>${i.votes ? ` <span class="text-zinc-500">(${Number(i.votes).toLocaleString("ru-RU")})</span>` : ""}` : "")}
     ${metaRow("Жанр", esc((i.genres || []).join(", ")))}
     ${metaRow("Страна", esc(i.country))}
@@ -542,7 +541,7 @@ function personEntries(name) {
   for (const c of CATS) {
     for (const e of entriesForType(c.type)) {
       const inE = (x) => (x.castX || []).some((a) => a.n === name) ||
-        String(x.director || "").includes(name) || String(x.writers || "").includes(name);
+        String(x.director || "").includes(name);
       if (e.isCollection ? e.parts.some(inE) : inE(e)) out.push(e);
     }
   }
@@ -585,7 +584,6 @@ function renderPerson() {
     const a = (it.castX || []).find((x) => x.n === name);
     if (a) { jobs.add("Актёр"); if (a.p && !photo) photo = a.p; }
     if (String(it.director || "").includes(name)) jobs.add("Режиссёр");
-    if (String(it.writers || "").includes(name)) jobs.add("Сценарист");
   }
   app.innerHTML = `
     <div class="flex h-full">
