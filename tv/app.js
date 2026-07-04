@@ -52,6 +52,33 @@ let playerMissing = false;
 const IN_APP = /MediaCenterTV/.test(navigator.userAgent);
 let appOffer = null; // "install" | "update" | null — кнопка приложения на экране категорий
 
+/* ---------- Статус-точки (правый верхний угол): агент / сервер / live ----------
+   агент  — отвечает ли HTTP локального сервера (сам факт ответа /api/health);
+   сервер — связь агента с Firebase (heartbeat, из ответа /api/health);
+   live   — подключён ли SSE (мгновенные обновления библиотеки). */
+function setDot(id, state) {
+  const el = document.getElementById(id);
+  if (el) el.className = "st-dot st-" + state;
+}
+async function pollHealth() {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 4000);
+    const h = await (await fetch("/api/health", { signal: ctrl.signal })).json();
+    clearTimeout(t);
+    setDot("st-agent", "ok");
+    // heartbeat ходит раз в 30с; молчание дольше 90с — связи фактически нет,
+    // даже если последняя попытка формально не упала (SDK может «висеть» в ретраях)
+    const stale = h.lastOkAgo == null || h.lastOkAgo > 90;
+    setDot("st-cloud", h.firebase && !stale ? "ok" : "bad");
+  } catch (_) {
+    setDot("st-agent", "bad");
+    setDot("st-cloud", "off"); // агент недоступен — про сервер ничего не знаем
+  }
+}
+setInterval(pollHealth, 10000);
+pollHealth();
+
 // Крутилка загрузки (первая подгрузка библиотеки может занять пару секунд)
 const spinner = (label) => `
   <div class="flex h-full w-full flex-col items-center justify-center space-y-4 py-16">
@@ -96,10 +123,12 @@ async function load() {
     try {
       es = new EventSource("/api/events");
       es.onmessage = onChange;
-    } catch (_) { es = null; }
+      es.onopen = () => setDot("st-live", "ok");
+      es.onerror = () => setDot("st-live", "bad"); // EventSource сам переподключится (retry)
+    } catch (_) { es = null; setDot("st-live", "bad"); }
   };
   document.addEventListener("visibilitychange", async () => {
-    if (document.hidden) { if (es) { es.close(); es = null; } }
+    if (document.hidden) { if (es) { es.close(); es = null; setDot("st-live", "off"); } }
     else { connectEvents(); if (await reloadLibrary()) rerenderKeepingFocus(); } // догнать пропущенное
   });
   if (!document.hidden) connectEvents();

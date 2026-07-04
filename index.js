@@ -52,7 +52,9 @@ function loadConfig() {
 
 async function main() {
   const config = loadConfig();
-  const ctx = { config };
+  // health — для статус-точек TV-страницы (/api/health): жив ли канал в Firebase.
+  // Обновляется heartbeat'ом: он и так ходит в Firestore каждые 30с.
+  const ctx = { config, health: { firebase: false, lastOk: 0, error: null } };
   Object.assign(ctx, await initFirebase(config));
 
   const deviceRef = doc(ctx.db, "devices", config.device.id);
@@ -71,12 +73,17 @@ async function main() {
     base.name = config.device.name || config.device.id;
   }
   await setDoc(deviceRef, base, { merge: true });
+  ctx.health.firebase = true; ctx.health.lastOk = Date.now();
   console.log(`✓ Устройство зарегистрировано: ${config.device.name} (${config.device.id})`);
 
   // Heartbeat (lanIp может меняться при смене Wi-Fi — обновляем)
   const heartbeat = setInterval(() => {
     setDoc(deviceRef, { online: true, lanIp: lanIp(), lastSeen: serverTimestamp() }, { merge: true })
-      .catch((e) => console.error("heartbeat:", e.message));
+      .then(() => { ctx.health.firebase = true; ctx.health.lastOk = Date.now(); ctx.health.error = null; })
+      .catch((e) => {
+        ctx.health.firebase = false; ctx.health.error = e.message;
+        console.error("heartbeat:", e.message);
+      });
   }, HEARTBEAT_MS);
 
   // Первичный скан + слежение за папками (авто-подхват новых/удалённых файлов)

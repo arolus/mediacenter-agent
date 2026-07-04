@@ -36,6 +36,14 @@
       }
     }
     #app { height: 100%; }
+    /* Статус-точки агента (правый верхний угол, поверх всех экранов).
+       Стейт-классы переключает JS: st-ok (зелёный) / st-bad (красный) / st-off (серый). */
+    #status-dots { position: fixed; top: 10px; right: 14px; z-index: 50; display: flex; pointer-events: none; }
+    .st-dot { width: 7px; height: 7px; border-radius: 50%; margin-left: 6px; background: #3f3f46;
+      transition: background .3s; box-shadow: 0 0 4px rgba(0,0,0,.6); }
+    .st-ok  { background: #22c55e; }
+    .st-bad { background: #ef4444; }
+    .st-off { background: #3f3f46; }
     /* Тонкий скроллбар для горизонтальных лент (актёры на детальной) */
     .thin-scroll::-webkit-scrollbar { height: 3px; width: 3px; }
     .thin-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .25); border-radius: 2px; }
@@ -54,6 +62,14 @@
         </svg>
         <div class="text-lg text-zinc-400">Загружаю медиатеку…</div>
       </div>
+    </div>
+
+    <!-- Статус агента: «агент» (HTTP до Termux), «сервер» (Firebase), «live» (SSE).
+         fixed внутри #rot — как overlay, корректно поверх повёрнутого UI. -->
+    <div id="status-dots">
+      <span id="st-agent" class="st-dot st-off"></span>
+      <span id="st-cloud" class="st-dot st-off"></span>
+      <span id="st-live"  class="st-dot st-off"></span>
     </div>
 
     <!-- Оверлей статуса (запуск плеера, установка VLC); fixed внутри #rot = поверх повёрнутого UI -->
