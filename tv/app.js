@@ -151,9 +151,12 @@ function render() {
   else if (state.screen === "detail") renderDetail();
 }
 
-// При live-обновлении перерисовываем текущий экран, сохраняя фокус по id.
+// При live-обновлении перерисовываем текущий экран, сохраняя фокус по id
+// и позицию скролла (иначе SSE-шторм при массовом дообогащении дёргает страницу).
 function rerenderKeepingFocus() {
   const focusedId = document.activeElement?.dataset?.id;
+  const scrolls = [...app.querySelectorAll("div")].filter((n) => n.scrollTop > 0)
+    .map((n) => ({ cls: n.className, top: n.scrollTop }));
   if ((state.screen === "detail" || state.screen === "collection") && state.current) {
     const cur = findEntry(state.type, state.current.id);
     if (cur) state.current = cur;      // обновить состав серий/частей
@@ -162,7 +165,11 @@ function rerenderKeepingFocus() {
   render();
   if (focusedId) {
     const el = app.querySelector(`[data-id="${CSS.escape(focusedId)}"]`);
-    if (el) el.focus();
+    if (el) el.focus({ preventScroll: true });
+  }
+  for (const s of scrolls) {
+    const n = [...app.querySelectorAll("div")].find((d) => d.className === s.cls && d.scrollHeight > d.clientHeight);
+    if (n) n.scrollTop = s.top;
   }
 }
 
