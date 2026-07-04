@@ -19,6 +19,7 @@ import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -93,6 +94,8 @@ public class MainActivity extends Activity {
         s.setMediaPlaybackRequiresUserGesture(false);
         // По суффиксу UA страница понимает, что живёт в приложении (не просит fullscreen и т.п.)
         s.setUserAgentString(s.getUserAgentString() + " MediaCenterTV/1.0");
+        // Мост для страницы: MCApp.exitApp() — «Да» в диалоге «Выйти из приложения?»
+        web.addJavascriptInterface(new AppBridge(), "MCApp");
         web.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView v, String target) {
@@ -190,11 +193,26 @@ public class MainActivity extends Activity {
         if (hasFocus) hideSystemUi();
     }
 
-    // Кнопка «Назад» = история страницы (TV-навигация на History API); с корня — в фон, не выходим.
+    // Мост из WebView: полный выход из приложения (закрыть задачу и убить процесс).
+    private class AppBridge {
+        @JavascriptInterface
+        public void exitApp() {
+            runOnUiThread(() -> {
+                finishAndRemoveTask();
+                // добиваем процесс после закрытия активити — «закрыть и убить», как заказано
+                web.postDelayed(() -> android.os.Process.killProcess(android.os.Process.myPid()), 300);
+            });
+        }
+    }
+
+    // Кнопка «Назад» = история страницы (TV-навигация на History API); в корне (категории)
+    // страница показывает диалог «Выйти из приложения?» (mcConfirmExit); если страница
+    // не отвечает (агент лежит, экран ожидания) — старое поведение: в фон.
     @Override
     public void onBackPressed() {
-        if (web.canGoBack()) web.goBack();
-        else moveTaskToBack(true);
+        if (web.canGoBack()) { web.goBack(); return; }
+        web.evaluateJavascript("window.mcConfirmExit ? mcConfirmExit() : false",
+            (v) -> { if (!"true".equals(v)) moveTaskToBack(true); });
     }
 
     @Override

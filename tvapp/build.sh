@@ -9,8 +9,8 @@
 set -euo pipefail
 
 # --- версия приложения: бампать при каждом изменении tvapp/ ---
-VERSION_CODE=3
-VERSION_NAME="1.2"
+VERSION_CODE=4
+VERSION_NAME="1.3"
 
 DIR="$(cd "$(dirname "$0")" && pwd)"          # agent/tvapp
 OUT_APK="$DIR/../tv/app/mediacenter-tv.apk"   # артефакт в репо агента

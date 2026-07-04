@@ -901,12 +901,63 @@ function enterCollection(col) { navigate({ screen: "collection", type: col.type 
 function enterDetail(item) { navigate({ screen: "detail", type: item.type || state.type, id: item.id }); }
 function enterPerson(name, photo) { if (name) navigate({ screen: "person", name, photo: photo || null }); }
 // Назад: кнопка «Назад», Esc/Backspace пульта И браузерная «Назад» — всё через историю.
-function back() { if (state.screen !== "categories") history.back(); }
+// В корне (категории) — вопрос «Выйти из приложения?».
+function back() {
+  if (state.screen !== "categories") { history.back(); return; }
+  showExitConfirm();
+}
+
+/* ---------- Выход из приложения (диалог на корневом экране) ---------- */
+function showExitConfirm() {
+  if (document.getElementById("exit-confirm")) return;
+  const wrap = document.createElement("div");
+  wrap.id = "exit-confirm";
+  wrap.className = "fixed top-0 right-0 bottom-0 left-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm";
+  wrap.innerHTML = `
+    <div class="rounded-3xl border border-white/10 bg-zinc-900/95 px-10 py-8 text-center shadow-2xl shadow-black/60">
+      <div class="mb-6 text-2xl font-bold">Выйти из приложения?</div>
+      <div class="flex justify-center space-x-4">
+        <button id="exit-yes" class="cursor-pointer rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-9 py-3 text-lg font-bold text-white outline-none transition focus:scale-105 focus:ring-4 focus:ring-violet-400/50">Да</button>
+        <button id="exit-no" class="cursor-pointer rounded-2xl border border-white/15 bg-white/5 px-9 py-3 text-lg font-semibold text-zinc-300 outline-none transition focus:scale-105 focus:ring-4 focus:ring-violet-500/40">Нет</button>
+      </div>
+    </div>`;
+  document.getElementById("rot").appendChild(wrap);
+  document.getElementById("exit-yes").addEventListener("click", exitApp);
+  document.getElementById("exit-no").addEventListener("click", hideExitConfirm);
+  document.getElementById("exit-no").focus(); // безопасный дефолт — «Нет»
+}
+function hideExitConfirm() {
+  const el = document.getElementById("exit-confirm");
+  if (el) el.remove();
+  const tile = app.querySelector(".cat-tile");
+  if (tile) tile.focus();
+}
+function exitApp() {
+  // В приложении — мост в активити (закрыть и убить процесс); в браузере — попытка close.
+  if (window.MCApp && window.MCApp.exitApp) window.MCApp.exitApp();
+  else window.close();
+}
+// Аппаратная «Назад» приложения на корне зовёт сюда (см. MainActivity.onBackPressed):
+// диалог открыт — закрываем (Back = отмена), нет — показываем.
+window.mcConfirmExit = () => {
+  if (document.getElementById("exit-confirm")) hideExitConfirm();
+  else showExitConfirm();
+  return true;
+};
 window.addEventListener("popstate", (e) => applyState(e.state || { screen: "categories" }));
 
 /* ---------- Навигация пультом ---------- */
 document.addEventListener("keydown", (e) => {
   armOrientation(); // первая клавиша — момент для fullscreen + landscape-lock
+  // Диалог «Выйти из приложения?» перехватывает всё: ←/→ между Да/Нет, Enter, Back = отмена.
+  if (document.getElementById("exit-confirm")) {
+    e.preventDefault();
+    if (["Escape", "Backspace", "GoBack", "BrowserBack"].includes(e.key)) return hideExitConfirm();
+    if (e.key === "ArrowLeft") document.getElementById("exit-yes").focus();
+    else if (e.key === "ArrowRight") document.getElementById("exit-no").focus();
+    else if (e.key === "Enter" || e.key === " ") document.activeElement?.click();
+    return;
+  }
   if (["Escape", "Backspace", "GoBack", "BrowserBack"].includes(e.key)) { e.preventDefault(); back(); return; }
   const cur = document.activeElement;
 
