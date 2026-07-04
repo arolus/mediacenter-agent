@@ -4,6 +4,16 @@ const IMG = "https://image.tmdb.org/t/p";
 const poster = (p) => (p ? `${IMG}/w342${p}` : null);
 const backdrop = (p) => (p ? `${IMG}/w1280${p}` : null);
 const shot = (p) => `${IMG}/w500${p}`;
+const prof = (p) => (p ? `${IMG}/w185${p}` : null); // фото актёра
+const fmtDur = (sec) => {
+  if (!sec) return "";
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = Math.floor(sec % 60);
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+};
+const fmtDate = (d) => {
+  const m = String(d || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : "";
+};
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
 /* ---------- Иконки (стиль SF Symbols / Lucide: stroke, скруглённые) ---------- */
@@ -14,6 +24,7 @@ const ICONS = {
   cartoon: (cls) => icon(`<path d="M9 10h.01"/><path d="M15 10h.01"/><path d="M12 2a8 8 0 0 0-8 8v12l3-3 2.5 2.5L12 19l2.5 2.5L17 19l3 3V10a8 8 0 0 0-8-8z"/>`, cls),
   series: (cls) => icon(`<rect width="20" height="15" x="2" y="7" rx="2"/><polyline points="17 2 12 7 7 2"/>`, cls),
   back: (cls) => icon(`<path d="m15 18-6-6 6-6"/>`, cls),
+  folderBack: (cls) => icon(`<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/><path d="m12.5 15.5-3-3 3-3"/><path d="M9.5 12.5H16"/>`, cls),
   download: (cls) => icon(`<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="3" y2="15"/>`, cls),
   play: (cls) => `<svg class="${cls}" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.54.84l10.2-6.5a1 1 0 0 0 0-1.68L9.54 4.66A1 1 0 0 0 8 5.5Z"/></svg>`,
   check: (cls) => icon(`<path d="m5 13 4 4 10-10"/>`, cls),
@@ -45,9 +56,6 @@ const spinner = (label) => `
     </svg>
     <div class="text-lg text-zinc-400">${label}</div>
   </div>`;
-// Зелёная галка «просмотрено» на карточке
-const watchedBadge = `<div class="absolute top-2 left-2 grid h-6 w-6 place-items-center rounded-full bg-emerald-500/90 text-white shadow">${ICONS.check("h-4 w-4")}</div>`;
-
 async function load() {
   try { deviceName = (await (await fetch("/api/device")).json()).name || ""; } catch (_) {}
   try { const st = await (await fetch("/api/player-status")).json(); playerMissing = st && st.installed === false; } catch (_) {}
@@ -109,7 +117,8 @@ function groupCollections(entries) {
       col = {
         isCollection: true, id: "col_" + c.id, type: e.type,
         title: String(c.name || e.title).replace(/\s*[:(—-]*\s*коллекция\)?\s*$/i, "").trim(),
-        poster: c.poster || e.poster, backdrop: e.backdrop, parts: []
+        poster: c.poster || e.poster, backdrop: e.backdrop,
+        overview: c.overview || e.overview || "", parts: []
       };
       map.set(c.id, col);
       out.push(col);
@@ -266,112 +275,106 @@ document.addEventListener("touchmove", (e) => {
 }, { passive: false });
 
 function computeCardWidth() {
-  // Широкие карточки (кадр 16:9): телефон — 2 в ряд, планшет/ноут — 3, телевизор — 4.
+  // Постеры как у Kodi: всегда 4 в ряд, первая плитка в сетке — «Назад».
   const W = uiW();
-  const cols = W < 1000 ? 2 : W < 1700 ? 3 : 4;
-  const side = Math.min(460, Math.max(280, W * 0.3));
-  const gap = 20, gridPad = 100;
-  const w = Math.max(180, Math.min(560, Math.floor((W - side - gridPad - (cols - 1) * gap) / cols)));
+  const cols = 4;
+  const side = Math.min(460, Math.max(250, W * 0.3));
+  const gap = 16, gridPad = 80;
+  const w = Math.max(96, Math.min(330, Math.floor((W - side - gridPad - (cols - 1) * gap) / cols)));
   document.documentElement.style.setProperty("--card-w", w + "px");
   document.documentElement.style.setProperty("--cols", cols);
 }
 
-// Карточка сетки (фильм / сериал / коллекция) — широкая, 16:9, фон = кадр из фильма.
+// Карточка сетки — постер 2:3 (Kodi-стиль): без подписи, название — в левой панели.
 function cardHtml(i) {
   const badge = i.isCollection
-    ? `${i.parts.length} части`
+    ? `${i.parts.filter(isWatched).length}/${i.parts.length}`
     : (i.episodes && i.episodes.length > 1 ? `${i.episodes.length} серий` : (i.isCollectionPart && i.year ? String(i.year) : ""));
-  const bg = backdrop(i.backdrop) || poster(i.poster);
+  const p = poster(i.poster) || backdrop(i.backdrop);
   return `
-    <div class="tv-card relative w-[var(--card-w)] cursor-pointer overflow-hidden rounded-2xl bg-zinc-900 ring-1 ring-white/5 outline-none transition duration-150 focus:z-10 focus:scale-[1.05] focus:shadow-[0_16px_50px_-8px_rgba(139,92,246,.45)] focus:ring-[3px] focus:ring-violet-500" tabindex="0" data-id="${esc(i.id)}">
-      ${bg ? `<div class="h-0 w-full bg-zinc-800 bg-cover bg-center pb-[56%]" style="background-image:url('${bg}')"></div>` : `<div class="relative h-0 w-full bg-gradient-to-br from-zinc-800 to-zinc-900 pb-[56%]"><div class="absolute top-0 right-0 bottom-0 left-0 flex items-center justify-center p-2 text-center text-sm text-zinc-400">${esc(i.title)}</div></div>`}
-      ${badge ? `<div class="absolute top-2 right-2 rounded-full bg-black/75 px-2.5 py-1 text-xs font-semibold text-zinc-100">${badge}</div>` : ""}
-      ${isWatched(i) ? watchedBadge : ""}
-      <div class="flex items-center px-3 pb-2.5 pt-2">
-        <span class="min-w-0 flex-1 truncate text-[15px] font-semibold leading-tight">${esc(i.title)}</span>
-        ${i.year && !i.isCollection ? `<span class="ml-2 flex-none text-xs text-zinc-500">${i.year}</span>` : ""}
-      </div>
+    <div class="tv-card relative w-[var(--card-w)] cursor-pointer overflow-hidden rounded-xl bg-zinc-900 ring-1 ring-white/10 outline-none transition duration-150 focus:z-10 focus:scale-[1.06] focus:shadow-[0_16px_50px_-8px_rgba(139,92,246,.45)] focus:ring-[3px] focus:ring-violet-500" tabindex="0" data-id="${esc(i.id)}">
+      ${p ? `<div class="h-0 w-full bg-zinc-800 bg-cover bg-center pb-[150%]" style="background-image:url('${p}')"></div>` : `<div class="relative h-0 w-full bg-gradient-to-br from-zinc-800 to-zinc-900 pb-[150%]"><div class="absolute top-0 right-0 bottom-0 left-0 flex items-center justify-center p-2 text-center text-[13px] leading-snug text-zinc-300">${esc(i.title)}</div></div>`}
+      ${badge ? `<div class="absolute top-1.5 right-1.5 rounded-md bg-black/75 px-1.5 py-0.5 text-[11px] font-semibold text-zinc-100">${badge}</div>` : ""}
+      ${isWatched(i) ? `<div class="absolute bottom-1.5 right-1.5 grid h-6 w-6 place-items-center rounded-md bg-black/70 text-emerald-400">${ICONS.check("h-4 w-4")}</div>` : ""}
     </div>`;
 }
 
-function renderGrid() {
+// Плитка «Назад» — первая в сетке, размером с постер (Kodi-стиль).
+const backTile = () => `
+  <div class="grid-back tv-card relative w-[var(--card-w)] cursor-pointer overflow-hidden rounded-xl bg-zinc-900/80 ring-1 ring-white/10 outline-none transition duration-150 focus:z-10 focus:scale-[1.06] focus:ring-[3px] focus:ring-violet-500" tabindex="0">
+    <div class="relative h-0 w-full pb-[150%]">
+      <div class="absolute top-0 right-0 bottom-0 left-0 grid place-items-center text-zinc-300">${ICONS.folderBack("h-[42%] w-[42%]")}</div>
+    </div>
+  </div>`;
+
+// Единая страница-сетка: и список типа, и страница коллекции (Kodi: они одинаковые).
+function renderGridPage({ heading, count, list, empty, onOpen, fallbackInfo }) {
   computeCardWidth();
-  const list = entriesForType(state.type);
-  const cat = CATS.find((c) => c.type === state.type);
   app.innerHTML = `
     <div class="flex h-full">
-      <div class="flex w-[32%] min-w-[280px] max-w-[460px] flex-col space-y-3.5 overflow-hidden border-r border-white/5 bg-zinc-900/60 px-9 py-10 backdrop-blur-xl" id="grid-info"></div>
-      <div class="flex flex-1 flex-col px-10 pt-7">
-        <div class="mb-5 flex flex-none items-center space-x-4">
-          <button class="grid-back flex cursor-pointer items-center rounded-xl border border-white/10 bg-white/5 py-2.5 pl-3 pr-5 text-lg font-semibold outline-none backdrop-blur transition duration-150 focus:scale-105 focus:border-violet-400 focus:ring-4 focus:ring-violet-500/30" tabindex="0">${ICONS.back("mr-1.5 h-5 w-5")} Назад</button>
-          <span class="text-violet-400">${cat.icon("h-7 w-7")}</span>
-          <h2 class="m-0 text-2xl font-bold tracking-tight">${cat.label}</h2>
-          <span class="rounded-full bg-zinc-800/80 px-3 py-0.5 text-base text-zinc-400">${list.length}</span>
+      <div class="flex w-[30%] min-w-[250px] max-w-[460px] flex-col overflow-hidden border-r border-white/5 bg-zinc-900/60 px-8 py-8 backdrop-blur-xl" id="grid-info"></div>
+      <div class="flex flex-1 flex-col px-8 pt-5">
+        <div class="mb-3 flex flex-none items-center space-x-3">
+          ${heading}
+          <span class="rounded-full bg-zinc-800/80 px-3 py-0.5 text-[15px] text-zinc-400">${count}</span>
         </div>
         <!-- pt/pl: чтобы фокус-кольцо и scale карточек не обрезались краем скролл-зоны -->
-        <div class="flex-1 overflow-y-auto pb-7 pl-2.5 pt-2.5">
-          <div class="grid grid-cols-[repeat(var(--cols),var(--card-w))] justify-start gap-5">
-            ${list.map(cardHtml).join("") || (loaded ? '<p class="tv-empty p-14 text-2xl text-zinc-400">Пусто</p>' : spinner("Загружаю медиатеку…"))}
+        <div class="flex-1 overflow-y-auto pb-6 pl-2.5 pt-2.5">
+          <div class="grid grid-cols-[repeat(var(--cols),var(--card-w))] justify-start gap-4">
+            ${backTile()}${list.map(cardHtml).join("") || empty}
           </div>
         </div>
       </div>
     </div>`;
   app.querySelectorAll(".tv-card").forEach((card) => {
+    if (!card.dataset.id) return; // плитка «Назад»
     const item = list.find((i) => i.id === card.dataset.id);
     card.addEventListener("focus", () => updateInfo(item));
-    card.addEventListener("click", () => item.isCollection ? enterCollection(item) : enterDetail(item));
+    card.addEventListener("click", () => onOpen(item));
   });
-  app.querySelector(".grid-back").addEventListener("click", back);
-  const first = app.querySelector(".tv-card") || app.querySelector(".grid-back");
+  const bt = app.querySelector(".grid-back");
+  bt.addEventListener("click", back);
+  bt.addEventListener("focus", () => updateInfo(fallbackInfo || null));
+  const first = app.querySelector(".tv-card[data-id]") || bt;
   if (first) first.focus();
 }
 
-/* ---------- Коллекция (франшиза): страница частей ---------- */
-function renderCollection() {
-  computeCardWidth();
-  const col = state.current;
-  if (!col || !col.isCollection) { state.screen = "grid"; return render(); }
-  app.innerHTML = `
-    <div class="flex h-full flex-col px-10 pt-7">
-      <div class="mb-5 flex flex-none items-center space-x-4">
-        <button class="grid-back flex cursor-pointer items-center rounded-xl border border-white/10 bg-white/5 py-2.5 pl-3 pr-5 text-lg font-semibold outline-none backdrop-blur transition duration-150 focus:scale-105 focus:border-violet-400 focus:ring-4 focus:ring-violet-500/30" tabindex="0">${ICONS.back("mr-1.5 h-5 w-5")} Назад</button>
-        <h2 class="m-0 truncate text-2xl font-bold tracking-tight">${esc(col.title)}</h2>
-        <span class="rounded-full bg-zinc-800/80 px-3 py-0.5 text-base text-zinc-400">${col.parts.length} части</span>
-      </div>
-      <div class="flex-1 overflow-y-auto pb-7 pl-2.5 pt-2.5">
-        <div class="grid grid-cols-[repeat(var(--cols),var(--card-w))] justify-start gap-5">
-          ${col.parts.map((p) => cardHtml({ ...p, isCollectionPart: true })).join("")}
-        </div>
-      </div>
-    </div>`;
-  app.querySelectorAll(".tv-card").forEach((card) => {
-    const part = col.parts.find((p) => p.id === card.dataset.id);
-    card.addEventListener("click", () => enterDetail(part));
+function renderGrid() {
+  const list = entriesForType(state.type);
+  const cat = CATS.find((c) => c.type === state.type);
+  renderGridPage({
+    heading: `<span class="text-violet-400">${cat.icon("h-6 w-6")}</span>
+      <h2 class="m-0 text-[clamp(18px,calc(var(--uivh)*3.4),24px)] font-bold tracking-tight">${cat.label}</h2>`,
+    count: list.length,
+    list,
+    empty: loaded ? '<p class="tv-empty col-span-3 p-14 text-2xl text-zinc-400">Пусто</p>' : spinner("Загружаю медиатеку…"),
+    onOpen: (item) => item.isCollection ? enterCollection(item) : enterDetail(item)
   });
-  app.querySelector(".grid-back").addEventListener("click", back);
-  (app.querySelector(".tv-card") || app.querySelector(".grid-back")).focus();
 }
 
-// Чипы метаданных. Каждый несёт ml-2 mt-2 — обёртка с -ml-2 -mt-2 даёт перенос строк
-// БЕЗ наложения (flex-gap нельзя: старый Chrome на нодах).
-const CHIP = "ml-2 mt-2 rounded-full px-2.5 py-0.5 text-sm font-medium";
-const metaChips = (i) => [
-  i.year ? `<span class="${CHIP} bg-zinc-800/90 text-zinc-300">${i.year}</span>` : "",
-  i.rating ? `<span class="${CHIP} flex items-center bg-amber-400/10 font-semibold text-amber-400 ring-1 ring-amber-400/20">${ICONS.star("mr-1 h-3.5 w-3.5")}${Number(i.rating).toFixed(1)}</span>` : "",
-  i.season ? `<span class="${CHIP} bg-violet-500/10 text-violet-300 ring-1 ring-violet-500/20">S${i.season}${i.episode ? "E" + i.episode : ""}</span>` : "",
-  isWatched(i) ? `<span class="${CHIP} flex items-center bg-emerald-500/10 font-semibold text-emerald-400 ring-1 ring-emerald-500/20">${ICONS.check("mr-1 h-3.5 w-3.5")}Просмотрено</span>` : ""
-].filter(Boolean).join("");
+/* ---------- Коллекция (франшиза): та же сетка, что и список фильмов ---------- */
+function renderCollection() {
+  const col = state.current;
+  if (!col || !col.isCollection) { state.screen = "grid"; return render(); }
+  const parts = col.parts.map((p) => ({ ...p, isCollectionPart: true }));
+  renderGridPage({
+    heading: `<h2 class="m-0 truncate text-[clamp(18px,calc(var(--uivh)*3.4),24px)] font-bold tracking-tight">${esc(col.title)} <span class="font-normal text-zinc-500">(Коллекция)</span></h2>`,
+    count: parts.length,
+    list: parts,
+    empty: "",
+    onOpen: (part) => enterDetail(part),
+    fallbackInfo: col // на плитке «Назад» — описание самой коллекции
+  });
+}
 
+// Левая панель сетки — как у Kodi: только название и описание сфокусированного элемента.
 function updateInfo(i) {
   const el = document.getElementById("grid-info");
-  if (!el || !i) return;
-  const bg = backdrop(i.backdrop) || poster(i.poster);
+  if (!el) return;
+  if (!i) { el.innerHTML = ""; return; }
   el.innerHTML = `
-    <div class="h-[clamp(140px,calc(var(--uivh)*38),320px)] w-full flex-none rounded-2xl bg-zinc-800 bg-cover bg-center shadow-2xl shadow-black/50 ring-1 ring-white/10" style="${bg ? `background-image:url('${bg}')` : ""}"></div>
-    <div class="mt-1 text-[clamp(17px,calc(var(--uivh)*3.4),24px)] font-bold leading-tight tracking-tight">${esc(i.title)}</div>
-    <div class="-ml-2 -mt-2 flex flex-wrap">${metaChips(i)}${i.episodes && i.episodes.length > 1 ? `<span class="${CHIP} bg-zinc-800/90 text-zinc-300">${i.episodes.length} серий</span>` : ""}</div>
-    <div class="line-clamp-6 text-[17px] leading-relaxed text-zinc-300">${esc(i.overview || "Нет описания")}</div>
-    ${i.cast && i.cast.length ? `<div class="text-[15px] text-zinc-500">${esc(i.cast.slice(0, 5).join(", "))}</div>` : ""}`;
+    <div class="flex-none text-[clamp(18px,calc(var(--uivh)*3.8),28px)] font-bold leading-tight tracking-tight">${esc(i.title)}${i.isCollection ? ' <span class="font-normal text-zinc-500">(Коллекция)</span>' : ""}</div>
+    <div class="mt-4 flex-1 overflow-y-auto pr-1 text-[clamp(14px,calc(var(--uivh)*2.7),19px)] leading-relaxed text-zinc-300">${esc(i.overview || "Нет описания")}</div>`;
 }
 
 /* ---------- Деталь фильма ---------- */
@@ -379,37 +382,85 @@ const epLabel = (ep) => ep.episode != null
   ? `Серия ${ep.episode}${ep.season ? ` · сезон ${ep.season}` : ""}`
   : (ep.fileName || "серия");
 
+// Строка таблицы метаданных (Kodi: Режиссёр / Сценарий / Жанр / Студия / Премьера…)
+const metaRow = (label, value) => value
+  ? `<div class="flex text-[clamp(12px,calc(var(--uivh)*2.2),15px)] leading-snug">
+       <span class="w-[92px] flex-none text-zinc-500">${label}</span>
+       <span class="min-w-0 flex-1 text-zinc-200">${value}</span>
+     </div>`
+  : "";
+const techChip = (t) => `<span class="mb-2 mr-2 rounded-md bg-black/60 px-2.5 py-1 text-[12px] font-bold tracking-wide text-zinc-200 ring-1 ring-white/15">${t}</span>`;
+const CODEC_NAMES = { h264: "H.264", hevc: "HEVC", h265: "HEVC", mpeg4: "MPEG-4", vp9: "VP9", av1: "AV1", ac3: "DOLBY", eac3: "DOLBY+", dts: "DTS", aac: "AAC", mp3: "MP3", opus: "OPUS" };
+const codecName = (c) => CODEC_NAMES[String(c || "").toLowerCase()] || String(c || "").toUpperCase();
+
 function renderDetail() {
   const i = state.current;
   if (!i) { state.screen = "grid"; return render(); }
   const bg = backdrop(i.backdrop) || poster(i.poster);
+  const p = poster(i.poster);
   const eps = i.episodes && i.episodes.length ? i.episodes : [i];
   const multi = eps.length > 1;
+  const castX = i.castX && i.castX.length ? i.castX : [];
   app.innerHTML = `
     <div class="relative h-full overflow-hidden">
-      <div class="absolute top-0 right-0 bottom-0 left-0 bg-black bg-cover bg-center brightness-[.38] saturate-[1.1]" style="${bg ? `background-image:url('${bg}')` : ""}"></div>
-      <div class="absolute top-0 right-0 bottom-0 left-0 bg-gradient-to-r from-zinc-950/95 via-zinc-950/65 to-zinc-950/30"></div>
-      <div class="absolute right-0 bottom-0 left-0 h-40 bg-gradient-to-t from-zinc-950/90 to-transparent"></div>
-      <div class="relative flex h-full max-w-[1100px] flex-col">
+      <div class="absolute top-0 right-0 bottom-0 left-0 bg-black bg-cover bg-center brightness-[.3] saturate-[1.1]" style="${bg ? `background-image:url('${bg}')` : ""}"></div>
+      <div class="absolute top-0 right-0 bottom-0 left-0 bg-gradient-to-r from-zinc-950/90 via-zinc-950/70 to-zinc-950/40"></div>
+      <div class="relative flex h-full flex-col">
         <!-- Фиксированная шапка: «Назад» + название, всплывающее когда заголовок ушёл за экран -->
-        <div class="flex items-center space-x-4 px-16 pb-2 pt-[clamp(10px,calc(var(--uivh)*2.5),24px)]">
-          <button class="dfoc flex flex-none cursor-pointer items-center rounded-xl border border-white/10 bg-white/5 py-2 pl-3 pr-6 text-[clamp(15px,calc(var(--uivh)*2.4),18px)] font-semibold outline-none backdrop-blur transition duration-150 focus:scale-105 focus:border-violet-400 focus:ring-4 focus:ring-violet-500/30" id="detail-back">${ICONS.back("mr-1.5 h-5 w-5")} Назад</button>
+        <div class="flex items-center space-x-4 px-12 pb-2 pt-[clamp(8px,calc(var(--uivh)*2),20px)]">
+          <button class="dfoc flex flex-none cursor-pointer items-center rounded-xl border border-white/10 bg-white/5 py-1.5 pl-3 pr-5 text-[clamp(14px,calc(var(--uivh)*2.3),17px)] font-semibold outline-none backdrop-blur transition duration-150 focus:scale-105 focus:border-violet-400 focus:ring-4 focus:ring-violet-500/30" id="detail-back">${ICONS.back("mr-1.5 h-5 w-5")} Назад</button>
           <div id="detail-topname" class="flex min-w-0 items-center space-x-3 opacity-0 transition-opacity duration-200">
-            <span class="min-w-0 truncate text-[clamp(17px,calc(var(--uivh)*3),24px)] font-bold tracking-tight">${esc(i.title)}</span>
+            <span class="min-w-0 truncate text-[clamp(16px,calc(var(--uivh)*2.8),22px)] font-bold tracking-tight">${esc(i.title)}</span>
             ${i.year ? `<span class="flex-none rounded-full bg-zinc-800/90 px-2.5 py-0.5 text-[13px] font-medium text-zinc-300">${i.year}</span>` : ""}
             ${i.rating ? `<span class="flex flex-none items-center rounded-full bg-amber-400/10 px-2.5 py-0.5 text-[13px] font-semibold text-amber-400 ring-1 ring-amber-400/20">${ICONS.star("mr-1 h-3.5 w-3.5")}${Number(i.rating).toFixed(1)}</span>` : ""}
             ${multi ? `<span class="flex-none rounded-full bg-zinc-800/90 px-2.5 py-0.5 text-[13px] font-medium text-zinc-300">${eps.length} серий</span>` : ""}
           </div>
         </div>
-        <!-- Остальное скроллится единым потоком (описание, кадры, серии) -->
-        <div id="detail-scroll" class="flex-1 space-y-[clamp(8px,calc(var(--uivh)*1.8),16px)] overflow-y-auto px-16 pb-[clamp(16px,calc(var(--uivh)*4),48px)] pt-1">
-          <div id="detail-title" class="text-[clamp(24px,calc(var(--uivh)*5.5),38px)] font-extrabold leading-tight tracking-tight drop-shadow-lg">${esc(i.title)}</div>
-          <div class="-ml-2 -mt-2 flex flex-wrap">${metaChips(i)}${multi ? `<span class="${CHIP} bg-zinc-800/90 text-zinc-300">${eps.length} серий</span>` : ""}</div>
-          <div class="line-clamp-5 max-w-[780px] text-[clamp(15px,calc(var(--uivh)*2.7),20px)] leading-relaxed text-zinc-200 drop-shadow">${esc(i.overview || "Нет описания")}</div>
-          ${i.cast && i.cast.length ? `<div class="max-w-[780px] text-[clamp(13px,calc(var(--uivh)*2.2),16px)] text-zinc-400">В ролях: ${esc(i.cast.join(", "))}</div>` : ""}
-          ${multi ? "" : `<div class="mt-1 flex space-x-4 overflow-hidden">${(i.backdrops || []).slice(0, 5).map((p) => `<img class="h-[clamp(80px,calc(var(--uivh)*20),150px)] flex-none rounded-xl shadow-xl shadow-black/40 ring-1 ring-white/10" src="${shot(p)}" alt="" />`).join("")}</div>`}
+        <!-- Остальное скроллится единым потоком -->
+        <div id="detail-scroll" class="flex-1 overflow-y-auto px-12 pb-[clamp(14px,calc(var(--uivh)*3),36px)] pt-1">
+          ${castX.length ? `
+          <div class="flex space-x-3 overflow-x-auto pb-2">
+            ${castX.map((a) => `
+              <div class="w-[clamp(64px,calc(var(--uivw)*7),110px)] flex-none text-center">
+                <div class="h-0 w-full rounded-lg bg-zinc-800 bg-cover bg-center pb-[130%] ring-1 ring-white/10" style="${a.p ? `background-image:url('${prof(a.p)}')` : ""}"></div>
+                <div class="mt-1 truncate text-[clamp(10px,calc(var(--uivh)*1.9),13px)] font-semibold leading-tight">${esc(a.n)}</div>
+                <div class="truncate text-[clamp(9px,calc(var(--uivh)*1.7),12px)] leading-tight text-zinc-400">${esc(a.c)}</div>
+              </div>`).join("")}
+          </div>` : ""}
+          <div class="mt-1 flex space-x-7">
+            ${p ? `<div class="w-[22%] max-w-[280px] flex-none">
+              <div class="h-0 w-full rounded-xl bg-zinc-800 bg-cover bg-center pb-[150%] shadow-2xl shadow-black/60 ring-1 ring-white/15" style="background-image:url('${p}')"></div>
+            </div>` : ""}
+            <div class="min-w-0 flex-1">
+              <div id="detail-title" class="text-[clamp(20px,calc(var(--uivh)*4.4),32px)] font-extrabold leading-tight tracking-tight drop-shadow-lg">${esc(i.title)}${i.year ? ` <span class="font-semibold text-zinc-400">(${i.year})</span>` : ""}</div>
+              ${i.tagline ? `<div class="mt-0.5 text-[clamp(12px,calc(var(--uivh)*2.3),16px)] italic text-zinc-400">«${esc(i.tagline)}»</div>` : ""}
+              <div class="mt-3 flex space-x-7">
+                <div class="min-w-0 flex-1 text-[clamp(13px,calc(var(--uivh)*2.5),17px)] leading-relaxed text-zinc-200 drop-shadow">${esc(i.overview || "Нет описания")}</div>
+                <div class="w-[38%] max-w-[380px] flex-none space-y-1">
+                  ${metaRow("Режиссёр", esc(i.director))}
+                  ${metaRow("Сценарий", esc(i.writers))}
+                  ${metaRow("Рейтинг", i.rating ? `<span class="font-semibold text-amber-400">★ ${Number(i.rating).toFixed(1)}</span>${i.votes ? ` <span class="text-zinc-500">(${Number(i.votes).toLocaleString("ru-RU")})</span>` : ""}` : "")}
+                  ${metaRow("Жанр", esc((i.genres || []).join(", ")))}
+                  ${metaRow("Страна", esc(i.country))}
+                  ${metaRow("Студия", esc(i.studio))}
+                  ${metaRow("Премьера", fmtDate(i.premiered))}
+                  ${metaRow("Коллекция", i.collection && i.collection.name ? esc(i.collection.name) : "")}
+                </div>
+              </div>
+              ${multi ? "" : `
+              <div class="mt-4 flex items-center space-x-3">
+                <button class="dfoc flex cursor-pointer items-center rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-[clamp(20px,calc(var(--uivw)*3.5),36px)] py-[clamp(8px,calc(var(--uivh)*2),14px)] text-[clamp(15px,calc(var(--uivh)*2.8),20px)] font-bold text-white shadow-xl shadow-violet-600/40 outline-none transition focus:scale-[1.04] focus:ring-4 focus:ring-violet-400/50" id="detail-play" data-id="${esc(i.id)}">${ICONS.play("mr-3 h-[1.2em] w-[1.2em]")} Смотреть</button>
+                <button class="dfoc epw flex cursor-pointer items-center rounded-2xl border border-white/15 px-5 py-[clamp(8px,calc(var(--uivh)*2),14px)] text-[clamp(13px,calc(var(--uivh)*2.3),16px)] font-semibold outline-none backdrop-blur transition focus:ring-4 ${i.watched ? "bg-emerald-500/15 text-emerald-300 focus:ring-emerald-500/40" : "bg-white/5 text-zinc-300 focus:ring-violet-500/40"}"
+                  data-id="${esc(i.id)}" data-set="${i.watched ? 0 : 1}">${ICONS.check("mr-2 h-[1.1em] w-[1.1em]")}${i.watched ? "Просмотрено" : "Отметить просмотренным"}</button>
+              </div>
+              <div id="tech-strip" class="mt-4 flex flex-wrap">
+                ${i.premiered ? techChip("📅 " + fmtDate(i.premiered)) : ""}
+                ${i.runtime ? techChip("⏱ " + fmtDur(i.runtime * 60)) : ""}
+              </div>`}
+            </div>
+          </div>
           ${multi ? `
-          <div class="max-w-[720px] space-y-1.5 pr-2">
+          <div class="mt-4 max-w-[760px] space-y-1.5 pr-2">
             ${eps.map((ep) => `
               <div class="flex items-center">
                 <button class="dfoc ep flex min-w-0 flex-1 cursor-pointer items-center rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-left text-[15px] outline-none backdrop-blur transition focus:border-violet-400 focus:bg-violet-500/15 focus:ring-2 focus:ring-violet-500/40 ${ep.watched ? "opacity-60" : ""}" data-id="${esc(ep.id)}">
@@ -422,12 +473,7 @@ function renderDetail() {
                 <button class="dfoc epw ml-1.5 grid h-9 w-9 flex-none cursor-pointer place-items-center rounded-lg border border-white/10 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/40 ${ep.watched ? "bg-emerald-500/20 text-emerald-400" : "bg-white/5 text-zinc-500"}"
                   data-id="${esc(ep.id)}" data-set="${ep.watched ? 0 : 1}" title="Просмотрено / не просмотрено">${ICONS.check("h-4 w-4")}</button>
               </div>`).join("")}
-          </div>` : `
-          <div class="mt-4 flex items-center space-x-3">
-            <button class="dfoc flex cursor-pointer items-center rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-[clamp(24px,calc(var(--uivw)*4),40px)] py-[clamp(10px,calc(var(--uivh)*2.2),16px)] text-[clamp(17px,calc(var(--uivh)*3),22px)] font-bold text-white shadow-xl shadow-violet-600/40 outline-none transition focus:scale-[1.04] focus:ring-4 focus:ring-violet-400/50" id="detail-play" data-id="${esc(i.id)}">${ICONS.play("mr-3 h-[1.2em] w-[1.2em]")} Смотреть</button>
-            <button class="dfoc epw flex cursor-pointer items-center rounded-2xl border border-white/15 px-5 py-[clamp(10px,calc(var(--uivh)*2.2),16px)] text-[clamp(14px,calc(var(--uivh)*2.4),17px)] font-semibold outline-none backdrop-blur transition focus:ring-4 ${i.watched ? "bg-emerald-500/15 text-emerald-300 focus:ring-emerald-500/40" : "bg-white/5 text-zinc-300 focus:ring-violet-500/40"}"
-              data-id="${esc(i.id)}" data-set="${i.watched ? 0 : 1}">${ICONS.check("mr-2 h-[1.1em] w-[1.1em]")}${i.watched ? "Просмотрено" : "Отметить просмотренным"}</button>
-          </div>`}
+          </div>` : ""}
         </div>
       </div>
     </div>`;
@@ -439,6 +485,7 @@ function renderDetail() {
   }));
   const playBtn = document.getElementById("detail-play");
   if (playBtn) playBtn.addEventListener("click", () => play(i.id));
+  if (!multi) loadTech(i);
   // Название в шапке появляется, когда большой заголовок скрылся при скролле.
   const sc = document.getElementById("detail-scroll");
   const big = document.getElementById("detail-title");
@@ -447,6 +494,29 @@ function renderDetail() {
     topName.style.opacity = sc.scrollTop > big.offsetTop + big.offsetHeight - 8 ? "1" : "0";
   });
   (app.querySelector(".ep") || playBtn || document.getElementById("detail-back")).focus();
+}
+
+// Техчипы (Kodi-стиль: кодек, разрешение, аспект, звук) — ffprobe на ноде, лениво.
+async function loadTech(i) {
+  const el = document.getElementById("tech-strip");
+  if (!el) return;
+  try {
+    let r = await fetch("/api/mediainfo?id=" + encodeURIComponent(i.id));
+    if (r.status === 503) { await new Promise((ok) => setTimeout(ok, 4000)); r = await fetch("/api/mediainfo?id=" + encodeURIComponent(i.id)); }
+    if (!r.ok) return;
+    const m = await r.json();
+    if (document.getElementById("tech-strip") !== el) return; // экран сменился
+    const chips = [
+      i.premiered ? techChip("📅 " + fmtDate(i.premiered)) : "",
+      m.duration ? techChip("⏱ " + fmtDur(m.duration)) : (i.runtime ? techChip("⏱ " + fmtDur(i.runtime * 60)) : ""),
+      m.vcodec ? techChip(codecName(m.vcodec)) : "",
+      m.height ? techChip(m.height >= 2000 ? "4K" : m.height >= 1000 ? "1080 HD" : m.height >= 700 ? "720 HD" : "SD") : "",
+      m.width && m.height ? techChip((m.width / m.height).toFixed(2) + ":1") : "",
+      m.acodec ? techChip(codecName(m.acodec)) : "",
+      m.channels ? techChip(m.channels >= 8 ? "7.1" : m.channels >= 6 ? "5.1" : m.channels + ".0") : ""
+    ];
+    el.innerHTML = chips.filter(Boolean).join("");
+  } catch (_) { /* нет ffprobe — остаются TMDb-чипы */ }
 }
 
 /* ---------- Переходы (через History API: браузерная «Назад» тоже работает) ---------- */

@@ -1,7 +1,7 @@
 // Минимальный service worker: нужен, чтобы TV-страница считалась устанавливаемой PWA
 // (ярлык на рабочем столе + запуск в отдельном окне). Кэшируем оболочку для оффлайна;
 // сеть — в приоритете, чтобы данные (/api/*, /stream) всегда были свежими.
-const CACHE = "mc-tv-v17";
+const CACHE = "mc-tv-v18";
 const SHELL = ["/", "/index.html", "/tailwind.js", "/app.js", "/icon.svg", "/icons/icon-192.png"];
 
 self.addEventListener("install", (e) => {
