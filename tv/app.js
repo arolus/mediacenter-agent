@@ -735,18 +735,25 @@ function renderPerson() {
   app.innerHTML = `
     <div class="flex h-full">
       <div class="flex w-[30%] min-w-[250px] max-w-[460px] flex-col overflow-hidden border-r border-white/5 bg-zinc-900/60 px-6 py-6 backdrop-blur-xl">
-        <div class="flex flex-none space-x-4">
-          <div class="w-[42%] max-w-[150px] flex-none">
-            <div id="person-photo" class="h-0 w-full rounded-xl bg-zinc-800 bg-cover bg-center pb-[130%] shadow-2xl shadow-black/50 ring-1 ring-white/10" style="${photo ? `background-image:url('${shot(photo)}')` : ""}"></div>
+        <!-- Панель контекстная: инфо актёра (фокус на «Назад»/нигде) ИЛИ инфо фильма (фокус на карточке) -->
+        <div id="person-info-actor" class="flex min-h-0 flex-1 flex-col">
+          <div class="flex flex-none space-x-4">
+            <div class="w-[42%] max-w-[150px] flex-none">
+              <div id="person-photo" class="h-0 w-full rounded-xl bg-zinc-800 bg-cover bg-center pb-[130%] shadow-2xl shadow-black/50 ring-1 ring-white/10" style="${photo ? `background-image:url('${shot(photo)}')` : ""}"></div>
+            </div>
+            <div class="min-w-0 flex-1">
+              <div class="text-[clamp(16px,calc(var(--uivh)*3.2),22px)] font-bold leading-tight tracking-tight">${esc(name)}</div>
+              <div class="mt-1 text-[clamp(11px,calc(var(--uivh)*2),14px)] text-violet-300">${[...jobs].join(" · ")}</div>
+              <div id="person-dates" class="mt-1 text-[clamp(10px,calc(var(--uivh)*1.9),13px)] text-zinc-500"></div>
+            </div>
           </div>
-          <div class="min-w-0 flex-1">
-            <div class="text-[clamp(16px,calc(var(--uivh)*3.2),22px)] font-bold leading-tight tracking-tight">${esc(name)}</div>
-            <div class="mt-1 text-[clamp(11px,calc(var(--uivh)*2),14px)] text-violet-300">${[...jobs].join(" · ")}</div>
-            <div id="person-dates" class="mt-1 text-[clamp(10px,calc(var(--uivh)*1.9),13px)] text-zinc-500"></div>
-          </div>
+          <div id="person-bio" tabindex="0" class="thin-scroll mt-3 min-h-0 flex-1 overflow-y-auto rounded-md pr-1 text-[clamp(11px,calc(var(--uivh)*2.1),14px)] leading-snug text-zinc-400 outline-none focus:ring-2 focus:ring-violet-500/40"></div>
         </div>
-        <div id="person-bio" tabindex="0" class="thin-scroll mt-3 min-h-0 flex-1 overflow-y-auto rounded-md pr-1 text-[clamp(11px,calc(var(--uivh)*2.1),14px)] leading-snug text-zinc-400 outline-none focus:ring-2 focus:ring-violet-500/40"></div>
-        <div id="person-focus" class="h-9 flex-none pt-2 text-[clamp(11px,calc(var(--uivh)*2.1),14px)] leading-tight text-zinc-300"></div>
+        <div id="person-info-film" class="hidden min-h-0 flex-1 flex-col">
+          <div id="pf-title" class="flex-none text-[clamp(18px,calc(var(--uivh)*3.8),28px)] font-bold leading-tight tracking-tight"></div>
+          <div id="pf-meta" class="mt-1.5 flex-none text-[clamp(11px,calc(var(--uivh)*2),14px)] text-zinc-400"></div>
+          <div id="pf-overview" class="mt-3 flex-1 overflow-y-auto pr-1 text-[clamp(12px,calc(var(--uivh)*2.2),15px)] leading-snug text-zinc-300"></div>
+        </div>
       </div>
       <div class="flex min-w-0 flex-1 flex-col px-3 pt-2">
         <div class="flex flex-none items-center space-x-3 px-2.5 pt-1.5">
@@ -800,19 +807,48 @@ function renderPersonFilms(credits, lib, full) {
     </div>`;
   const progress = document.getElementById("person-progress");
   if (progress && full) progress.remove(); // полная пришла — индикатор больше не нужен
-  const focusInfo = document.getElementById("person-focus");
+  // Левая панель контекстная: фокус на карточке — инфо фильма (как в списке фильмов:
+  // рейтинг/год/длительность/роль + описание), фокус на «Назад» — снова инфо актёра.
+  const byKey = new Map(credits.map((c) => [c.kind + "_" + c.tmdbId, c]));
+  const showActor = () => {
+    document.getElementById("person-info-film")?.classList.add("hidden");
+    document.getElementById("person-info-actor")?.classList.remove("hidden");
+  };
+  const showFilm = (key) => {
+    const filmEl = document.getElementById("person-info-film");
+    if (!filmEl) return;
+    const c = byKey.get(key) || {};
+    const li = lib.get(key); // элемент медиатеки — у него данные полнее (IMDb, длительность)
+    const rating = Number((li && li.imdbRating) || c.rating || 0);
+    const meta = [
+      rating ? `<span class="font-semibold text-yellow-300">★ ${rating.toFixed(1)}</span>` : "",
+      (li && li.year) || c.year ? String((li && li.year) || c.year) : "",
+      li ? fmtRuntime(li.runtime) : "",
+      (c.roles || []).length ? esc(c.roles.slice(0, 2).join(", ")) : ""
+    ].filter(Boolean).join('<span class="mx-1.5 text-zinc-600">·</span>');
+    document.getElementById("pf-title").textContent = (li && li.title) || c.title || "";
+    document.getElementById("pf-meta").innerHTML = meta;
+    document.getElementById("pf-overview").textContent = (li && li.overview) || c.overview || "Нет описания";
+    document.getElementById("person-info-actor")?.classList.add("hidden");
+    filmEl.classList.remove("hidden");
+  };
   el.querySelectorAll(".pcard").forEach((card) => {
-    card.addEventListener("focus", () => {
-      if (focusInfo) focusInfo.textContent = `${card.dataset.title}${card.dataset.year ? " (" + card.dataset.year + ")" : ""}${card.dataset.roles ? " · " + card.dataset.roles : ""}`;
-    });
+    card.addEventListener("focus", () => showFilm(card.dataset.key));
     card.addEventListener("click", () => {
       const it = lib.get(card.dataset.key);
       if (it) { it.isCollection ? enterCollection(it) : enterDetail(it); }
       else { showOverlay("Нет в медиатеке"); setTimeout(hideOverlay, 1400); }
     });
   });
-  el.querySelector(".grid-back").addEventListener("click", back);
-  (el.querySelector(".pcard") || el.querySelector(".grid-back")).focus({ preventScroll: true });
+  const bt = el.querySelector(".grid-back");
+  bt.addEventListener("click", back);
+  bt.addEventListener("focus", showActor);
+  // Начальный фокус — на «Назад» (страница открывается с инфо актёра). При перерисовке
+  // (доехала полная фильмография) фокус и панель сохраняются: та же карточка или биография.
+  const prevKey = document.activeElement?.dataset?.key || null;
+  const prevCard = prevKey ? el.querySelector(`.pcard[data-key="${CSS.escape(prevKey)}"]`) : null;
+  if (prevCard) { prevCard.focus({ preventScroll: true }); showFilm(prevKey); }
+  else if (document.activeElement?.id !== "person-bio") { bt.focus({ preventScroll: true }); showActor(); }
 }
 
 // Техчипы (Kodi-стиль: кодек, разрешение, аспект, звук) — ffprobe на ноде, лениво.
