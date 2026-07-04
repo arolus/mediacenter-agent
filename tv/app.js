@@ -420,7 +420,7 @@ const metaRow = (label, value) => value
        <span class="min-w-0 flex-1 text-zinc-200">${value}</span>
      </div>`
   : "";
-const techChip = (t) => `<span class="mb-2 mr-2 rounded-md bg-black/60 px-2.5 py-1 text-[12px] font-bold tracking-wide text-zinc-200 ring-1 ring-white/15">${t}</span>`;
+const techChip = (t) => `<span class="mb-1 mr-1 rounded bg-black/60 px-1.5 py-0.5 text-[8px] font-bold tracking-wide text-zinc-300 ring-1 ring-white/15">${t}</span>`;
 const CODEC_NAMES = { h264: "H.264", hevc: "HEVC", h265: "HEVC", mpeg4: "MPEG-4", vp9: "VP9", av1: "AV1", ac3: "DOLBY", eac3: "DOLBY+", dts: "DTS", aac: "AAC", mp3: "MP3", opus: "OPUS" };
 const codecName = (c) => CODEC_NAMES[String(c || "").toLowerCase()] || String(c || "").toUpperCase();
 
