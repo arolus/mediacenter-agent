@@ -447,8 +447,7 @@ function renderDetail() {
   const BTN = "dfoc flex flex-none cursor-pointer items-center rounded-2xl border border-white/15 px-4 py-[clamp(7px,calc(var(--uivh)*1.8),12px)] text-[clamp(12px,calc(var(--uivh)*2.2),15px)] font-semibold outline-none backdrop-blur transition focus:ring-4";
   const metaTable = `
     ${metaRow("Режиссёр", personLinks(i.director))}
-    ${metaRow("TMDb", i.rating ? `<span class="font-semibold text-amber-400">★ ${Number(i.rating).toFixed(1)}</span>${i.votes ? ` <span class="text-zinc-500">(${Number(i.votes).toLocaleString("ru-RU")})</span>` : ""}` : "")}
-    ${metaRow("IMDb", i.imdbRating ? `<span class="font-semibold text-yellow-300">★ ${Number(i.imdbRating).toFixed(1)}</span>${i.imdbVotes ? ` <span class="text-zinc-500">(${Number(i.imdbVotes).toLocaleString("ru-RU")})</span>` : ""}` : "")}
+    ${metaRow("Рейтинг", i.imdbRating ? `<span class="font-semibold text-yellow-300">★ ${Number(i.imdbRating).toFixed(1)}</span>${i.imdbVotes ? ` <span class="text-zinc-500">(${Number(i.imdbVotes).toLocaleString("ru-RU")})</span>` : ""} <span class="text-zinc-600">IMDb</span>` : "")}
     ${metaRow("Жанр", esc((i.genres || []).join(", ")))}
     ${metaRow("Страна", esc(i.country))}
     ${metaRow("Студия", esc(i.studio))}
