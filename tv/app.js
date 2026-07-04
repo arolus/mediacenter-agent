@@ -756,8 +756,8 @@ function renderPerson() {
             загружаю полную…
           </span>
         </div>
-        <!-- Горизонтальная лента: свежие слева, листается ←/→ (и свайпом) -->
-        <div id="person-films" class="thin-scroll flex min-h-0 flex-1 items-center space-x-3 overflow-x-auto overflow-y-hidden pb-2 pl-2.5 pt-2">${spinner("Загружаю фильмографию…")}</div>
+        <!-- Плитки строками и колонками: свежие первыми, вертикальный скролл -->
+        <div id="person-films" class="thin-scroll min-h-0 flex-1 overflow-y-auto pb-3 pl-2.5 pt-2">${spinner("Загружаю фильмографию…")}</div>
       </div>
     </div>`;
   // Пока TMDb грузится/недоступен — локальная фильмография; потом заменим полной.
@@ -782,20 +782,22 @@ function renderPerson() {
     });
 }
 
-// Правая зона страницы персоны: фильмография ГОРИЗОНТАЛЬНОЙ лентой, свежие слева.
-// full=true — пришла полная фильмография TMDb (прячем индикатор загрузки).
+// Правая зона страницы персоны: фильмография ПЛИТКАМИ (строки × колонки), свежие первыми,
+// вертикальный скролл. full=true — пришла полная фильмография TMDb (прячем индикатор).
 function renderPersonFilms(credits, lib, full) {
   const el = document.getElementById("person-films");
   if (!el) return;
   const sorted = [...credits].sort((a, b) => (b.year || 0) - (a.year || 0) || String(a.title).localeCompare(String(b.title)));
   el.innerHTML = `
-    <div class="flex-none">${backTile().replace('w-[var(--card-w)]', 'w-[calc(var(--card-w)*0.7)]')}</div>
-    ${sorted.map((c) => {
-      const key = c.kind + "_" + c.tmdbId;
-      const libItem = lib.get(key);
-      // рейтинг: IMDb для того, что в медиатеке; TMDb (из фильмографии) для остального
-      return pcardHtml(c, lib.has(key), (libItem && libItem.imdbRating) || c.rating || 0);
-    }).join("")}`;
+    <div class="flex flex-wrap">
+      <div class="mb-3 mr-3">${backTile().replace('w-[var(--card-w)]', 'w-[calc(var(--card-w)*0.7)]')}</div>
+      ${sorted.map((c) => {
+        const key = c.kind + "_" + c.tmdbId;
+        const libItem = lib.get(key);
+        // рейтинг: IMDb для того, что в медиатеке; TMDb (из фильмографии) для остального
+        return `<div class="mb-3 mr-3">${pcardHtml(c, lib.has(key), (libItem && libItem.imdbRating) || c.rating || 0)}</div>`;
+      }).join("")}
+    </div>`;
   const progress = document.getElementById("person-progress");
   if (progress && full) progress.remove(); // полная пришла — индикатор больше не нужен
   const focusInfo = document.getElementById("person-focus");
