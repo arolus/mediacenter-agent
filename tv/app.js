@@ -473,8 +473,12 @@ function renderDetail() {
       <div class="absolute top-0 right-0 bottom-0 left-0 bg-black bg-cover bg-center brightness-[.3] saturate-[1.1]" style="${bg ? `background-image:url('${bg}')` : ""}"></div>
       <div class="absolute top-0 right-0 bottom-0 left-0 bg-gradient-to-r from-zinc-950/90 via-zinc-950/70 to-zinc-950/40"></div>
       <div class="relative flex h-full min-h-0 space-x-6 px-7 py-[clamp(10px,calc(var(--uivh)*2.4),22px)]">
-        ${p ? `<div class="w-[21%] max-w-[280px] flex-none">
-          <div class="h-0 w-full rounded-xl bg-zinc-800 bg-cover bg-center pb-[150%] shadow-2xl shadow-black/60 ring-1 ring-white/15" style="background-image:url('${p}')"></div>
+        ${p || !multi ? `<div class="flex w-[21%] max-w-[280px] flex-none flex-col">
+          ${p ? `<div class="h-0 w-full flex-none rounded-xl bg-zinc-800 bg-cover bg-center pb-[150%] shadow-2xl shadow-black/60 ring-1 ring-white/15" style="background-image:url('${p}')"></div>` : ""}
+          ${multi ? "" : `<div id="tech-strip" class="mt-2.5 flex flex-none flex-wrap">
+            ${i.premiered ? techChip("📅 " + fmtDate(i.premiered)) : ""}
+            ${i.runtime ? techChip("⏱ " + fmtDur(i.runtime * 60)) : ""}
+          </div>`}
         </div>` : ""}
         <div class="flex min-w-0 flex-1 flex-col">
           ${castX.length ? `
@@ -489,7 +493,7 @@ function renderDetail() {
           <div class="mt-1 flex-none truncate text-[clamp(18px,calc(var(--uivh)*4),28px)] font-extrabold leading-tight tracking-tight drop-shadow-lg">${esc(i.title)}${i.year ? ` <span class="font-semibold text-zinc-400">(${i.year})</span>` : ""}${multi ? ` <span class="text-[0.6em] font-semibold text-zinc-400">· ${eps.length} серий</span>` : ""}</div>
           ${i.tagline ? `<div class="flex-none truncate text-[clamp(11px,calc(var(--uivh)*2.1),15px)] italic text-zinc-400">«${esc(i.tagline)}»</div>` : ""}
           <div class="mt-2 flex min-h-0 flex-1 space-x-6">
-            <div class="min-w-0 flex-1 overflow-y-auto pr-1 text-[clamp(12px,calc(var(--uivh)*2.4),16px)] leading-relaxed text-zinc-200 drop-shadow">
+            <div class="min-w-0 flex-1 overflow-y-auto pr-1 text-[clamp(12px,calc(var(--uivh)*2.4),16px)] leading-snug text-zinc-200 drop-shadow">
               ${esc(i.overview || "Нет описания")}
               ${multi ? `<div class="mt-3 space-y-1">${metaTable}</div>` : ""}
             </div>
@@ -497,17 +501,13 @@ function renderDetail() {
               ? `<div class="w-[46%] max-w-[560px] flex-none space-y-1.5 overflow-y-auto pr-1">${episodesHtml}</div>`
               : `<div class="w-[38%] max-w-[400px] flex-none space-y-1 overflow-y-auto">${metaTable}</div>`}
           </div>
-          <div class="mt-2.5 flex flex-none items-center space-x-2.5">
+          <div id="detail-buttons" class="mt-2.5 flex flex-none items-center space-x-2.5">
             <button class="${BTN} bg-white/5 text-zinc-300 focus:ring-violet-500/40" id="detail-back">${ICONS.back("mr-1.5 h-[1.1em] w-[1.1em]")} Назад</button>
             ${multi ? "" : `<button class="dfoc flex flex-none cursor-pointer items-center rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-[clamp(18px,calc(var(--uivw)*3),32px)] py-[clamp(7px,calc(var(--uivh)*1.8),12px)] text-[clamp(14px,calc(var(--uivh)*2.6),18px)] font-bold text-white shadow-xl shadow-violet-600/40 outline-none transition focus:scale-[1.04] focus:ring-4 focus:ring-violet-400/50" id="detail-play" data-id="${esc(i.id)}">${ICONS.play("mr-2 h-[1.2em] w-[1.2em]")} Смотреть</button>`}
             ${i.trailer ? `<button class="${BTN} bg-white/5 text-zinc-300 focus:ring-violet-500/40" id="detail-trailer">${ICONS.movie("mr-2 h-[1.1em] w-[1.1em]")} Трейлер</button>` : ""}
             ${multi ? "" : `<button class="${BTN} epw ${i.watched ? "bg-emerald-500/15 text-emerald-300 focus:ring-emerald-500/40" : "bg-white/5 text-zinc-300 focus:ring-violet-500/40"}"
               data-id="${esc(i.id)}" data-set="${i.watched ? 0 : 1}">${ICONS.check("mr-2 h-[1.1em] w-[1.1em]")}${i.watched ? "Просмотрено" : "Отметить просмотренным"}</button>`}
           </div>
-          ${multi ? "" : `<div id="tech-strip" class="mt-2.5 -mb-2 flex flex-none flex-wrap items-center">
-            ${i.premiered ? techChip("📅 " + fmtDate(i.premiered)) : ""}
-            ${i.runtime ? techChip("⏱ " + fmtDur(i.runtime * 60)) : ""}
-          </div>`}
         </div>
       </div>
     </div>`;
@@ -679,18 +679,39 @@ document.addEventListener("keydown", (e) => {
   }
 
   if (state.screen === "detail") {
-    // фокус ходит по цепочке: Назад → серии (список) → Смотреть
-    const foc = [...app.querySelectorAll(".dfoc")];
-    const idx = foc.indexOf(cur);
-    if (["ArrowDown", "ArrowRight"].includes(e.key)) {
-      e.preventDefault();
-      const n = foc[idx < 0 ? 0 : Math.min(foc.length - 1, idx + 1)];
-      if (n) { n.focus(); n.scrollIntoView({ block: "nearest", behavior: "smooth" }); }
-    } else if (["ArrowUp", "ArrowLeft"].includes(e.key)) {
-      e.preventDefault();
-      const n = foc[idx < 0 ? 0 : Math.max(0, idx - 1)];
-      if (n) { n.focus(); n.scrollIntoView({ block: "nearest", behavior: "smooth" }); }
-    } else if (e.key === "Enter" || e.key === " " || e.key === "MediaPlayPause") { e.preventDefault(); cur?.click(); }
+    // Зоны: актёры (горизонталь) → серии (вертикаль; ←/→ = серия/галка) → кнопки (горизонталь).
+    // Вверх/вниз — переход между зонами (в зону — на её первый элемент), влево/вправо — внутри.
+    if (e.key === "Enter" || e.key === " " || e.key === "MediaPlayPause") { e.preventDefault(); cur?.click(); return; }
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return;
+    e.preventDefault();
+    const actors = [...app.querySelectorAll(".actor")];
+    const epRows = [...app.querySelectorAll(".ep")].map((ep) => {
+      const w = ep.parentElement.querySelector(".epw");
+      return w ? [ep, w] : [ep];
+    });
+    const buttons = [...app.querySelectorAll("#detail-buttons .dfoc")];
+    const focusEl = (el) => { if (el) { el.focus({ preventScroll: true }); el.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" }); } };
+    const aIdx = actors.indexOf(cur);
+    const rowIdx = epRows.findIndex((r) => r.includes(cur));
+    const bIdx = buttons.indexOf(cur);
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      const d = e.key === "ArrowRight" ? 1 : -1;
+      if (aIdx >= 0) focusEl(actors[Math.max(0, Math.min(actors.length - 1, aIdx + d))]);
+      else if (rowIdx >= 0) { const row = epRows[rowIdx]; focusEl(row[Math.max(0, Math.min(row.length - 1, row.indexOf(cur) + d))]); }
+      else if (bIdx >= 0) focusEl(buttons[Math.max(0, Math.min(buttons.length - 1, bIdx + d))]);
+      else focusEl(buttons[0] || epRows[0]?.[0] || actors[0]);
+      return;
+    }
+    if (e.key === "ArrowDown") {
+      if (aIdx >= 0) focusEl(epRows[0]?.[0] || buttons[0]);
+      else if (rowIdx >= 0) focusEl(rowIdx < epRows.length - 1 ? epRows[rowIdx + 1][0] : buttons[0]);
+      // из кнопок вниз — некуда
+      return;
+    }
+    // ArrowUp
+    if (bIdx >= 0) focusEl(epRows.length ? epRows[epRows.length - 1][0] : actors[0]);
+    else if (rowIdx >= 0) focusEl(rowIdx > 0 ? epRows[rowIdx - 1][0] : actors[0]);
+    // из актёров вверх — некуда
   }
 });
 
