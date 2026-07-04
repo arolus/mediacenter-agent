@@ -308,8 +308,8 @@ function computeCardWidth() {
   const W = uiW();
   const cols = 4;
   const side = Math.min(460, Math.max(250, W * 0.3));
-  const gap = 16, gridPad = 44; // узкие поля: px-3 слева/справа + запас под фокус-кольца
-  const w = Math.max(96, Math.min(340, Math.floor((W - side - gridPad - (cols - 1) * gap) / cols)));
+  const gap = 28, gridPad = 56; // просторнее между постерами, сами постеры мельче
+  const w = Math.max(90, Math.min(280, Math.floor((W - side - gridPad - (cols - 1) * gap) / cols)));
   document.documentElement.style.setProperty("--card-w", w + "px");
   document.documentElement.style.setProperty("--cols", cols);
 }
@@ -352,7 +352,7 @@ function renderGridPage({ heading, count, list, empty, onOpen, fallbackInfo }) {
       <div class="flex flex-1 flex-col px-3 pt-2">
         <!-- pt/pl: чтобы фокус-кольцо и scale карточек не обрезались краем скролл-зоны -->
         <div class="flex-1 overflow-y-auto pb-4 pl-2.5 pt-2.5">
-          <div class="grid grid-cols-[repeat(var(--cols),var(--card-w))] justify-start gap-4">
+          <div class="grid grid-cols-[repeat(var(--cols),var(--card-w))] justify-start gap-7">
             ${backTile()}${list.map(cardHtml).join("") || empty}
           </div>
         </div>
@@ -758,7 +758,7 @@ document.addEventListener("keydown", (e) => {
     if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) {
       e.preventDefault();
       const next = nearest(cur, { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" }[e.key]);
-      if (next) { next.focus(); next.scrollIntoView({ block: "nearest", behavior: "smooth" }); }
+      if (next) { next.focus({ preventScroll: true }); next.scrollIntoView({ block: "nearest", behavior: "smooth" }); }
       else if (e.key === "ArrowLeft" && bioScrolls) bio.focus({ preventScroll: true }); // из сетки влево — в биографию
     } else if (e.key === "Enter" || e.key === " ") {
       e.preventDefault(); cur?.click();
