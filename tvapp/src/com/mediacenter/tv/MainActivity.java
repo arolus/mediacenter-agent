@@ -31,13 +31,16 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         // Телефон висит на HDMI как ТВ-приставка — экран не должен гаснуть.
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        WindowManager.LayoutParams lp = getWindow().getAttributes();
+        // Яркость 30%, пока приложение на экране: телефон меньше греется и жрёт, HDMI-выводу
+        // всё равно. Действует только на наше окно — при выходе система вернёт свою яркость.
+        lp.screenBrightness = 0.3f;
         // Рисуем под вырезом камеры: без этого система letterbox'ит зону выреза белой полосой.
         if (Build.VERSION.SDK_INT >= 28) {
-            WindowManager.LayoutParams lp = getWindow().getAttributes();
             lp.layoutInDisplayCutoutMode =
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
-            getWindow().setAttributes(lp);
         }
+        getWindow().setAttributes(lp);
 
         url = resolveUrl(getIntent());
 

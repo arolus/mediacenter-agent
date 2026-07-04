@@ -14,7 +14,6 @@ const { initFirebase } = require("./lib/firebase");
 const { syncLibrary } = require("./lib/library");
 const { watchCommands } = require("./lib/commands");
 const { watchTransfers } = require("./lib/transfer");
-const { watchSearches } = require("./lib/searches");
 const { watchDownloads } = require("./lib/downloads");
 const { watchUpdates, currentSha, currentBranch } = require("./lib/updater");
 const { startLocalServer } = require("./lib/localserver");
@@ -87,11 +86,10 @@ async function main() {
   // Подписки
   const stopCommands = watchCommands(ctx);
   const stopTransfers = watchTransfers(ctx);
-  const stopSearches = watchSearches(ctx);
   const stopDownloads = watchDownloads(ctx);
   const stopUpdates = watchUpdates(ctx);
   const stopLocal = startLocalServer(ctx);
-  console.log("✓ Агент готов. Слушаю команды, переносы, поиск, загрузки и обновления…");
+  console.log("✓ Агент готов. Слушаю команды, переносы, загрузки и обновления…");
 
   // Аккуратное завершение
   async function shutdown() {
@@ -100,7 +98,6 @@ async function main() {
     stopWatch();
     stopCommands();
     stopTransfers();
-    stopSearches();
     stopDownloads();
     stopUpdates();
     stopLocal();

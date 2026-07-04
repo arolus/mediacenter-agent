@@ -13,7 +13,7 @@ async function main() {
 
   const agent = {
     auth: config.auth,                         // аккаунт, под которым ноды входят в Firebase
-    rutracker: config.rutracker || null,       // креды rutracker для поиска/скачивания
+    // rutracker на ноды НЕ кладём: поиск и добыча .torrent идут на сервере (Cloud Functions)
     tmdbApiKey: creds.v3 || "",                // v3-ключ (компактнее в QR, чем v4-токен)
     tmdbLang: config.tmdbLang || "ru-RU",
     mediaRoot: config.mediaRoot || "/storage/emulated/0", // корень медиа (подпапки Movies/Series/Cartoons)
