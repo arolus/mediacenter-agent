@@ -57,6 +57,8 @@ const spinner = (label) => `
     <div class="text-lg text-zinc-400">${label}</div>
   </div>`;
 async function load() {
+  // Просим агента закрепить системную альбомную ориентацию (если у Termux есть права).
+  try { fetch("/api/ensure-landscape").catch(() => {}); } catch (_) {}
   try { deviceName = (await (await fetch("/api/device")).json()).name || ""; } catch (_) {}
   try { const st = await (await fetch("/api/player-status")).json(); playerMissing = st && st.installed === false; } catch (_) {}
   await reloadLibrary();
@@ -66,23 +68,41 @@ async function load() {
   // live-обновление: любое изменение (скан, «Исправить» из дашборда, переименование) прилетает сюда.
   // SSE держим ТОЛЬКО на видимой вкладке: фоновые дубли (агент открывает страницу при каждом
   // рестарте) иначе съедают весь пул соединений Chrome (6 на хост) — новые вкладки виснут.
-  let es = null;
+  let es = null, ssePending = null;
+  // Дебаунс: при массовом дообогащении события сыплются пачками — перерисовываем раз в 1.5с,
+  // и только если данные реально изменились (иначе окантовка фокуса «прыгает» на ровном месте).
+  const onChange = () => {
+    if (ssePending) return;
+    ssePending = setTimeout(async () => {
+      ssePending = null;
+      if (await reloadLibrary()) rerenderKeepingFocus();
+    }, 1500);
+  };
   const connectEvents = () => {
     if (es) return;
     try {
       es = new EventSource("/api/events");
-      es.onmessage = async () => { await reloadLibrary(); rerenderKeepingFocus(); };
+      es.onmessage = onChange;
     } catch (_) { es = null; }
   };
   document.addEventListener("visibilitychange", async () => {
     if (document.hidden) { if (es) { es.close(); es = null; } }
-    else { connectEvents(); await reloadLibrary(); rerenderKeepingFocus(); } // догнать пропущенное
+    else { connectEvents(); if (await reloadLibrary()) rerenderKeepingFocus(); } // догнать пропущенное
   });
   if (!document.hidden) connectEvents();
 }
 
+let itemsJson = "";
+// true — если данные изменились с прошлой загрузки.
 async function reloadLibrary() {
-  try { items = await (await fetch("/api/library")).json(); loaded = true; } catch (_) { items = items || []; }
+  try {
+    const txt = await (await fetch("/api/library")).text();
+    loaded = true;
+    if (txt === itemsJson) return false;
+    itemsJson = txt;
+    items = JSON.parse(txt);
+    return true;
+  } catch (_) { items = items || []; return false; }
 }
 
 const byType = (t) => items.filter((i) => i.type === t).sort((a, b) => (a.title || "").localeCompare(b.title || ""));
@@ -286,8 +306,8 @@ function computeCardWidth() {
   const W = uiW();
   const cols = 4;
   const side = Math.min(460, Math.max(250, W * 0.3));
-  const gap = 16, gridPad = 80;
-  const w = Math.max(96, Math.min(330, Math.floor((W - side - gridPad - (cols - 1) * gap) / cols)));
+  const gap = 16, gridPad = 44; // узкие поля: px-3 слева/справа + запас под фокус-кольца
+  const w = Math.max(96, Math.min(340, Math.floor((W - side - gridPad - (cols - 1) * gap) / cols)));
   document.documentElement.style.setProperty("--card-w", w + "px");
   document.documentElement.style.setProperty("--cols", cols);
 }
@@ -315,18 +335,21 @@ const backTile = () => `
   </div>`;
 
 // Единая страница-сетка: и список типа, и страница коллекции (Kodi: они одинаковые).
+// Заголовок (категория/коллекция) живёт в ЛЕВОЙ колонке, над описанием сфокусированного.
 function renderGridPage({ heading, count, list, empty, onOpen, fallbackInfo }) {
   computeCardWidth();
   app.innerHTML = `
     <div class="flex h-full">
-      <div class="flex w-[30%] min-w-[250px] max-w-[460px] flex-col overflow-hidden border-r border-white/5 bg-zinc-900/60 px-8 py-8 backdrop-blur-xl" id="grid-info"></div>
-      <div class="flex flex-1 flex-col px-8 pt-5">
-        <div class="mb-3 flex flex-none items-center space-x-3">
+      <div class="flex w-[30%] min-w-[250px] max-w-[460px] flex-col overflow-hidden border-r border-white/5 bg-zinc-900/60 px-6 py-6 backdrop-blur-xl">
+        <div class="flex flex-none items-center space-x-2.5 border-b border-white/10 pb-3">
           ${heading}
-          <span class="rounded-full bg-zinc-800/80 px-3 py-0.5 text-[15px] text-zinc-400">${count}</span>
+          <span class="rounded-full bg-zinc-800/80 px-2.5 py-0.5 text-[14px] text-zinc-400">${count}</span>
         </div>
+        <div class="mt-4 flex min-h-0 flex-1 flex-col" id="grid-info"></div>
+      </div>
+      <div class="flex flex-1 flex-col px-3 pt-2">
         <!-- pt/pl: чтобы фокус-кольцо и scale карточек не обрезались краем скролл-зоны -->
-        <div class="flex-1 overflow-y-auto pb-6 pl-2.5 pt-2.5">
+        <div class="flex-1 overflow-y-auto pb-4 pl-2.5 pt-2.5">
           <div class="grid grid-cols-[repeat(var(--cols),var(--card-w))] justify-start gap-4">
             ${backTile()}${list.map(cardHtml).join("") || empty}
           </div>
@@ -350,8 +373,8 @@ function renderGrid() {
   const list = entriesForType(state.type);
   const cat = CATS.find((c) => c.type === state.type);
   renderGridPage({
-    heading: `<span class="text-violet-400">${cat.icon("h-6 w-6")}</span>
-      <h2 class="m-0 text-[clamp(18px,calc(var(--uivh)*3.4),24px)] font-bold tracking-tight">${cat.label}</h2>`,
+    heading: `<span class="text-violet-400">${cat.icon("h-5 w-5")}</span>
+      <h2 class="m-0 text-[clamp(15px,calc(var(--uivh)*2.8),20px)] font-bold tracking-tight">${cat.label}</h2>`,
     count: list.length,
     list,
     empty: loaded ? '<p class="tv-empty col-span-3 p-14 text-2xl text-zinc-400">Пусто</p>' : spinner("Загружаю медиатеку…"),
@@ -365,7 +388,7 @@ function renderCollection() {
   if (!col || !col.isCollection) { state.screen = "grid"; return render(); }
   const parts = col.parts.map((p) => ({ ...p, isCollectionPart: true }));
   renderGridPage({
-    heading: `<h2 class="m-0 truncate text-[clamp(18px,calc(var(--uivh)*3.4),24px)] font-bold tracking-tight">${esc(col.title)} <span class="font-normal text-zinc-500">(Коллекция)</span></h2>`,
+    heading: `<h2 class="m-0 min-w-0 flex-1 truncate text-[clamp(15px,calc(var(--uivh)*2.8),20px)] font-bold tracking-tight">${esc(col.title)} <span class="font-normal text-zinc-500">(Коллекция)</span></h2>`,
     count: parts.length,
     list: parts,
     empty: "",
@@ -454,12 +477,13 @@ function renderDetail() {
                   ${metaRow("Коллекция", i.collection && i.collection.name ? esc(i.collection.name) : "")}
                 </div>
               </div>
-              ${multi ? "" : `
               <div class="mt-4 flex items-center space-x-3">
-                <button class="dfoc flex cursor-pointer items-center rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-[clamp(20px,calc(var(--uivw)*3.5),36px)] py-[clamp(8px,calc(var(--uivh)*2),14px)] text-[clamp(15px,calc(var(--uivh)*2.8),20px)] font-bold text-white shadow-xl shadow-violet-600/40 outline-none transition focus:scale-[1.04] focus:ring-4 focus:ring-violet-400/50" id="detail-play" data-id="${esc(i.id)}">${ICONS.play("mr-3 h-[1.2em] w-[1.2em]")} Смотреть</button>
-                <button class="dfoc epw flex cursor-pointer items-center rounded-2xl border border-white/15 px-5 py-[clamp(8px,calc(var(--uivh)*2),14px)] text-[clamp(13px,calc(var(--uivh)*2.3),16px)] font-semibold outline-none backdrop-blur transition focus:ring-4 ${i.watched ? "bg-emerald-500/15 text-emerald-300 focus:ring-emerald-500/40" : "bg-white/5 text-zinc-300 focus:ring-violet-500/40"}"
-                  data-id="${esc(i.id)}" data-set="${i.watched ? 0 : 1}">${ICONS.check("mr-2 h-[1.1em] w-[1.1em]")}${i.watched ? "Просмотрено" : "Отметить просмотренным"}</button>
+                ${multi ? "" : `<button class="dfoc flex cursor-pointer items-center rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-[clamp(20px,calc(var(--uivw)*3.5),36px)] py-[clamp(8px,calc(var(--uivh)*2),14px)] text-[clamp(15px,calc(var(--uivh)*2.8),20px)] font-bold text-white shadow-xl shadow-violet-600/40 outline-none transition focus:scale-[1.04] focus:ring-4 focus:ring-violet-400/50" id="detail-play" data-id="${esc(i.id)}">${ICONS.play("mr-3 h-[1.2em] w-[1.2em]")} Смотреть</button>`}
+                ${i.trailer ? `<button class="dfoc flex cursor-pointer items-center rounded-2xl border border-white/15 bg-white/5 px-5 py-[clamp(8px,calc(var(--uivh)*2),14px)] text-[clamp(13px,calc(var(--uivh)*2.3),16px)] font-semibold text-zinc-300 outline-none backdrop-blur transition focus:ring-4 focus:ring-violet-500/40" id="detail-trailer" data-id="${esc(i.id)}">${ICONS.movie("mr-2 h-[1.1em] w-[1.1em]")} Трейлер</button>` : ""}
+                ${multi ? "" : `<button class="dfoc epw flex cursor-pointer items-center rounded-2xl border border-white/15 px-5 py-[clamp(8px,calc(var(--uivh)*2),14px)] text-[clamp(13px,calc(var(--uivh)*2.3),16px)] font-semibold outline-none backdrop-blur transition focus:ring-4 ${i.watched ? "bg-emerald-500/15 text-emerald-300 focus:ring-emerald-500/40" : "bg-white/5 text-zinc-300 focus:ring-violet-500/40"}"
+                  data-id="${esc(i.id)}" data-set="${i.watched ? 0 : 1}">${ICONS.check("mr-2 h-[1.1em] w-[1.1em]")}${i.watched ? "Просмотрено" : "Отметить просмотренным"}</button>`}
               </div>
+              ${multi ? "" : `
               <div id="tech-strip" class="mt-4 flex flex-wrap">
                 ${i.premiered ? techChip("📅 " + fmtDate(i.premiered)) : ""}
                 ${i.runtime ? techChip("⏱ " + fmtDur(i.runtime * 60)) : ""}
@@ -492,6 +516,15 @@ function renderDetail() {
   }));
   const playBtn = document.getElementById("detail-play");
   if (playBtn) playBtn.addEventListener("click", () => play(i.id));
+  const trailerBtn = document.getElementById("detail-trailer");
+  if (trailerBtn) trailerBtn.addEventListener("click", async () => {
+    showOverlay("Открываю трейлер…", true);
+    try {
+      const r = await (await fetch("/api/trailer?id=" + encodeURIComponent(i.id))).json();
+      showOverlay(r.ok ? "Трейлер открыт" : "⚠️ " + (r.error || "ошибка"), r.ok);
+    } catch (_) { showOverlay("⚠️ Не удалось открыть трейлер"); }
+    setTimeout(hideOverlay, 2500);
+  });
   if (!multi) loadTech(i);
   // Название в шапке появляется, когда большой заголовок скрылся при скролле.
   const sc = document.getElementById("detail-scroll");
