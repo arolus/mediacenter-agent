@@ -503,11 +503,11 @@ function renderDetail() {
             ${i.trailer ? `<button class="${BTN} bg-white/5 text-zinc-300 focus:ring-violet-500/40" id="detail-trailer">${ICONS.movie("mr-2 h-[1.1em] w-[1.1em]")} Трейлер</button>` : ""}
             ${multi ? "" : `<button class="${BTN} epw ${i.watched ? "bg-emerald-500/15 text-emerald-300 focus:ring-emerald-500/40" : "bg-white/5 text-zinc-300 focus:ring-violet-500/40"}"
               data-id="${esc(i.id)}" data-set="${i.watched ? 0 : 1}">${ICONS.check("mr-2 h-[1.1em] w-[1.1em]")}${i.watched ? "Просмотрено" : "Отметить просмотренным"}</button>`}
-            ${multi ? "" : `<div id="tech-strip" class="-mb-2 flex min-w-0 flex-wrap items-center pl-2">
-              ${i.premiered ? techChip("📅 " + fmtDate(i.premiered)) : ""}
-              ${i.runtime ? techChip("⏱ " + fmtDur(i.runtime * 60)) : ""}
-            </div>`}
           </div>
+          ${multi ? "" : `<div id="tech-strip" class="mt-2.5 -mb-2 flex flex-none flex-wrap items-center">
+            ${i.premiered ? techChip("📅 " + fmtDate(i.premiered)) : ""}
+            ${i.runtime ? techChip("⏱ " + fmtDur(i.runtime * 60)) : ""}
+          </div>`}
         </div>
       </div>
     </div>`;
