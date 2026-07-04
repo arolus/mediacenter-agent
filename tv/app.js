@@ -168,6 +168,7 @@ function render() {
   if (state.screen === "categories") renderCategories();
   else if (state.screen === "grid") renderGrid();
   else if (state.screen === "collection") renderCollection();
+  else if (state.screen === "person") renderPerson();
   else if (state.screen === "detail") renderDetail();
 }
 
@@ -423,6 +424,18 @@ const techChip = (t) => `<span class="mb-2 mr-2 rounded-md bg-black/60 px-2.5 py
 const CODEC_NAMES = { h264: "H.264", hevc: "HEVC", h265: "HEVC", mpeg4: "MPEG-4", vp9: "VP9", av1: "AV1", ac3: "DOLBY", eac3: "DOLBY+", dts: "DTS", aac: "AAC", mp3: "MP3", opus: "OPUS" };
 const codecName = (c) => CODEC_NAMES[String(c || "").toLowerCase()] || String(c || "").toUpperCase();
 
+// Деньги: 25 000 000 → «25 млн $»
+const fmtMoney = (v) => {
+  if (!v) return "";
+  if (v >= 1e9) return (v / 1e9).toFixed(2).replace(/[.,]?0+$/, "") + " млрд $";
+  if (v >= 1e6) return (v / 1e6).toFixed(1).replace(/[.,]0$/, "") + " млн $";
+  return Number(v).toLocaleString("ru-RU") + " $";
+};
+// Кликабельные персоны (режиссёр/сценарист) в таблице метаданных → страница персоны
+const personLinks = (names) => String(names || "").split(",").map((x) => x.trim()).filter(Boolean)
+  .map((n) => `<button class="plink cursor-pointer border-b border-dotted border-zinc-500 text-left outline-none transition focus:border-violet-400 focus:text-violet-300" data-name="${esc(n)}">${esc(n)}</button>`).join(", ");
+
+// Страница фильма: целиком помещается на экране (скроллятся только описание и серии).
 function renderDetail() {
   const i = state.current;
   if (!i) { state.screen = "grid"; return render(); }
@@ -431,80 +444,70 @@ function renderDetail() {
   const eps = i.episodes && i.episodes.length ? i.episodes : [i];
   const multi = eps.length > 1;
   const castX = i.castX && i.castX.length ? i.castX : [];
+  const BTN = "dfoc flex flex-none cursor-pointer items-center rounded-2xl border border-white/15 px-4 py-[clamp(7px,calc(var(--uivh)*1.8),12px)] text-[clamp(12px,calc(var(--uivh)*2.2),15px)] font-semibold outline-none backdrop-blur transition focus:ring-4";
+  const metaTable = `
+    ${metaRow("Режиссёр", personLinks(i.director))}
+    ${metaRow("Сценарий", personLinks(i.writers))}
+    ${metaRow("Рейтинг", i.rating ? `<span class="font-semibold text-amber-400">★ ${Number(i.rating).toFixed(1)}</span>${i.votes ? ` <span class="text-zinc-500">(${Number(i.votes).toLocaleString("ru-RU")})</span>` : ""}` : "")}
+    ${metaRow("Жанр", esc((i.genres || []).join(", ")))}
+    ${metaRow("Страна", esc(i.country))}
+    ${metaRow("Студия", esc(i.studio))}
+    ${metaRow("Премьера", fmtDate(i.premiered))}
+    ${metaRow("Бюджет", fmtMoney(i.budget))}
+    ${metaRow("Сборы", fmtMoney(i.revenue))}
+    ${metaRow("Коллекция", i.collection && i.collection.name ? esc(i.collection.name) : "")}`;
+  const episodesHtml = eps.map((ep) => `
+    <div class="flex items-center">
+      <button class="dfoc ep flex min-w-0 flex-1 cursor-pointer items-center rounded-xl border border-white/10 bg-white/5 px-2.5 py-1.5 text-left text-[14px] outline-none backdrop-blur transition focus:border-violet-400 focus:bg-violet-500/15 focus:ring-2 focus:ring-violet-500/40 ${ep.watched ? "opacity-60" : ""}" data-id="${esc(ep.id)}">
+        <img src="/thumb?id=${esc(ep.id)}" loading="lazy" alt=""
+          class="mr-2.5 h-10 w-[72px] flex-none rounded-lg bg-zinc-800 object-cover"
+          onerror="this.style.display='none'" />
+        <span class="mr-2.5 flex-none ${ep.watched ? "text-emerald-400" : "text-violet-300"}">${ep.watched ? ICONS.check("h-4 w-4") : ICONS.play("h-4 w-4")}</span>
+        <span class="truncate">${esc(epLabel(ep))}</span>
+      </button>
+      <button class="dfoc epw ml-1.5 grid h-8 w-8 flex-none cursor-pointer place-items-center rounded-lg border border-white/10 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/40 ${ep.watched ? "bg-emerald-500/20 text-emerald-400" : "bg-white/5 text-zinc-500"}"
+        data-id="${esc(ep.id)}" data-set="${ep.watched ? 0 : 1}" aria-label="Просмотрено / не просмотрено">${ICONS.check("h-4 w-4")}</button>
+    </div>`).join("");
   app.innerHTML = `
     <div class="relative h-full overflow-hidden">
       <div class="absolute top-0 right-0 bottom-0 left-0 bg-black bg-cover bg-center brightness-[.3] saturate-[1.1]" style="${bg ? `background-image:url('${bg}')` : ""}"></div>
       <div class="absolute top-0 right-0 bottom-0 left-0 bg-gradient-to-r from-zinc-950/90 via-zinc-950/70 to-zinc-950/40"></div>
-      <div class="relative flex h-full flex-col">
-        <!-- Фиксированная шапка: «Назад» + название, всплывающее когда заголовок ушёл за экран -->
-        <div class="flex items-center space-x-4 px-12 pb-2 pt-[clamp(8px,calc(var(--uivh)*2),20px)]">
-          <button class="dfoc flex flex-none cursor-pointer items-center rounded-xl border border-white/10 bg-white/5 py-1.5 pl-3 pr-5 text-[clamp(14px,calc(var(--uivh)*2.3),17px)] font-semibold outline-none backdrop-blur transition duration-150 focus:scale-105 focus:border-violet-400 focus:ring-4 focus:ring-violet-500/30" id="detail-back">${ICONS.back("mr-1.5 h-5 w-5")} Назад</button>
-          <div id="detail-topname" class="flex min-w-0 items-center space-x-3 opacity-0 transition-opacity duration-200">
-            <span class="min-w-0 truncate text-[clamp(16px,calc(var(--uivh)*2.8),22px)] font-bold tracking-tight">${esc(i.title)}</span>
-            ${i.year ? `<span class="flex-none rounded-full bg-zinc-800/90 px-2.5 py-0.5 text-[13px] font-medium text-zinc-300">${i.year}</span>` : ""}
-            ${i.rating ? `<span class="flex flex-none items-center rounded-full bg-amber-400/10 px-2.5 py-0.5 text-[13px] font-semibold text-amber-400 ring-1 ring-amber-400/20">${ICONS.star("mr-1 h-3.5 w-3.5")}${Number(i.rating).toFixed(1)}</span>` : ""}
-            ${multi ? `<span class="flex-none rounded-full bg-zinc-800/90 px-2.5 py-0.5 text-[13px] font-medium text-zinc-300">${eps.length} серий</span>` : ""}
-          </div>
-        </div>
-        <!-- Остальное скроллится единым потоком -->
-        <div id="detail-scroll" class="flex-1 overflow-y-auto px-12 pb-[clamp(14px,calc(var(--uivh)*3),36px)] pt-1">
+      <div class="relative flex h-full min-h-0 space-x-6 px-7 py-[clamp(10px,calc(var(--uivh)*2.4),22px)]">
+        ${p ? `<div class="w-[21%] max-w-[280px] flex-none">
+          <div class="h-0 w-full rounded-xl bg-zinc-800 bg-cover bg-center pb-[150%] shadow-2xl shadow-black/60 ring-1 ring-white/15" style="background-image:url('${p}')"></div>
+        </div>` : ""}
+        <div class="flex min-w-0 flex-1 flex-col">
           ${castX.length ? `
-          <div class="flex space-x-3 overflow-x-auto pb-2">
+          <div class="flex flex-none space-x-2.5 overflow-x-auto pb-1">
             ${castX.map((a) => `
-              <div class="w-[clamp(64px,calc(var(--uivw)*7),110px)] flex-none text-center">
+              <button class="dfoc actor w-[clamp(56px,calc(var(--uivw)*6),96px)] flex-none cursor-pointer rounded-lg text-center outline-none transition focus:ring-2 focus:ring-violet-400" data-name="${esc(a.n)}" data-photo="${esc(a.p || "")}">
                 <div class="h-0 w-full rounded-lg bg-zinc-800 bg-cover bg-center pb-[130%] ring-1 ring-white/10" style="${a.p ? `background-image:url('${prof(a.p)}')` : ""}"></div>
-                <div class="mt-1 truncate text-[clamp(10px,calc(var(--uivh)*1.9),13px)] font-semibold leading-tight">${esc(a.n)}</div>
-                <div class="truncate text-[clamp(9px,calc(var(--uivh)*1.7),12px)] leading-tight text-zinc-400">${esc(a.c)}</div>
-              </div>`).join("")}
+                <div class="mt-0.5 truncate text-[clamp(9px,calc(var(--uivh)*1.8),12px)] font-semibold leading-tight">${esc(a.n)}</div>
+                <div class="truncate text-[clamp(8px,calc(var(--uivh)*1.6),11px)] leading-tight text-zinc-400">${esc(a.c)}</div>
+              </button>`).join("")}
           </div>` : ""}
-          <div class="mt-1 flex space-x-7">
-            ${p ? `<div class="w-[22%] max-w-[280px] flex-none">
-              <div class="h-0 w-full rounded-xl bg-zinc-800 bg-cover bg-center pb-[150%] shadow-2xl shadow-black/60 ring-1 ring-white/15" style="background-image:url('${p}')"></div>
-            </div>` : ""}
-            <div class="min-w-0 flex-1">
-              <div id="detail-title" class="text-[clamp(20px,calc(var(--uivh)*4.4),32px)] font-extrabold leading-tight tracking-tight drop-shadow-lg">${esc(i.title)}${i.year ? ` <span class="font-semibold text-zinc-400">(${i.year})</span>` : ""}</div>
-              ${i.tagline ? `<div class="mt-0.5 text-[clamp(12px,calc(var(--uivh)*2.3),16px)] italic text-zinc-400">«${esc(i.tagline)}»</div>` : ""}
-              <div class="mt-3 flex space-x-7">
-                <div class="min-w-0 flex-1 text-[clamp(13px,calc(var(--uivh)*2.5),17px)] leading-relaxed text-zinc-200 drop-shadow">${esc(i.overview || "Нет описания")}</div>
-                <div class="w-[38%] max-w-[380px] flex-none space-y-1">
-                  ${metaRow("Режиссёр", esc(i.director))}
-                  ${metaRow("Сценарий", esc(i.writers))}
-                  ${metaRow("Рейтинг", i.rating ? `<span class="font-semibold text-amber-400">★ ${Number(i.rating).toFixed(1)}</span>${i.votes ? ` <span class="text-zinc-500">(${Number(i.votes).toLocaleString("ru-RU")})</span>` : ""}` : "")}
-                  ${metaRow("Жанр", esc((i.genres || []).join(", ")))}
-                  ${metaRow("Страна", esc(i.country))}
-                  ${metaRow("Студия", esc(i.studio))}
-                  ${metaRow("Премьера", fmtDate(i.premiered))}
-                  ${metaRow("Коллекция", i.collection && i.collection.name ? esc(i.collection.name) : "")}
-                </div>
-              </div>
-              <div class="mt-4 flex items-center space-x-3">
-                ${multi ? "" : `<button class="dfoc flex cursor-pointer items-center rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-[clamp(20px,calc(var(--uivw)*3.5),36px)] py-[clamp(8px,calc(var(--uivh)*2),14px)] text-[clamp(15px,calc(var(--uivh)*2.8),20px)] font-bold text-white shadow-xl shadow-violet-600/40 outline-none transition focus:scale-[1.04] focus:ring-4 focus:ring-violet-400/50" id="detail-play" data-id="${esc(i.id)}">${ICONS.play("mr-3 h-[1.2em] w-[1.2em]")} Смотреть</button>`}
-                ${i.trailer ? `<button class="dfoc flex cursor-pointer items-center rounded-2xl border border-white/15 bg-white/5 px-5 py-[clamp(8px,calc(var(--uivh)*2),14px)] text-[clamp(13px,calc(var(--uivh)*2.3),16px)] font-semibold text-zinc-300 outline-none backdrop-blur transition focus:ring-4 focus:ring-violet-500/40" id="detail-trailer" data-id="${esc(i.id)}">${ICONS.movie("mr-2 h-[1.1em] w-[1.1em]")} Трейлер</button>` : ""}
-                ${multi ? "" : `<button class="dfoc epw flex cursor-pointer items-center rounded-2xl border border-white/15 px-5 py-[clamp(8px,calc(var(--uivh)*2),14px)] text-[clamp(13px,calc(var(--uivh)*2.3),16px)] font-semibold outline-none backdrop-blur transition focus:ring-4 ${i.watched ? "bg-emerald-500/15 text-emerald-300 focus:ring-emerald-500/40" : "bg-white/5 text-zinc-300 focus:ring-violet-500/40"}"
-                  data-id="${esc(i.id)}" data-set="${i.watched ? 0 : 1}">${ICONS.check("mr-2 h-[1.1em] w-[1.1em]")}${i.watched ? "Просмотрено" : "Отметить просмотренным"}</button>`}
-              </div>
-              ${multi ? "" : `
-              <div id="tech-strip" class="mt-4 flex flex-wrap">
-                ${i.premiered ? techChip("📅 " + fmtDate(i.premiered)) : ""}
-                ${i.runtime ? techChip("⏱ " + fmtDur(i.runtime * 60)) : ""}
-              </div>`}
+          <div class="mt-1 flex-none truncate text-[clamp(18px,calc(var(--uivh)*4),28px)] font-extrabold leading-tight tracking-tight drop-shadow-lg">${esc(i.title)}${i.year ? ` <span class="font-semibold text-zinc-400">(${i.year})</span>` : ""}${multi ? ` <span class="text-[0.6em] font-semibold text-zinc-400">· ${eps.length} серий</span>` : ""}</div>
+          ${i.tagline ? `<div class="flex-none truncate text-[clamp(11px,calc(var(--uivh)*2.1),15px)] italic text-zinc-400">«${esc(i.tagline)}»</div>` : ""}
+          <div class="mt-2 flex min-h-0 flex-1 space-x-6">
+            <div class="min-w-0 flex-1 overflow-y-auto pr-1 text-[clamp(12px,calc(var(--uivh)*2.4),16px)] leading-relaxed text-zinc-200 drop-shadow">
+              ${esc(i.overview || "Нет описания")}
+              ${multi ? `<div class="mt-3 space-y-1">${metaTable}</div>` : ""}
             </div>
+            ${multi
+              ? `<div class="w-[46%] max-w-[560px] flex-none space-y-1.5 overflow-y-auto pr-1">${episodesHtml}</div>`
+              : `<div class="w-[38%] max-w-[400px] flex-none space-y-1 overflow-y-auto">${metaTable}</div>`}
           </div>
-          ${multi ? `
-          <div class="mt-4 max-w-[760px] space-y-1.5 pr-2">
-            ${eps.map((ep) => `
-              <div class="flex items-center">
-                <button class="dfoc ep flex min-w-0 flex-1 cursor-pointer items-center rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-left text-[15px] outline-none backdrop-blur transition focus:border-violet-400 focus:bg-violet-500/15 focus:ring-2 focus:ring-violet-500/40 ${ep.watched ? "opacity-60" : ""}" data-id="${esc(ep.id)}">
-                  <img src="/thumb?id=${esc(ep.id)}" loading="lazy" alt=""
-                    class="mr-3 h-12 w-[85px] flex-none rounded-lg bg-zinc-800 object-cover"
-                    onerror="this.style.display='none'" />
-                  <span class="mr-3 flex-none ${ep.watched ? "text-emerald-400" : "text-violet-300"}">${ep.watched ? ICONS.check("h-4 w-4") : ICONS.play("h-4 w-4")}</span>
-                  <span class="truncate">${esc(epLabel(ep))}</span>
-                </button>
-                <button class="dfoc epw ml-1.5 grid h-9 w-9 flex-none cursor-pointer place-items-center rounded-lg border border-white/10 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/40 ${ep.watched ? "bg-emerald-500/20 text-emerald-400" : "bg-white/5 text-zinc-500"}"
-                  data-id="${esc(ep.id)}" data-set="${ep.watched ? 0 : 1}" title="Просмотрено / не просмотрено">${ICONS.check("h-4 w-4")}</button>
-              </div>`).join("")}
-          </div>` : ""}
+          <div class="mt-2.5 flex flex-none items-center space-x-2.5">
+            <button class="${BTN} bg-white/5 text-zinc-300 focus:ring-violet-500/40" id="detail-back">${ICONS.back("mr-1.5 h-[1.1em] w-[1.1em]")} Назад</button>
+            ${multi ? "" : `<button class="dfoc flex flex-none cursor-pointer items-center rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-[clamp(18px,calc(var(--uivw)*3),32px)] py-[clamp(7px,calc(var(--uivh)*1.8),12px)] text-[clamp(14px,calc(var(--uivh)*2.6),18px)] font-bold text-white shadow-xl shadow-violet-600/40 outline-none transition focus:scale-[1.04] focus:ring-4 focus:ring-violet-400/50" id="detail-play" data-id="${esc(i.id)}">${ICONS.play("mr-2 h-[1.2em] w-[1.2em]")} Смотреть</button>`}
+            ${i.trailer ? `<button class="${BTN} bg-white/5 text-zinc-300 focus:ring-violet-500/40" id="detail-trailer">${ICONS.movie("mr-2 h-[1.1em] w-[1.1em]")} Трейлер</button>` : ""}
+            ${multi ? "" : `<button class="${BTN} epw ${i.watched ? "bg-emerald-500/15 text-emerald-300 focus:ring-emerald-500/40" : "bg-white/5 text-zinc-300 focus:ring-violet-500/40"}"
+              data-id="${esc(i.id)}" data-set="${i.watched ? 0 : 1}">${ICONS.check("mr-2 h-[1.1em] w-[1.1em]")}${i.watched ? "Просмотрено" : "Отметить просмотренным"}</button>`}
+            ${multi ? "" : `<div id="tech-strip" class="-mb-2 flex min-w-0 flex-wrap items-center pl-2">
+              ${i.premiered ? techChip("📅 " + fmtDate(i.premiered)) : ""}
+              ${i.runtime ? techChip("⏱ " + fmtDur(i.runtime * 60)) : ""}
+            </div>`}
+          </div>
         </div>
       </div>
     </div>`;
@@ -514,6 +517,9 @@ function renderDetail() {
   app.querySelectorAll(".epw").forEach((b) => b.addEventListener("click", () => {
     fetch(`/api/watched?id=${encodeURIComponent(b.dataset.id)}&set=${b.dataset.set}`).catch(() => {});
   }));
+  // Актёры и персоны из таблицы → страница персоны
+  app.querySelectorAll(".actor").forEach((b) => b.addEventListener("click", () => enterPerson(b.dataset.name, b.dataset.photo || null)));
+  app.querySelectorAll(".plink").forEach((b) => b.addEventListener("click", () => enterPerson(b.dataset.name, null)));
   const playBtn = document.getElementById("detail-play");
   if (playBtn) playBtn.addEventListener("click", () => play(i.id));
   const trailerBtn = document.getElementById("detail-trailer");
@@ -526,15 +532,64 @@ function renderDetail() {
     setTimeout(hideOverlay, 2500);
   });
   if (!multi) loadTech(i);
-  // Название в шапке появляется, когда большой заголовок скрылся при скролле.
-  const sc = document.getElementById("detail-scroll");
-  const big = document.getElementById("detail-title");
-  const topName = document.getElementById("detail-topname");
-  sc.addEventListener("scroll", () => {
-    topName.style.opacity = sc.scrollTop > big.offsetTop + big.offsetHeight - 8 ? "1" : "0";
+  // preventScroll: фокус не должен дёргать раскладку
+  (playBtn || app.querySelector(".ep") || document.getElementById("detail-back")).focus({ preventScroll: true });
+}
+
+/* ---------- Страница персоны: фото, чем известен, фильмография из медиатеки ---------- */
+function personEntries(name) {
+  const out = [];
+  for (const c of CATS) {
+    for (const e of entriesForType(c.type)) {
+      const inE = (x) => (x.castX || []).some((a) => a.n === name) ||
+        String(x.director || "").includes(name) || String(x.writers || "").includes(name);
+      if (e.isCollection ? e.parts.some(inE) : inE(e)) out.push(e);
+    }
+  }
+  return out;
+}
+
+function renderPerson() {
+  computeCardWidth();
+  const pr = state.person || {};
+  const name = pr.name || "";
+  const list = personEntries(name);
+  let photo = pr.photo || null;
+  const roles = [], jobs = new Set();
+  for (const it of items) {
+    const a = (it.castX || []).find((x) => x.n === name);
+    if (a) { jobs.add("Актёр"); if (a.p && !photo) photo = a.p; if (a.c && !roles.includes(a.c)) roles.push(a.c); }
+    if (String(it.director || "").includes(name)) jobs.add("Режиссёр");
+    if (String(it.writers || "").includes(name)) jobs.add("Сценарист");
+  }
+  app.innerHTML = `
+    <div class="flex h-full">
+      <div class="flex w-[30%] min-w-[250px] max-w-[460px] flex-col overflow-hidden border-r border-white/5 bg-zinc-900/60 px-6 py-6 backdrop-blur-xl">
+        <div class="w-[62%] max-w-[220px] flex-none">
+          <div class="h-0 w-full rounded-2xl bg-zinc-800 bg-cover bg-center pb-[130%] shadow-2xl shadow-black/50 ring-1 ring-white/10" style="${photo ? `background-image:url('${shot(photo)}')` : ""}"></div>
+        </div>
+        <div class="mt-4 flex-none text-[clamp(18px,calc(var(--uivh)*3.6),26px)] font-bold leading-tight tracking-tight">${esc(name)}</div>
+        <div class="mt-1 flex-none text-[clamp(12px,calc(var(--uivh)*2.2),15px)] text-violet-300">${[...jobs].join(" · ")}</div>
+        <div class="mt-3 min-h-0 flex-1 overflow-y-auto pr-1 text-[clamp(12px,calc(var(--uivh)*2.2),15px)] leading-relaxed text-zinc-400">
+          ${roles.length ? "Роли: " + esc(roles.slice(0, 8).join(", ")) : ""}
+        </div>
+        <div class="flex-none pt-2 text-[clamp(12px,calc(var(--uivh)*2.2),15px)] text-zinc-500">${list.length} в медиатеке</div>
+      </div>
+      <div class="flex flex-1 flex-col px-3 pt-2">
+        <div class="flex-1 overflow-y-auto pb-4 pl-2.5 pt-2.5">
+          <div class="grid grid-cols-[repeat(var(--cols),var(--card-w))] justify-start gap-4">
+            ${backTile()}${list.map(cardHtml).join("")}
+          </div>
+        </div>
+      </div>
+    </div>`;
+  app.querySelectorAll(".tv-card").forEach((card) => {
+    if (!card.dataset.id) return;
+    const item = list.find((x) => x.id === card.dataset.id);
+    card.addEventListener("click", () => item.isCollection ? enterCollection(item) : enterDetail(item));
   });
-  // preventScroll: иначе фокус на «Смотреть» проскролливает страницу — актёры и заголовок уезжают
-  (app.querySelector(".ep") || playBtn || document.getElementById("detail-back")).focus({ preventScroll: true });
+  app.querySelector(".grid-back").addEventListener("click", back);
+  (app.querySelector(".tv-card[data-id]") || app.querySelector(".grid-back")).focus({ preventScroll: true });
 }
 
 // Техчипы (Kodi-стиль: кодек, разрешение, аспект, звук) — ffprobe на ноде, лениво.
@@ -562,10 +617,11 @@ async function loadTech(i) {
 
 /* ---------- Переходы (через History API: браузерная «Назад» тоже работает) ---------- */
 function applyState(s) {
-  state = { screen: s.screen || "categories", type: s.type || state.type, current: null };
+  state = { screen: s.screen || "categories", type: s.type || state.type, current: null, person: null };
   if (state.screen === "detail" || state.screen === "collection") {
     state.current = findEntry(state.type, s.id) || null;
   }
+  if (state.screen === "person") state.person = { name: s.name || "", photo: s.photo || null };
   render();
   // Возврат «Назад»: встаём на ту же карточку, с которой уходили (и скроллим к ней).
   if (s.focusId) {
@@ -582,8 +638,9 @@ function navigate(s) {
   applyState(s);
 }
 function enterGrid(type) { navigate({ screen: "grid", type }); }
-function enterCollection(col) { navigate({ screen: "collection", type: state.type, id: col.id }); }
-function enterDetail(item) { navigate({ screen: "detail", type: state.type, id: item.id }); }
+function enterCollection(col) { navigate({ screen: "collection", type: col.type || state.type, id: col.id }); }
+function enterDetail(item) { navigate({ screen: "detail", type: item.type || state.type, id: item.id }); }
+function enterPerson(name, photo) { if (name) navigate({ screen: "person", name, photo: photo || null }); }
 // Назад: кнопка «Назад», Esc/Backspace пульта И браузерная «Назад» — всё через историю.
 function back() { if (state.screen !== "categories") history.back(); }
 window.addEventListener("popstate", (e) => applyState(e.state || { screen: "categories" }));
@@ -610,7 +667,7 @@ document.addEventListener("keydown", (e) => {
     return;
   }
 
-  if (state.screen === "grid" || state.screen === "collection") {
+  if (state.screen === "grid" || state.screen === "collection" || state.screen === "person") {
     if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) {
       e.preventDefault();
       const next = nearest(cur, { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" }[e.key]);
@@ -674,6 +731,6 @@ function showOverlay(t, withPlay) {
 function hideOverlay() { document.getElementById("tv-overlay").classList.add("hidden"); }
 
 window.addEventListener("resize", () => {
-  if (state.screen === "grid" || state.screen === "collection") computeCardWidth();
+  if (["grid", "collection", "person"].includes(state.screen)) computeCardWidth();
 });
 load();
