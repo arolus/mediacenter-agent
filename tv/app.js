@@ -907,7 +907,19 @@ function back() {
   showExitConfirm();
 }
 
-/* ---------- Выход из приложения (диалог на корневом экране) ---------- */
+/* ---------- Выход из приложения (диалог на корневом экране) ----------
+   ВАЖНО: выбор Да/Нет ведём в JS-переменной с ручной подсветкой, НЕ через focus():
+   в WebView (touch mode) focus() на кнопки не переносится, activeElement оставался
+   на плитке ПОД диалогом, и Enter кликал её. */
+let exitSel = "no";
+function paintExitSel() {
+  const yes = document.getElementById("exit-yes"), no = document.getElementById("exit-no");
+  if (!yes || !no) return;
+  yes.classList.toggle("ring-4", exitSel === "yes");
+  yes.classList.toggle("scale-105", exitSel === "yes");
+  no.classList.toggle("ring-4", exitSel === "no");
+  no.classList.toggle("scale-105", exitSel === "no");
+}
 function showExitConfirm() {
   if (document.getElementById("exit-confirm")) return;
   const wrap = document.createElement("div");
@@ -917,14 +929,15 @@ function showExitConfirm() {
     <div class="rounded-3xl border border-white/10 bg-zinc-900/95 px-10 py-8 text-center shadow-2xl shadow-black/60">
       <div class="mb-6 text-2xl font-bold">Выйти из приложения?</div>
       <div class="flex justify-center space-x-4">
-        <button id="exit-yes" class="cursor-pointer rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-9 py-3 text-lg font-bold text-white outline-none transition focus:scale-105 focus:ring-4 focus:ring-violet-400/50">Да</button>
-        <button id="exit-no" class="cursor-pointer rounded-2xl border border-white/15 bg-white/5 px-9 py-3 text-lg font-semibold text-zinc-300 outline-none transition focus:scale-105 focus:ring-4 focus:ring-violet-500/40">Нет</button>
+        <button id="exit-yes" class="cursor-pointer rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-9 py-3 text-lg font-bold text-white outline-none ring-violet-400/60 transition">Да</button>
+        <button id="exit-no" class="cursor-pointer rounded-2xl border border-white/15 bg-white/5 px-9 py-3 text-lg font-semibold text-zinc-300 outline-none ring-violet-500/50 transition">Нет</button>
       </div>
     </div>`;
   document.getElementById("rot").appendChild(wrap);
   document.getElementById("exit-yes").addEventListener("click", exitApp);
   document.getElementById("exit-no").addEventListener("click", hideExitConfirm);
-  document.getElementById("exit-no").focus(); // безопасный дефолт — «Нет»
+  exitSel = "no"; // безопасный дефолт — «Нет»
+  paintExitSel();
 }
 function hideExitConfirm() {
   const el = document.getElementById("exit-confirm");
@@ -953,9 +966,9 @@ document.addEventListener("keydown", (e) => {
   if (document.getElementById("exit-confirm")) {
     e.preventDefault();
     if (["Escape", "Backspace", "GoBack", "BrowserBack"].includes(e.key)) return hideExitConfirm();
-    if (e.key === "ArrowLeft") document.getElementById("exit-yes").focus();
-    else if (e.key === "ArrowRight") document.getElementById("exit-no").focus();
-    else if (e.key === "Enter" || e.key === " ") document.activeElement?.click();
+    if (e.key === "ArrowLeft") { exitSel = "yes"; paintExitSel(); }
+    else if (e.key === "ArrowRight") { exitSel = "no"; paintExitSel(); }
+    else if (e.key === "Enter" || e.key === " ") { exitSel === "yes" ? exitApp() : hideExitConfirm(); }
     return;
   }
   if (["Escape", "Backspace", "GoBack", "BrowserBack"].includes(e.key)) { e.preventDefault(); back(); return; }

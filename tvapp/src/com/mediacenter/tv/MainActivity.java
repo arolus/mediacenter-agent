@@ -199,8 +199,9 @@ public class MainActivity extends Activity {
         public void exitApp() {
             runOnUiThread(() -> {
                 finishAndRemoveTask();
-                // добиваем процесс после закрытия активити — «закрыть и убить», как заказано
-                web.postDelayed(() -> android.os.Process.killProcess(android.os.Process.myPid()), 300);
+                // Добиваем процесс — «закрыть и убить». Именно через handler активити:
+                // web.postDelayed после destroy() WebView не выполняется, процесс оставался.
+                handler.postDelayed(() -> android.os.Process.killProcess(android.os.Process.myPid()), 300);
             });
         }
     }
