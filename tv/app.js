@@ -234,7 +234,11 @@ function render() {
 // При live-обновлении перерисовываем текущий экран, сохраняя фокус по id
 // и позицию скролла (иначе SSE-шторм при массовом дообогащении дёргает страницу).
 function rerenderKeepingFocus() {
-  const focusedId = document.activeElement?.dataset?.id;
+  const ae = document.activeElement;
+  const focusedId = ae?.dataset?.id;
+  // Кнопка-галка «Просмотрено» (.epw) делит data-id с кнопкой «Смотреть»/строкой серии —
+  // без уточнения селектора фокус после перерисовки перескакивал бы на «Смотреть».
+  const focusedSel = ae?.classList?.contains("epw") ? ".epw" : "";
   const scrolls = [...app.querySelectorAll("div")].filter((n) => n.scrollTop > 0)
     .map((n) => ({ cls: n.className, top: n.scrollTop }));
   if ((state.screen === "detail" || state.screen === "collection") && state.current) {
@@ -244,7 +248,8 @@ function rerenderKeepingFocus() {
   }
   render();
   if (focusedId) {
-    const el = app.querySelector(`[data-id="${CSS.escape(focusedId)}"]`);
+    const el = app.querySelector(`${focusedSel}[data-id="${CSS.escape(focusedId)}"]`)
+      || app.querySelector(`[data-id="${CSS.escape(focusedId)}"]`);
     if (el) el.focus({ preventScroll: true });
   }
   for (const s of scrolls) {
