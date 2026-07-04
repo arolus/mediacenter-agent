@@ -415,8 +415,8 @@ const epLabel = (ep) => ep.episode != null
 
 // Строка таблицы метаданных (Kodi: Режиссёр / Сценарий / Жанр / Студия / Премьера…)
 const metaRow = (label, value) => value
-  ? `<div class="flex text-[clamp(12px,calc(var(--uivh)*2.2),15px)] leading-snug">
-       <span class="w-[92px] flex-none text-zinc-500">${label}</span>
+  ? `<div class="flex text-[clamp(9px,calc(var(--uivh)*1.8),12px)] leading-snug">
+       <span class="w-[72px] flex-none text-zinc-500">${label}</span>
        <span class="min-w-0 flex-1 text-zinc-200">${value}</span>
      </div>`
   : "";
