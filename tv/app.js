@@ -47,6 +47,10 @@ let loaded = false; // первая загрузка библиотеки зав
 let state = { screen: "categories", type: "movie" };
 
 let playerMissing = false;
+// Живём внутри своего WebView-приложения (com.mediacenter.tv)? Оно само даёт fullscreen,
+// ландшафт и негаснущий экран — браузерные пляски с orientation-lock не нужны.
+const IN_APP = /MediaCenterTV/.test(navigator.userAgent);
+let appOffer = null; // "install" | "update" | null — кнопка приложения на экране категорий
 
 // Крутилка загрузки (первая подгрузка библиотеки может занять пару секунд)
 const spinner = (label) => `
@@ -62,6 +66,14 @@ async function load() {
   try { fetch("/api/ensure-landscape").catch(() => {}); } catch (_) {}
   try { deviceName = (await (await fetch("/api/device")).json()).name || ""; } catch (_) {}
   try { const st = await (await fetch("/api/player-status")).json(); playerMissing = st && st.installed === false; } catch (_) {}
+  // Наше TV-приложение: предлагаем поставить (в браузере) или обновить (везде)
+  try {
+    const st = await (await fetch("/api/app-status")).json();
+    if (st && st.apkAvailable) {
+      if (!st.installed && !IN_APP) appOffer = "install";
+      else if (st.updateAvailable) appOffer = "update";
+    }
+  } catch (_) {}
   await reloadLibrary();
   history.replaceState({ screen: "categories" }, ""); // корневая запись истории
   render();
@@ -198,6 +210,7 @@ function rerenderKeepingFocus() {
 /* ---------- Ориентация и полный экран: TV-режим живёт в ландшафтном fullscreen ---------- */
 let fullscreenAchieved = false;
 async function tryLandscape(interactive) {
+  if (IN_APP) return; // приложение и так fullscreen+landscape на уровне активити
   try { await screen.orientation.lock("landscape"); } catch (_) {}
   if (!interactive || document.fullscreenElement) return;
   try {
@@ -229,6 +242,10 @@ function renderCategories() {
         <button id="cat-vlc" tabindex="0" class="mx-12 mt-4 flex cursor-pointer items-center self-start rounded-2xl border border-red-500/30 bg-red-500/10 px-6 py-3.5 text-lg font-semibold text-red-300 outline-none transition focus:scale-[1.02] focus:border-red-400 focus:ring-4 focus:ring-red-500/30">
           ${ICONS.download("mr-3 h-6 w-6")} Установить плеер VLC — нужен для просмотра
         </button>` : ""}
+      ${appOffer ? `
+        <button id="cat-app" tabindex="0" class="mx-12 mt-4 flex cursor-pointer items-center self-start rounded-2xl border border-violet-500/30 bg-violet-500/10 px-6 py-3.5 text-lg font-semibold text-violet-300 outline-none transition focus:scale-[1.02] focus:border-violet-400 focus:ring-4 focus:ring-violet-500/30">
+          ${ICONS.download("mr-3 h-6 w-6")} ${appOffer === "update" ? "Обновить приложение MediaCenter TV" : "Установить приложение MediaCenter TV — полный экран без браузера"}
+        </button>` : ""}
       <div class="flex flex-1 items-center justify-center space-x-10 px-12">
         ${CATS.map((c) => `
           <div class="cat-tile group flex h-[clamp(250px,calc(var(--uivh)*60),420px)] w-[clamp(220px,calc(var(--uivw)*24),340px)] cursor-pointer flex-col items-center justify-center space-y-[clamp(12px,calc(var(--uivh)*3),28px)] rounded-[28px] border border-zinc-800 bg-zinc-900/70 outline-none backdrop-blur transition duration-150 focus:scale-105 focus:border-violet-500/60 focus:shadow-[0_0_70px_-12px_rgba(139,92,246,.55)] focus:ring-4 focus:ring-violet-500/25" tabindex="0" data-type="${c.type}">
@@ -243,6 +260,8 @@ function renderCategories() {
   app.querySelectorAll(".cat-tile").forEach((t) => t.addEventListener("click", () => enterGrid(t.dataset.type)));
   const vlc = document.getElementById("cat-vlc");
   if (vlc) vlc.addEventListener("click", installVLC);
+  const appBtn = document.getElementById("cat-app");
+  if (appBtn) appBtn.addEventListener("click", installApp);
   // фокус: если VLC не установлен — сразу на кнопку установки, иначе на текущую категорию
   if (vlc) vlc.focus();
   else { const idx = CATS.findIndex((c) => c.type === state.type); app.querySelectorAll(".cat-tile")[idx >= 0 ? idx : 0].focus(); }
@@ -256,6 +275,18 @@ async function installVLC() {
     else if (r.downloaded) showOverlay("VLC скачан в Загрузки — открой и установи");
     else showOverlay("⚠️ " + (r.error || "не удалось"));
   } catch (_) { showOverlay("⚠️ Не удалось скачать VLC"); }
+  setTimeout(hideOverlay, 4000);
+}
+
+// Установка/обновление нашего WebView-приложения: агент кладёт APK из своего репо
+// в Загрузки и открывает системный установщик (подтвердить на телефоне).
+async function installApp() {
+  showOverlay("Готовлю APK…");
+  try {
+    const r = await (await fetch("/api/install-app")).json();
+    if (r.launched) showOverlay("Подтверди установку на телефоне ✓");
+    else showOverlay("⚠️ " + (r.error || "не удалось"));
+  } catch (_) { showOverlay("⚠️ Не удалось запустить установку"); }
   setTimeout(hideOverlay, 4000);
 }
 

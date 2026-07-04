@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- versionCode/versionName проставляет build.sh флагами aapt2 link при сборке -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.mediacenter.tv">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application
+        android:label="MediaCenter TV"
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:usesCleartextTraffic="true"
+        android:theme="@style/TvTheme">
+        <!-- singleTask: повторный am start от агента не плодит копий (и не плодит SSE-клиентов) -->
+        <activity
+            android:name=".MainActivity"
+            android:launchMode="singleTask"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|screenSize|keyboard|keyboardHidden|density|screenLayout|smallestScreenSize|uiMode"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

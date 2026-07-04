@@ -8,3 +8,4 @@ config-*.json
 media-a/
 media-b/
 .DS_Store
+tvapp/build/
