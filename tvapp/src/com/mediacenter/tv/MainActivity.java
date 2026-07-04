@@ -13,6 +13,10 @@ import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.webkit.WebSettings;
@@ -22,19 +26,56 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 
 public class MainActivity extends Activity {
+    // Таймер неактивности: 3 часа без пульта/тача — гасим экран (см. resetIdle/idleOff).
+    private static final long IDLE_OFF_MS = 3L * 60 * 60 * 1000;
+    private static final float BRIGHTNESS = 0.3f; // рабочая яркость окна (HDMI не трогает)
+
     private WebView web;
     private String url;
     private Thread waiter; // фоновая проба агента, пока он не поднялся
+    private final Handler handler = new Handler(Looper.getMainLooper());
+
+    // «Выключение» экрана без спецправ: снимаем KEEP_SCREEN_ON (дальше системный таймаут
+    // погасит экран сам) и роняем яркость окна в 0 — на OLED тёмный UI = погасшие пиксели,
+    // так что темнеет сразу, не дожидаясь системного таймаута. Любая кнопка/тач будит.
+    private final Runnable idleOff = new Runnable() {
+        @Override public void run() {
+            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            setBrightness(0f);
+        }
+    };
+
+    private void setBrightness(float b) {
+        WindowManager.LayoutParams lp = getWindow().getAttributes();
+        lp.screenBrightness = b;
+        getWindow().setAttributes(lp);
+    }
+
+    // Любая активность пользователя: экран держим, яркость рабочая, отсчёт 3ч заново.
+    private void resetIdle() {
+        handler.removeCallbacks(idleOff);
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        setBrightness(BRIGHTNESS);
+        handler.postDelayed(idleOff, IDLE_OFF_MS);
+    }
+
+    // dispatch* видят события раньше WebView — считаем их «активностью» и сбрасываем таймер.
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent e) {
+        resetIdle();
+        return super.dispatchKeyEvent(e);
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent e) {
+        resetIdle();
+        return super.dispatchTouchEvent(e);
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        // Телефон висит на HDMI как ТВ-приставка — экран не должен гаснуть.
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         WindowManager.LayoutParams lp = getWindow().getAttributes();
-        // Яркость 30%, пока приложение на экране: телефон меньше греется и жрёт, HDMI-выводу
-        // всё равно. Действует только на наше окно — при выходе система вернёт свою яркость.
-        lp.screenBrightness = 0.3f;
         // Рисуем под вырезом камеры: без этого система letterbox'ит зону выреза белой полосой.
         if (Build.VERSION.SDK_INT >= 28) {
             lp.layoutInDisplayCutoutMode =
@@ -72,6 +113,7 @@ public class MainActivity extends Activity {
         });
         setContentView(web);
         hideSystemUi();
+        resetIdle(); // KEEP_SCREEN_ON + рабочая яркость + старт отсчёта неактивности
         web.loadUrl(url);
     }
 
@@ -157,6 +199,8 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onPause() {
+        // Мы не на экране (VLC, лончер…) — таймер не наш: чужие окна сами держат экран.
+        handler.removeCallbacks(idleOff);
         web.onPause();
         super.onPause();
     }
@@ -165,6 +209,7 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         web.onResume();
+        resetIdle(); // вернулись (например, после фильма в VLC) — экран включён, отсчёт заново
     }
 
     @Override
