@@ -611,7 +611,7 @@ function renderPerson() {
     tmdbId: e.tmdbId, kind: e.type === "series" ? "tv" : "movie",
     title: e.title, year: e.year, poster: e.poster, roles: []
   })), lib, false);
-  fetch("/api/person?name=" + encodeURIComponent(name))
+  fetch("/api/person?name=" + encodeURIComponent(name), { cache: "no-store" })
     .then((r) => r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status)))
     .then((p) => {
       if (!state.person || state.person.name !== name) return; // уже ушли со страницы
