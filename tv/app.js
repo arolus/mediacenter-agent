@@ -1,6 +1,7 @@
 // TV-режим: категории → сетка 4×2 с описанием слева → страница фильма с Play.
 // Навигация пультом (Flirc = клавиши): стрелки, OK/Enter, Back (Esc/Backspace).
-const IMG = "https://image.tmdb.org/t/p";
+// Все картинки — через агентский прокси-кэш (/img): работает офлайн после первого показа.
+const IMG = "/img";
 const poster = (p) => (p ? `${IMG}/w342${p}` : null);
 const backdrop = (p) => (p ? `${IMG}/w1280${p}` : null);
 const shot = (p) => `${IMG}/w500${p}`;
