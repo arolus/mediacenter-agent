@@ -492,7 +492,7 @@ function renderDetail() {
           <div class="mt-1 flex-none truncate text-[clamp(18px,calc(var(--uivh)*4),28px)] font-extrabold leading-tight tracking-tight drop-shadow-lg">${esc(i.title)}${i.year ? ` <span class="font-semibold text-zinc-400">(${i.year})</span>` : ""}${multi ? ` <span class="text-[0.6em] font-semibold text-zinc-400">· ${eps.length} серий</span>` : ""}</div>
           ${i.tagline ? `<div class="flex-none truncate text-[clamp(11px,calc(var(--uivh)*2.1),15px)] italic text-zinc-400">«${esc(i.tagline)}»</div>` : ""}
           <div class="mt-2 flex min-h-0 flex-1 space-x-6">
-            <div class="min-w-0 flex-1 overflow-y-auto pr-1 text-[clamp(12px,calc(var(--uivh)*2.4),16px)] leading-snug text-zinc-200 drop-shadow">
+            <div id="detail-desc" tabindex="0" class="thin-scroll min-w-0 flex-1 overflow-y-auto rounded-md pr-1 text-[clamp(12px,calc(var(--uivh)*2.4),16px)] leading-snug text-zinc-200 outline-none drop-shadow focus:ring-2 focus:ring-violet-500/40">
               ${esc(i.overview || "Нет описания")}
               ${multi ? `<div class="mt-3 space-y-1">${metaTable}</div>` : ""}
             </div>
@@ -756,27 +756,40 @@ document.addEventListener("keydown", (e) => {
       return w ? [ep, w] : [ep];
     });
     const buttons = [...app.querySelectorAll("#detail-buttons .dfoc")];
+    const desc = document.getElementById("detail-desc");
+    const descScrolls = desc && desc.scrollHeight > desc.clientHeight + 2; // зона, только если есть что листать
     const focusEl = (el) => { if (el) { el.focus({ preventScroll: true }); el.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" }); } };
     const aIdx = actors.indexOf(cur);
     const rowIdx = epRows.findIndex((r) => r.includes(cur));
     const bIdx = buttons.indexOf(cur);
+    const inDesc = cur === desc;
     if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
       const d = e.key === "ArrowRight" ? 1 : -1;
       if (aIdx >= 0) focusEl(actors[Math.max(0, Math.min(actors.length - 1, aIdx + d))]);
       else if (rowIdx >= 0) { const row = epRows[rowIdx]; focusEl(row[Math.max(0, Math.min(row.length - 1, row.indexOf(cur) + d))]); }
       else if (bIdx >= 0) focusEl(buttons[Math.max(0, Math.min(buttons.length - 1, bIdx + d))]);
-      else focusEl(buttons[0] || epRows[0]?.[0] || actors[0]);
+      else if (!inDesc) focusEl(buttons[0] || epRows[0]?.[0] || actors[0]);
       return;
     }
+    const STEP = Math.max(40, Math.floor((desc ? desc.clientHeight : 0) * 0.6));
     if (e.key === "ArrowDown") {
-      if (aIdx >= 0) focusEl(epRows[0]?.[0] || buttons[0]);
+      if (aIdx >= 0) focusEl(descScrolls ? desc : (epRows[0]?.[0] || buttons[0]));
+      else if (inDesc) {
+        // листаем описание; дочитали — идём дальше вниз
+        if (desc.scrollTop + desc.clientHeight < desc.scrollHeight - 2) desc.scrollTop += STEP;
+        else focusEl(epRows[0]?.[0] || buttons[0]);
+      }
       else if (rowIdx >= 0) focusEl(rowIdx < epRows.length - 1 ? epRows[rowIdx + 1][0] : buttons[0]);
       // из кнопок вниз — некуда
       return;
     }
     // ArrowUp
-    if (bIdx >= 0) focusEl(epRows.length ? epRows[epRows.length - 1][0] : actors[0]);
-    else if (rowIdx >= 0) focusEl(rowIdx > 0 ? epRows[rowIdx - 1][0] : actors[0]);
+    if (bIdx >= 0) focusEl(epRows.length ? epRows[epRows.length - 1][0] : (descScrolls ? desc : actors[0]));
+    else if (inDesc) {
+      if (desc.scrollTop > 0) desc.scrollTop -= STEP;
+      else focusEl(actors[0]);
+    }
+    else if (rowIdx >= 0) focusEl(rowIdx > 0 ? epRows[rowIdx - 1][0] : (descScrolls ? desc : actors[0]));
     // из актёров вверх — некуда
   }
 });
