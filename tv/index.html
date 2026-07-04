@@ -36,6 +36,10 @@
       }
     }
     #app { height: 100%; }
+    /* Тонкий скроллбар для горизонтальных лент (актёры на детальной) */
+    .thin-scroll::-webkit-scrollbar { height: 3px; width: 3px; }
+    .thin-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .25); border-radius: 2px; }
+    .thin-scroll::-webkit-scrollbar-track { background: transparent; }
   </style>
   <!-- Tailwind (Play CDN, завендорен локально — ноды работают без интернета) -->
   <script src="/tailwind.js"></script>

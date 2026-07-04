@@ -482,7 +482,7 @@ function renderDetail() {
         </div>` : ""}
         <div class="flex min-w-0 flex-1 flex-col">
           ${castX.length ? `
-          <div class="flex flex-none space-x-2.5 overflow-x-auto pb-1">
+          <div class="thin-scroll flex flex-none space-x-2.5 overflow-x-auto p-1 pb-1.5">
             ${castX.map((a) => `
               <button class="dfoc actor w-[clamp(56px,calc(var(--uivw)*6),96px)] flex-none cursor-pointer rounded-lg text-center outline-none transition focus:ring-2 focus:ring-violet-400" data-name="${esc(a.n)}" data-photo="${esc(a.p || "")}">
                 <div class="h-0 w-full rounded-lg bg-zinc-800 bg-cover bg-center pb-[130%] ring-1 ring-white/10" style="${a.p ? `background-image:url('${prof(a.p)}')` : ""}"></div>
