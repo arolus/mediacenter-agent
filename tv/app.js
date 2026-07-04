@@ -549,47 +549,115 @@ function personEntries(name) {
   return out;
 }
 
+// Элемент библиотеки по catalogId ("movie_123"/"tv_456") — для пометок «в медиатеке»
+// и переходов из полной фильмографии. Части коллекций тоже учитываем.
+function libByCatalog() {
+  const map = new Map();
+  for (const c of CATS) {
+    for (const e of entriesForType(c.type)) {
+      if (e.isCollection) { for (const p of e.parts) if (p.catalogId || p.tmdbId) map.set(p.catalogId || ((p.type === "series" ? "tv_" : "movie_") + p.tmdbId), p); }
+      else if (e.catalogId || e.tmdbId) map.set(e.catalogId || ((e.type === "series" ? "tv_" : "movie_") + e.tmdbId), e);
+    }
+  }
+  return map;
+}
+
+// Мини-карточка фильмографии (постер TMDb): есть в медиатеке — яркая с галкой, нет — приглушена.
+function pcardHtml(c, inLib) {
+  return `
+    <div class="tv-card pcard relative w-[calc(var(--card-w)*0.7)] flex-none cursor-pointer overflow-hidden rounded-lg bg-zinc-900 ring-1 ring-white/10 outline-none transition duration-150 focus:z-10 focus:scale-[1.06] focus:ring-2 focus:ring-violet-500 ${inLib ? "" : "opacity-40"}"
+      tabindex="0" data-key="${esc(c.kind + "_" + c.tmdbId)}" data-title="${esc(c.title)}" data-year="${c.year || ""}" data-roles="${esc((c.roles || []).slice(0, 2).join(", "))}">
+      ${c.poster
+        ? `<div class="h-0 w-full bg-zinc-800 bg-cover bg-center pb-[150%]" style="background-image:url('${IMG}/w185${c.poster}')"></div>`
+        : `<div class="relative h-0 w-full bg-gradient-to-br from-zinc-800 to-zinc-900 pb-[150%]"><div class="absolute top-0 right-0 bottom-0 left-0 flex items-center justify-center p-1 text-center text-[10px] leading-snug text-zinc-300">${esc(c.title)}</div></div>`}
+      ${inLib ? `<div class="absolute top-1 right-1 grid h-5 w-5 place-items-center rounded bg-violet-600 text-white shadow">${ICONS.check("h-3.5 w-3.5")}</div>` : ""}
+    </div>`;
+}
+
 function renderPerson() {
   computeCardWidth();
   const pr = state.person || {};
   const name = pr.name || "";
-  const list = personEntries(name);
+  const localList = personEntries(name);
   let photo = pr.photo || null;
-  const roles = [], jobs = new Set();
+  const jobs = new Set();
   for (const it of items) {
     const a = (it.castX || []).find((x) => x.n === name);
-    if (a) { jobs.add("Актёр"); if (a.p && !photo) photo = a.p; if (a.c && !roles.includes(a.c)) roles.push(a.c); }
+    if (a) { jobs.add("Актёр"); if (a.p && !photo) photo = a.p; }
     if (String(it.director || "").includes(name)) jobs.add("Режиссёр");
     if (String(it.writers || "").includes(name)) jobs.add("Сценарист");
   }
   app.innerHTML = `
     <div class="flex h-full">
       <div class="flex w-[30%] min-w-[250px] max-w-[460px] flex-col overflow-hidden border-r border-white/5 bg-zinc-900/60 px-6 py-6 backdrop-blur-xl">
-        <div class="w-[62%] max-w-[220px] flex-none">
-          <div class="h-0 w-full rounded-2xl bg-zinc-800 bg-cover bg-center pb-[130%] shadow-2xl shadow-black/50 ring-1 ring-white/10" style="${photo ? `background-image:url('${shot(photo)}')` : ""}"></div>
-        </div>
-        <div class="mt-4 flex-none text-[clamp(18px,calc(var(--uivh)*3.6),26px)] font-bold leading-tight tracking-tight">${esc(name)}</div>
-        <div class="mt-1 flex-none text-[clamp(12px,calc(var(--uivh)*2.2),15px)] text-violet-300">${[...jobs].join(" · ")}</div>
-        <div class="mt-3 min-h-0 flex-1 overflow-y-auto pr-1 text-[clamp(12px,calc(var(--uivh)*2.2),15px)] leading-relaxed text-zinc-400">
-          ${roles.length ? "Роли: " + esc(roles.slice(0, 8).join(", ")) : ""}
-        </div>
-        <div class="flex-none pt-2 text-[clamp(12px,calc(var(--uivh)*2.2),15px)] text-zinc-500">${list.length} в медиатеке</div>
-      </div>
-      <div class="flex flex-1 flex-col px-3 pt-2">
-        <div class="flex-1 overflow-y-auto pb-4 pl-2.5 pt-2.5">
-          <div class="grid grid-cols-[repeat(var(--cols),var(--card-w))] justify-start gap-4">
-            ${backTile()}${list.map(cardHtml).join("")}
+        <div class="flex flex-none space-x-4">
+          <div class="w-[42%] max-w-[150px] flex-none">
+            <div id="person-photo" class="h-0 w-full rounded-xl bg-zinc-800 bg-cover bg-center pb-[130%] shadow-2xl shadow-black/50 ring-1 ring-white/10" style="${photo ? `background-image:url('${shot(photo)}')` : ""}"></div>
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="text-[clamp(16px,calc(var(--uivh)*3.2),22px)] font-bold leading-tight tracking-tight">${esc(name)}</div>
+            <div class="mt-1 text-[clamp(11px,calc(var(--uivh)*2),14px)] text-violet-300">${[...jobs].join(" · ")}</div>
+            <div id="person-dates" class="mt-1 text-[clamp(10px,calc(var(--uivh)*1.9),13px)] text-zinc-500"></div>
           </div>
         </div>
+        <div id="person-bio" class="thin-scroll mt-3 min-h-0 flex-1 overflow-y-auto pr-1 text-[clamp(11px,calc(var(--uivh)*2.1),14px)] leading-snug text-zinc-400"></div>
+        <div id="person-focus" class="h-9 flex-none pt-2 text-[clamp(11px,calc(var(--uivh)*2.1),14px)] leading-tight text-zinc-300"></div>
+      </div>
+      <div class="flex flex-1 flex-col px-3 pt-2">
+        <div id="person-films" class="thin-scroll flex-1 overflow-y-auto pb-4 pl-2.5 pt-2.5">${spinner("Загружаю фильмографию…")}</div>
       </div>
     </div>`;
-  app.querySelectorAll(".tv-card").forEach((card) => {
-    if (!card.dataset.id) return;
-    const item = list.find((x) => x.id === card.dataset.id);
-    card.addEventListener("click", () => item.isCollection ? enterCollection(item) : enterDetail(item));
+  // Пока TMDb грузится/недоступен — локальная фильмография; потом заменим полной.
+  const lib = libByCatalog();
+  renderPersonFilms(localList.map((e) => ({
+    tmdbId: e.tmdbId, kind: e.type === "series" ? "tv" : "movie",
+    title: e.title, year: e.year, poster: e.poster, roles: []
+  })), lib, false);
+  fetch("/api/person?name=" + encodeURIComponent(name))
+    .then((r) => r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status)))
+    .then((p) => {
+      if (!state.person || state.person.name !== name) return; // уже ушли со страницы
+      if (p.photo && !photo) document.getElementById("person-photo").style.backgroundImage = `url('${shot(p.photo)}')`;
+      const dates = [p.birthday ? fmtDate(p.birthday) : "", p.deathday ? "— " + fmtDate(p.deathday) : ""].join(" ").trim();
+      document.getElementById("person-dates").textContent = [dates, p.place].filter(Boolean).join(" · ");
+      document.getElementById("person-bio").textContent = p.biography || "";
+      renderPersonFilms(p.credits || [], lib, true);
+    })
+    .catch(() => {}); // остаёмся на локальной фильмографии
+}
+
+// Правая зона страницы персоны: фильмография с разбивкой по годам (свежие сверху).
+function renderPersonFilms(credits, lib, full) {
+  const el = document.getElementById("person-films");
+  if (!el) return;
+  const groups = new Map();
+  for (const c of credits) {
+    const y = c.year || 0;
+    if (!groups.has(y)) groups.set(y, []);
+    groups.get(y).push(c);
+  }
+  const years = [...groups.keys()].sort((a, b) => b - a);
+  el.innerHTML = `
+    <div class="-mt-1 mb-1 flex flex-wrap items-end">
+      <div class="mb-2 mr-3">${backTile().replace('w-[var(--card-w)]', 'w-[calc(var(--card-w)*0.7)]')}</div>
+      ${!full ? '<div class="mb-3 text-[13px] text-zinc-500">Полная фильмография недоступна — показано из медиатеки</div>' : ""}
+    </div>
+    ${years.map((y) => `
+      <div class="mb-1.5 mt-1 text-[clamp(13px,calc(var(--uivh)*2.4),17px)] font-bold text-zinc-400">${y || "Без даты"}</div>
+      <div class="-mr-3 flex flex-wrap">${groups.get(y).map((c) => `<div class="mb-3 mr-3">${pcardHtml(c, lib.has(c.kind + "_" + c.tmdbId))}</div>`).join("")}</div>`).join("")}`;
+  const focusInfo = document.getElementById("person-focus");
+  el.querySelectorAll(".pcard").forEach((card) => {
+    card.addEventListener("focus", () => {
+      if (focusInfo) focusInfo.textContent = `${card.dataset.title}${card.dataset.year ? " (" + card.dataset.year + ")" : ""}${card.dataset.roles ? " · " + card.dataset.roles : ""}`;
+    });
+    card.addEventListener("click", () => {
+      const it = lib.get(card.dataset.key);
+      if (it) { it.isCollection ? enterCollection(it) : enterDetail(it); }
+      else { showOverlay("Нет в медиатеке"); setTimeout(hideOverlay, 1400); }
+    });
   });
-  app.querySelector(".grid-back").addEventListener("click", back);
-  (app.querySelector(".tv-card[data-id]") || app.querySelector(".grid-back")).focus({ preventScroll: true });
+  el.querySelector(".grid-back").addEventListener("click", back);
+  (el.querySelector(".pcard") || el.querySelector(".grid-back")).focus({ preventScroll: true });
 }
 
 // Техчипы (Kodi-стиль: кодек, разрешение, аспект, звук) — ffprobe на ноде, лениво.
