@@ -493,7 +493,8 @@ function renderDetail() {
   sc.addEventListener("scroll", () => {
     topName.style.opacity = sc.scrollTop > big.offsetTop + big.offsetHeight - 8 ? "1" : "0";
   });
-  (app.querySelector(".ep") || playBtn || document.getElementById("detail-back")).focus();
+  // preventScroll: иначе фокус на «Смотреть» проскролливает страницу — актёры и заголовок уезжают
+  (app.querySelector(".ep") || playBtn || document.getElementById("detail-back")).focus({ preventScroll: true });
 }
 
 // Техчипы (Kodi-стиль: кодек, разрешение, аспект, звук) — ffprobe на ноде, лениво.
