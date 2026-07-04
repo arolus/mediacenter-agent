@@ -447,7 +447,8 @@ function renderDetail() {
   const BTN = "dfoc flex flex-none cursor-pointer items-center rounded-2xl border border-white/15 px-4 py-[clamp(7px,calc(var(--uivh)*1.8),12px)] text-[clamp(12px,calc(var(--uivh)*2.2),15px)] font-semibold outline-none backdrop-blur transition focus:ring-4";
   const metaTable = `
     ${metaRow("Режиссёр", personLinks(i.director))}
-    ${metaRow("Рейтинг", i.rating ? `<span class="font-semibold text-amber-400">★ ${Number(i.rating).toFixed(1)}</span>${i.votes ? ` <span class="text-zinc-500">(${Number(i.votes).toLocaleString("ru-RU")})</span>` : ""}` : "")}
+    ${metaRow("TMDb", i.rating ? `<span class="font-semibold text-amber-400">★ ${Number(i.rating).toFixed(1)}</span>${i.votes ? ` <span class="text-zinc-500">(${Number(i.votes).toLocaleString("ru-RU")})</span>` : ""}` : "")}
+    ${metaRow("IMDb", i.imdbRating ? `<span class="font-semibold text-yellow-300">★ ${Number(i.imdbRating).toFixed(1)}</span>${i.imdbVotes ? ` <span class="text-zinc-500">(${Number(i.imdbVotes).toLocaleString("ru-RU")})</span>` : ""}` : "")}
     ${metaRow("Жанр", esc((i.genres || []).join(", ")))}
     ${metaRow("Страна", esc(i.country))}
     ${metaRow("Студия", esc(i.studio))}
@@ -598,11 +599,12 @@ function renderPerson() {
             <div id="person-dates" class="mt-1 text-[clamp(10px,calc(var(--uivh)*1.9),13px)] text-zinc-500"></div>
           </div>
         </div>
-        <div id="person-bio" class="thin-scroll mt-3 min-h-0 flex-1 overflow-y-auto pr-1 text-[clamp(11px,calc(var(--uivh)*2.1),14px)] leading-snug text-zinc-400"></div>
+        <div id="person-bio" tabindex="0" class="thin-scroll mt-3 min-h-0 flex-1 overflow-y-auto rounded-md pr-1 text-[clamp(11px,calc(var(--uivh)*2.1),14px)] leading-snug text-zinc-400 outline-none focus:ring-2 focus:ring-violet-500/40"></div>
         <div id="person-focus" class="h-9 flex-none pt-2 text-[clamp(11px,calc(var(--uivh)*2.1),14px)] leading-tight text-zinc-300"></div>
       </div>
-      <div class="flex flex-1 flex-col px-3 pt-2">
-        <div id="person-films" class="thin-scroll flex-1 overflow-y-auto pb-4 pl-2.5 pt-2.5">${spinner("Загружаю фильмографию…")}</div>
+      <div class="flex min-w-0 flex-1 px-3 pt-2">
+        <div id="person-films" class="thin-scroll min-w-0 flex-1 overflow-y-auto pb-4 pl-2.5 pt-2.5">${spinner("Загружаю фильмографию…")}</div>
+        <div id="person-years" class="flex w-7 flex-none flex-col items-center justify-between overflow-hidden py-2 text-[7px] leading-none text-zinc-600"></div>
       </div>
     </div>`;
   // Пока TMDb грузится/недоступен — локальная фильмография; потом заменим полной.
@@ -643,6 +645,14 @@ function renderPersonFilms(credits, lib, full) {
     ${years.map((y) => `
       <div class="mb-1.5 mt-1 text-[clamp(13px,calc(var(--uivh)*2.4),17px)] font-bold text-zinc-400">${y || "Без даты"}</div>
       <div class="-mr-3 flex flex-wrap">${groups.get(y).map((c) => `<div class="mb-3 mr-3">${pcardHtml(c, lib.has(c.kind + "_" + c.tmdbId))}</div>`).join("")}</div>`).join("")}`;
+  // информационная колонка годов у скролла: равномерная выборка под высоту
+  const yearsCol = document.getElementById("person-years");
+  if (yearsCol) {
+    const ys = years.filter(Boolean);
+    const slots = Math.max(2, Math.floor(yearsCol.clientHeight / 12));
+    const pick = ys.length <= slots ? ys : Array.from({ length: slots }, (_, k) => ys[Math.round(k * (ys.length - 1) / (slots - 1))]);
+    yearsCol.innerHTML = pick.map((y) => `<div>${y}</div>`).join("");
+  }
   const focusInfo = document.getElementById("person-focus");
   el.querySelectorAll(".pcard").forEach((card) => {
     card.addEventListener("focus", () => {
@@ -734,10 +744,22 @@ document.addEventListener("keydown", (e) => {
   }
 
   if (state.screen === "grid" || state.screen === "collection" || state.screen === "person") {
+    // Биография персоны — зона: ←/→ входят/выходят, ↑/↓ листают текст.
+    const bio = state.screen === "person" ? document.getElementById("person-bio") : null;
+    const bioScrolls = bio && bio.scrollHeight > bio.clientHeight + 2;
+    if (cur === bio) {
+      e.preventDefault();
+      const STEP = Math.max(40, Math.floor(bio.clientHeight * 0.6));
+      if (e.key === "ArrowDown") bio.scrollTop += STEP;
+      else if (e.key === "ArrowUp") bio.scrollTop -= STEP;
+      else if (e.key === "ArrowRight") { const c = app.querySelector(".pcard, .tv-card"); if (c) c.focus({ preventScroll: true }); }
+      return;
+    }
     if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) {
       e.preventDefault();
       const next = nearest(cur, { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" }[e.key]);
       if (next) { next.focus(); next.scrollIntoView({ block: "nearest", behavior: "smooth" }); }
+      else if (e.key === "ArrowLeft" && bioScrolls) bio.focus({ preventScroll: true }); // из сетки влево — в биографию
     } else if (e.key === "Enter" || e.key === " ") {
       e.preventDefault(); cur?.click();
     }
