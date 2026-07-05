@@ -212,8 +212,15 @@ function groupCollections(entries) {
     if (!col.tmdbParts.length && c.parts && c.parts.length) col.tmdbParts = c.parts;
     col.parts.push(e);
   }
+  // Число недостающих частей франшизы (есть в TMDb, нет в медиатеке).
+  const ghostCount = (col) => {
+    const owned = new Set(col.parts.map((p) => p.tmdbId));
+    return (col.tmdbParts || []).filter((g) => g.tmdbId && !owned.has(g.tmdbId)).length;
+  };
   return out
-    .map((e) => (e.isCollection && e.parts.length === 1 ? e.parts[0] : e)) // одна часть — обычный фильм
+    // Схлопываем в обычный фильм ТОЛЬКО если скачаны все части (нет «призраков»): иначе
+    // даже одна скачанная часть остаётся коллекцией — видны продолжения, их можно докачать.
+    .map((e) => (e.isCollection && e.parts.length === 1 && ghostCount(e) === 0 ? e.parts[0] : e))
     .map((e) => { if (e.isCollection) e.parts.sort((a, b) => (a.year || 0) - (b.year || 0)); return e; })
     .sort((a, b) => (a.title || "").localeCompare(b.title || ""));
 }
@@ -417,8 +424,9 @@ function computeCardWidth() {
 
 // Карточка сетки — постер 2:3 (Kodi-стиль): без подписи, название — в левой панели.
 function cardHtml(i) {
+  // у коллекции — «скачано/всего частей франшизы» (включая недостающие «призраки»)
   const badge = i.isCollection
-    ? `${i.parts.filter(isWatched).length}/${i.parts.length}`
+    ? `${i.parts.length}/${Math.max(i.parts.length, (i.tmdbParts || []).length || i.parts.length)}`
     : (i.episodes && i.episodes.length > 1 ? `${i.episodes.length} серий` : (i.isCollectionPart && i.year ? String(i.year) : ""));
   const p = poster(i.poster) || backdrop(i.backdrop);
   // идёт ли загрузка этого «призрака» (сопоставление по названию+году)
