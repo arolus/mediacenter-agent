@@ -244,13 +244,13 @@ public class MainActivity extends Activity {
         }
     }
 
-    // Кнопка «Назад» = история страницы (TV-навигация на History API); в корне (категории)
-    // страница показывает диалог «Выйти из приложения?» (mcConfirmExit); если страница
-    // не отвечает (агент лежит, экран ожидания) — старое поведение: в фон.
+    // Кнопка «Назад» целиком отдаётся странице (mcHandleBack): она сама закрывает оверлеи,
+    // ходит по History API и в корне спрашивает про выход. НЕ используем web.goBack() напрямую —
+    // иначе Back проскакивал бы мимо модалок (пикер/диалог) в историю. Страница не отвечает
+    // (агент лежит, экран ожидания) → false → сворачиваем в фон.
     @Override
     public void onBackPressed() {
-        if (web.canGoBack()) { web.goBack(); return; }
-        web.evaluateJavascript("window.mcConfirmExit ? mcConfirmExit() : false",
+        web.evaluateJavascript("window.mcHandleBack ? mcHandleBack() : false",
             (v) -> { if (!"true".equals(v)) moveTaskToBack(true); });
     }
 

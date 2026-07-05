@@ -1118,11 +1118,15 @@ function exitApp() {
   if (window.MCApp && window.MCApp.exitApp) window.MCApp.exitApp();
   else window.close();
 }
-// Аппаратная «Назад» приложения на корне зовёт сюда (см. MainActivity.onBackPressed):
-// диалог открыт — закрываем (Back = отмена), нет — показываем.
-window.mcConfirmExit = () => {
-  if (document.getElementById("exit-confirm")) hideExitConfirm();
-  else showExitConfirm();
+// Аппаратная «Назад» приложения зовёт сюда (см. MainActivity.onBackPressed) — единая
+// точка Back-логики: сначала закрываем открытый оверлей (пикер/модалка/диалог), затем
+// навигация по истории, в корне — вопрос о выходе. Всегда возвращаем true (обрабатываем сами).
+window.mcHandleBack = () => {
+  if (document.getElementById("mc-picker")) { closePicker(); return true; }
+  if (document.getElementById("mc-modal")) { closeModal(); return true; }
+  if (document.getElementById("exit-confirm")) { hideExitConfirm(); return true; }
+  if (state.screen !== "categories") { history.back(); return true; }
+  showExitConfirm();
   return true;
 };
 window.addEventListener("popstate", (e) => applyState(e.state || { screen: "categories" }));
