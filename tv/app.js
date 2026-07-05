@@ -51,6 +51,24 @@ let state = { screen: "categories", type: "movie" };
 
 let playerMissing = false;
 let epFilter = "all"; // фильтр списка серий (кнопка-глаз): all → unwatched → watched → all
+// Активные загрузки этого устройства (для прогресса на «призраках»). Ключ: norm(title)|year.
+let downloads = new Map();
+const dlKey = (title, year) => String(title || "").toLowerCase().replace(/[^a-zа-я0-9]+/gi, " ").trim() + "|" + (year || "");
+async function loadDownloads() {
+  try {
+    const list = await (await fetch("/api/downloads")).json();
+    const m = new Map();
+    for (const d of list) if (d.status !== "done" && d.status !== "error") m.set(dlKey(d.title, d.year), d);
+    const changed = m.size !== downloads.size || [...m.keys()].some((k) => !downloads.has(k) || downloads.get(k).progress !== m.get(k).progress);
+    downloads = m;
+    return changed;
+  } catch (_) { return false; }
+}
+// Пока есть активные загрузки — опрашиваем прогресс и перерисовываем плашки.
+setInterval(async () => {
+  if (!downloads.size) return;
+  if (await loadDownloads() && (state.screen === "collection" || state.screen === "grid")) rerenderKeepingFocus();
+}, 3000);
 // Живём внутри своего WebView-приложения (com.mediacenter.tv)? Оно само даёт fullscreen,
 // ландшафт и негаснущий экран — браузерные пляски с orientation-lock не нужны.
 const IN_APP = /MediaCenterTV/.test(navigator.userAgent);
@@ -106,6 +124,7 @@ async function load() {
     }
   } catch (_) {}
   await reloadLibrary();
+  await loadDownloads(); // активные загрузки — для прогресса на «призраках»
   history.replaceState({ screen: "categories" }, ""); // корневая запись истории
   render();
   tryLandscape(false); // PWA/standalone может залочить сразу; браузер — при первом взаимодействии
@@ -402,11 +421,22 @@ function cardHtml(i) {
     ? `${i.parts.filter(isWatched).length}/${i.parts.length}`
     : (i.episodes && i.episodes.length > 1 ? `${i.episodes.length} серий` : (i.isCollectionPart && i.year ? String(i.year) : ""));
   const p = poster(i.poster) || backdrop(i.backdrop);
+  // идёт ли загрузка этого «призрака» (сопоставление по названию+году)
+  const dl = i.isGhost ? downloads.get(dlKey(i.title, i.year)) : null;
+  // рейтинг на карточке: у коллекции — лучшей части; иначе IMDb, иначе TMDb
+  const rt = i.isCollection
+    ? Math.max(0, ...i.parts.map((x) => x.imdbRating || x.rating || 0))
+    : Number(i.imdbRating || i.rating || 0);
   return `
     <div class="tv-card relative w-[var(--card-w)] cursor-pointer overflow-hidden rounded-xl bg-zinc-900 ring-1 ring-white/10 outline-none transition duration-150 focus:z-10 focus:scale-[1.06] focus:shadow-[0_16px_50px_-8px_rgba(139,92,246,.45)] focus:ring-[3px] focus:ring-violet-500${i.isGhost ? " opacity-40" : ""}" tabindex="0" data-id="${esc(i.id)}">
       ${p ? `<div class="h-0 w-full bg-zinc-800 bg-cover bg-center pb-[150%]" style="background-image:url('${p}')"></div>` : `<div class="relative h-0 w-full bg-gradient-to-br from-zinc-800 to-zinc-900 pb-[150%]"><div class="absolute top-0 right-0 bottom-0 left-0 flex items-center justify-center p-2 text-center text-[13px] leading-snug text-zinc-300">${esc(i.title)}</div></div>`}
+      ${rt ? `<div class="absolute top-1.5 left-1.5 rounded-md bg-black/75 px-1.5 py-0.5 text-[11px] font-semibold text-yellow-300">★ ${rt.toFixed(1)}</div>` : ""}
       ${badge ? `<div class="absolute top-1.5 right-1.5 rounded-md bg-black/75 px-1.5 py-0.5 text-[11px] font-semibold text-zinc-100">${badge}</div>` : ""}
       ${isWatched(i) ? `<div class="absolute bottom-1.5 right-1.5 grid h-6 w-6 place-items-center rounded-md bg-black/70 text-emerald-400">${ICONS.check("h-4 w-4")}</div>` : ""}
+      ${dl ? `<div class="absolute right-0 bottom-0 left-0 bg-black/80 px-2 py-1.5">
+        <div class="mb-1 text-[10px] font-semibold text-violet-200">${dl.status === "downloading" ? "Скачивается " + Math.round((dl.progress || 0) * 100) + "%" : dl.error ? "Ошибка" : "Ожидает…"}</div>
+        <div class="h-1 overflow-hidden rounded bg-white/15"><div class="h-full bg-violet-500 transition-all" style="width:${Math.round((dl.progress || 0) * 100)}%"></div></div>
+      </div>` : ""}
     </div>`;
 }
 
@@ -487,7 +517,7 @@ function renderCollection() {
     list: parts,
     empty: "",
     onOpen: (part) => {
-      if (part.isGhost) { showOverlay("Нет в медиатеке — можно скачать через дашборд"); setTimeout(hideOverlay, 2200); }
+      if (part.isGhost) askDownload(part);
       else enterDetail(part);
     },
     fallbackInfo: col // на плитке «Назад» — описание самой коллекции
@@ -646,7 +676,7 @@ function renderDetail() {
             <button class="dfoc flex flex-none cursor-pointer items-center rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-[clamp(18px,calc(var(--uivw)*3),32px)] py-[clamp(7px,calc(var(--uivh)*1.8),12px)] text-[clamp(14px,calc(var(--uivh)*2.6),18px)] font-bold text-white shadow-xl shadow-violet-600/40 outline-none transition focus:scale-[1.04] focus:ring-4 focus:ring-violet-400/50" id="detail-play" data-id="${esc(i.id)}">${ICONS.play("mr-2 h-[1.2em] w-[1.2em]")} Смотреть</button>
             ${i.trailer ? `<button class="${BTN} bg-white/5 text-zinc-300 focus:ring-violet-500/40" id="detail-trailer">${ICONS.movie("mr-2 h-[1.1em] w-[1.1em]")} Трейлер</button>` : ""}
             <button class="${BTN} epw ${i.watched ? "bg-emerald-500/15 text-emerald-300 focus:ring-emerald-500/40" : "bg-white/5 text-zinc-300 focus:ring-violet-500/40"}"
-              data-id="${esc(i.id)}" data-set="${i.watched ? 0 : 1}">${ICONS.check("mr-2 h-[1.1em] w-[1.1em]")}${i.watched ? "Просмотрено" : "Отметить просмотренным"}</button>
+              data-id="${esc(i.id)}" data-set="${i.watched ? 0 : 1}">${(i.watched ? ICONS.check : ICONS.eyeOff)("mr-2 h-[1.1em] w-[1.1em]")}${i.watched ? "Просмотрено" : "Не просмотрено"}</button>
           </div>`}
         </div>
       </div>
@@ -912,6 +942,131 @@ function back() {
   showExitConfirm();
 }
 
+/* ---------- Скачивание фильма-«призрака» с rutracker ---------- */
+// Универсальный модальный диалог Да/Нет (выбор в JS, без focus() — WebView его не переносит).
+let modalSel = "no", modalYes = null;
+function paintModalSel() {
+  const y = document.getElementById("modal-yes"), n = document.getElementById("modal-no");
+  if (!y || !n) return;
+  y.classList.toggle("ring-4", modalSel === "yes"); y.classList.toggle("scale-105", modalSel === "yes");
+  n.classList.toggle("ring-4", modalSel === "no"); n.classList.toggle("scale-105", modalSel === "no");
+}
+function askConfirm(text, onYes) {
+  closeModal();
+  modalYes = onYes; modalSel = "no";
+  const wrap = document.createElement("div");
+  wrap.id = "mc-modal";
+  wrap.className = "fixed top-0 right-0 bottom-0 left-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm";
+  wrap.innerHTML = `
+    <div class="max-w-[70%] rounded-3xl border border-white/10 bg-zinc-900/95 px-10 py-8 text-center shadow-2xl shadow-black/60">
+      <div class="mb-6 text-2xl font-bold">${esc(text)}</div>
+      <div class="flex justify-center space-x-4">
+        <button id="modal-yes" class="cursor-pointer rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-9 py-3 text-lg font-bold text-white outline-none ring-violet-400/60 transition">Да</button>
+        <button id="modal-no" class="cursor-pointer rounded-2xl border border-white/15 bg-white/5 px-9 py-3 text-lg font-semibold text-zinc-300 outline-none ring-violet-500/50 transition">Нет</button>
+      </div>
+    </div>`;
+  document.getElementById("rot").appendChild(wrap);
+  document.getElementById("modal-yes").addEventListener("click", () => { const cb = modalYes; closeModal(); cb && cb(); });
+  document.getElementById("modal-no").addEventListener("click", closeModal);
+  paintModalSel();
+}
+function closeModal() { document.getElementById("mc-modal")?.remove(); modalYes = null; }
+
+// Диалог «Скачать?» → поиск на rutracker → окно выбора торрента.
+function askDownload(ghost) {
+  const kind = ghost.type === "cartoon" ? "мультфильм" : ghost.type === "series" ? "сериал" : "фильм";
+  askConfirm(`Скачать этот ${kind}?`, async () => {
+    showOverlay("Ищу на rutracker…", false);
+    try {
+      const q = `title=${encodeURIComponent(ghost.title)}&year=${ghost.year || ""}&type=${ghost.type}`;
+      const r = await (await fetch("/api/search-torrents?" + q)).json();
+      hideOverlay();
+      if (r.error) { showOverlay("⚠️ " + r.error); return setTimeout(hideOverlay, 3500); }
+      const list = r.results || [];
+      if (!list.length) { showOverlay("Ничего не найдено на rutracker"); return setTimeout(hideOverlay, 3000); }
+      showTorrentPicker(ghost, list);
+    } catch (_) { showOverlay("⚠️ Ошибка поиска"); setTimeout(hideOverlay, 3000); }
+  });
+}
+
+// Размер строки rutracker («2.15GB», «980MB», «1.4 GB») → байты.
+function parseSize(s) {
+  const m = String(s || "").replace(",", ".").match(/([\d.]+)\s*(GB|MB|TB|КБ|МБ|ГБ|ТБ)?/i);
+  if (!m) return 0;
+  const n = parseFloat(m[1]) || 0;
+  const u = (m[2] || "GB").toUpperCase();
+  const mul = u.startsWith("T") || u === "ТБ" ? 1e12 : u.startsWith("M") || u === "МБ" ? 1e6 : u.startsWith("K") || u === "КБ" ? 1e3 : 1e9;
+  return n * mul;
+}
+const fmtSize = (b) => b >= 1e9 ? (b / 1e9).toFixed(2) + " ГБ" : (b / 1e6).toFixed(0) + " МБ";
+
+let pickerSel = 0, pickerRows = [];
+// Окно выбора торрента: приоритет размеру 1–3 ГБ, внутри — по сидам убыв.; остальные ниже.
+function showTorrentPicker(ghost, results) {
+  closeModal();
+  const scored = results.map((t) => ({ ...t, _bytes: parseSize(t.size), _seeds: Number(t.seeds) || 0 }))
+    .sort((a, b) => {
+      const pa = a._bytes >= 1e9 && a._bytes <= 3e9 ? 0 : 1;
+      const pb = b._bytes >= 1e9 && b._bytes <= 3e9 ? 0 : 1;
+      return pa - pb || b._seeds - a._seeds;
+    }).slice(0, 30);
+  pickerRows = scored; pickerSel = 0;
+  const wrap = document.createElement("div");
+  wrap.id = "mc-picker";
+  wrap.className = "fixed top-0 right-0 bottom-0 left-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm";
+  wrap.innerHTML = `
+    <div class="flex max-h-[86%] w-[80%] max-w-[900px] flex-col rounded-3xl border border-white/10 bg-zinc-900/95 p-6 shadow-2xl shadow-black/60">
+      <div class="mb-3 flex-none text-xl font-bold">${esc(ghost.title)}${ghost.year ? ` (${ghost.year})` : ""} — выбери раздачу</div>
+      <div id="picker-list" class="thin-scroll min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1">
+        ${scored.map((t, i) => torrentRow(t, i)).join("")}
+      </div>
+      <div class="mt-3 flex-none text-[13px] text-zinc-500">1–3 ГБ и больше сидов — сверху · Enter — скачать · Esc — отмена</div>
+    </div>`;
+  document.getElementById("rot").appendChild(wrap);
+  wrap.querySelectorAll(".torrent-row").forEach((row) => {
+    row.addEventListener("click", () => { pickerSel = Number(row.dataset.i); doDownload(ghost); });
+  });
+  paintPicker();
+}
+function torrentRow(t, i) {
+  const inRange = t._bytes >= 1e9 && t._bytes <= 3e9;
+  return `
+    <div class="torrent-row flex cursor-pointer items-center rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 outline-none transition" data-i="${i}">
+      <div class="min-w-0 flex-1">
+        <div class="truncate text-[15px] font-semibold">${esc(t.label || t.title || "раздача")}</div>
+        <div class="truncate text-[12px] text-zinc-400">${esc(t.meta || t.sublabel || "")}</div>
+      </div>
+      <div class="ml-3 flex-none text-right">
+        <div class="text-[14px] font-semibold ${inRange ? "text-emerald-300" : "text-zinc-300"}">${fmtSize(t._bytes)}</div>
+        <div class="text-[12px] text-zinc-400">▲ ${t._seeds} сид${t._seeds % 10 === 1 && t._seeds % 100 !== 11 ? "" : "ов"}</div>
+      </div>
+    </div>`;
+}
+function paintPicker() {
+  const rows = [...document.querySelectorAll("#mc-picker .torrent-row")];
+  rows.forEach((r, i) => {
+    r.classList.toggle("ring-2", i === pickerSel);
+    r.classList.toggle("ring-violet-500", i === pickerSel);
+    r.classList.toggle("bg-violet-500/15", i === pickerSel);
+    if (i === pickerSel) r.scrollIntoView({ block: "nearest" });
+  });
+}
+function closePicker() { document.getElementById("mc-picker")?.remove(); pickerRows = []; }
+async function doDownload(ghost) {
+  const t = pickerRows[pickerSel];
+  if (!t) return;
+  closePicker();
+  showOverlay("Ставлю на загрузку…", false);
+  try {
+    const q = `tid=${encodeURIComponent(t.tid)}&title=${encodeURIComponent(ghost.title)}&year=${ghost.year || ""}&type=${ghost.type}`;
+    const r = await (await fetch("/api/download?" + q)).json();
+    showOverlay(r.ok ? "Загрузка начата — прогресс на плашке" : "⚠️ " + (r.error || "ошибка"), false);
+  } catch (_) { showOverlay("⚠️ Не удалось поставить загрузку"); }
+  setTimeout(hideOverlay, 3000);
+  await loadDownloads();
+  if (state.screen === "collection" || state.screen === "grid") rerenderKeepingFocus();
+}
+
 /* ---------- Выход из приложения (диалог на корневом экране) ----------
    ВАЖНО: выбор Да/Нет ведём в JS-переменной с ручной подсветкой, НЕ через focus():
    в WebView (touch mode) focus() на кнопки не переносится, activeElement оставался
@@ -967,6 +1122,25 @@ window.addEventListener("popstate", (e) => applyState(e.state || { screen: "cate
 /* ---------- Навигация пультом ---------- */
 document.addEventListener("keydown", (e) => {
   armOrientation(); // первая клавиша — момент для fullscreen + landscape-lock
+  // Окно выбора торрента: ↑/↓ по списку, Enter — скачать, Esc/Back — отмена.
+  const picker = document.getElementById("mc-picker");
+  if (picker) {
+    e.preventDefault();
+    if (["Escape", "Backspace", "GoBack", "BrowserBack"].includes(e.key)) return closePicker();
+    if (e.key === "ArrowDown") { pickerSel = Math.min(pickerRows.length - 1, pickerSel + 1); paintPicker(); }
+    else if (e.key === "ArrowUp") { pickerSel = Math.max(0, pickerSel - 1); paintPicker(); }
+    else if (e.key === "Enter" || e.key === " ") picker.querySelector(`.torrent-row[data-i="${pickerSel}"]`)?.click();
+    return;
+  }
+  // Модальный Да/Нет (скачать?): ←/→ между кнопками, Enter, Back = отмена.
+  if (document.getElementById("mc-modal")) {
+    e.preventDefault();
+    if (["Escape", "Backspace", "GoBack", "BrowserBack"].includes(e.key)) return closeModal();
+    if (e.key === "ArrowLeft") { modalSel = "yes"; paintModalSel(); }
+    else if (e.key === "ArrowRight") { modalSel = "no"; paintModalSel(); }
+    else if (e.key === "Enter" || e.key === " ") document.getElementById(modalSel === "yes" ? "modal-yes" : "modal-no")?.click();
+    return;
+  }
   // Диалог «Выйти из приложения?» перехватывает всё: ←/→ между Да/Нет, Enter, Back = отмена.
   if (document.getElementById("exit-confirm")) {
     e.preventDefault();
