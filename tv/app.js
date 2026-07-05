@@ -429,8 +429,10 @@ function cardHtml(i) {
     ? `${i.parts.length}/${Math.max(i.parts.length, (i.tmdbParts || []).length || i.parts.length)}`
     : (i.episodes && i.episodes.length > 1 ? `${i.episodes.length} серий` : (i.isCollectionPart && i.year ? String(i.year) : ""));
   const p = poster(i.poster) || backdrop(i.backdrop);
-  // идёт ли загрузка этого «призрака» (сопоставление по названию+году)
-  const dl = i.isGhost ? downloads.get(dlKey(i.title, i.year)) : null;
+  // идёт ли загрузка этого фильма (по названию+году) — и на «призраке», и на уже
+  // появившейся карточке: WebTorrent создаёт файл сразу, карточка становится «реальной»,
+  // но докачка ещё идёт, и прогресс нужно продолжать показывать. У коллекций — не сюда.
+  const dl = i.isCollection ? null : downloads.get(dlKey(i.title, i.year));
   // рейтинг на карточке: у коллекции — лучшей части; иначе IMDb, иначе TMDb
   const rt = i.isCollection
     ? Math.max(0, ...i.parts.map((x) => x.imdbRating || x.rating || 0))
