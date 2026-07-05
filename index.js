@@ -9,7 +9,7 @@
 const fs = require("fs");
 const path = require("path");
 const { doc, getDoc, setDoc, serverTimestamp } = require("firebase/firestore");
-const { ensureDirs } = require("./lib/media");
+const { ensureDirs, mediaRoot } = require("./lib/media");
 const { initFirebase } = require("./lib/firebase");
 const { syncLibrary } = require("./lib/library");
 const { watchCommands } = require("./lib/commands");
@@ -29,6 +29,18 @@ function lanIp() {
     for (const i of ifaces || []) if (i.family === "IPv4" && !i.internal) return i.address;
   }
   return null;
+}
+
+// Свободное/общее место на диске медиапапки — для дашборда (сколько ещё влезет).
+// fs.statfs есть с Node 18.15; на старее вернём null (дашборд просто не покажет).
+function diskUsage(config) {
+  return new Promise((resolve) => {
+    if (!fs.statfs) return resolve(null);
+    fs.statfs(mediaRoot(config), (err, st) => {
+      if (err || !st) return resolve(null);
+      resolve({ freeBytes: st.bavail * st.bsize, totalBytes: st.blocks * st.bsize });
+    });
+  });
 }
 
 function loadConfig() {
@@ -67,6 +79,7 @@ async function main() {
     // адрес TV-сервера в локальной сети — дашборд стримит видео прямо с устройства
     lanIp: lanIp(),
     tvPort: config.localPort || 8088,
+    disk: await diskUsage(config),
     lastSeen: serverTimestamp()
   };
   if (!existing || !existing.exists() || !existing.data().name) {
@@ -76,9 +89,9 @@ async function main() {
   ctx.health.firebase = true; ctx.health.lastOk = Date.now();
   console.log(`✓ Устройство зарегистрировано: ${config.device.name} (${config.device.id})`);
 
-  // Heartbeat (lanIp может меняться при смене Wi-Fi — обновляем)
-  const heartbeat = setInterval(() => {
-    setDoc(deviceRef, { online: true, lanIp: lanIp(), lastSeen: serverTimestamp() }, { merge: true })
+  // Heartbeat (lanIp может меняться при смене Wi-Fi, disk — при скачивании/удалении)
+  const heartbeat = setInterval(async () => {
+    setDoc(deviceRef, { online: true, lanIp: lanIp(), disk: await diskUsage(config), lastSeen: serverTimestamp() }, { merge: true })
       .then(() => { ctx.health.firebase = true; ctx.health.lastOk = Date.now(); ctx.health.error = null; })
       .catch((e) => {
         ctx.health.firebase = false; ctx.health.error = e.message;
