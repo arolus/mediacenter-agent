@@ -7,6 +7,9 @@
 package com.mediacenter.tv;
 
 import android.app.Activity;
+import android.app.admin.DevicePolicyManager;
+import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
@@ -15,6 +18,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
@@ -27,22 +31,35 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 
 public class MainActivity extends Activity {
-    // Таймер неактивности: 3 часа без пульта/тача — гасим экран (см. resetIdle/idleOff).
-    private static final long IDLE_OFF_MS = 3L * 60 * 60 * 1000;
+    // Таймер неактивности: столько без пульта/тача — гасим экран. Переопределяется intent-extra
+    // "idle" (секунды) для теста: am start … --ei idle 60.
+    private static final long IDLE_OFF_DEFAULT = 3L * 60 * 60 * 1000;
     private static final float BRIGHTNESS = 0.3f; // рабочая яркость окна (HDMI не трогает)
+    private long idleMs = IDLE_OFF_DEFAULT;
 
     private WebView web;
     private String url;
     private Thread waiter; // фоновая проба агента, пока он не поднялся
     private final Handler handler = new Handler(Looper.getMainLooper());
+    // Момент последнего РЕАЛЬНОГО ввода (пульт/тач). Отсчёт простоя ведём от него, а НЕ от
+    // onResume: иначе ночные onPause/onResume (зарядка, системные события) сбрасывали таймер
+    // в ноль и экран горел вечно.
+    private long lastInput;
+    private DevicePolicyManager dpm;
+    private ComponentName admin;
 
-    // «Выключение» экрана без спецправ: снимаем KEEP_SCREEN_ON (дальше системный таймаут
-    // погасит экран сам) и роняем яркость окна в 0 — на OLED тёмный UI = погасшие пиксели,
-    // так что темнеет сразу, не дожидаясь системного таймаута. Любая кнопка/тач будит.
+    // Настоящее гашение экрана. Обычному приложению система не даёт «усыпить» дисплей
+    // (яркость 0 — лишь чёрный AMOLED, дисплей включён и не гаснет по таймауту), поэтому
+    // используем Device Admin lockNow() — он реально гасит и блокирует. Если админ не
+    // активирован — фолбэк: снять KEEP_SCREEN_ON + яркость 0 (хотя бы затемнение).
     private final Runnable idleOff = new Runnable() {
         @Override public void run() {
-            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-            setBrightness(0f);
+            if (dpm != null && admin != null && dpm.isAdminActive(admin)) {
+                dpm.lockNow();
+            } else {
+                getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                setBrightness(0f);
+            }
         }
     };
 
@@ -52,24 +69,28 @@ public class MainActivity extends Activity {
         getWindow().setAttributes(lp);
     }
 
-    // Любая активность пользователя: экран держим, яркость рабочая, отсчёт 3ч заново.
-    private void resetIdle() {
-        handler.removeCallbacks(idleOff);
+    // Экран горит, яркость рабочая; отсчёт гашения — от последнего ввода (lastInput).
+    // fromInput=true — это реальный ввод, обновляем lastInput; false (onResume) — только
+    // восстановить экран и перепланировать от уже накопленного простоя.
+    private void wakeAndSchedule(boolean fromInput) {
+        if (fromInput) lastInput = SystemClock.uptimeMillis();
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         setBrightness(BRIGHTNESS);
-        handler.postDelayed(idleOff, IDLE_OFF_MS);
+        handler.removeCallbacks(idleOff);
+        long delay = idleMs - (SystemClock.uptimeMillis() - lastInput);
+        handler.postDelayed(idleOff, Math.max(0, delay));
     }
 
     // dispatch* видят события раньше WebView — считаем их «активностью» и сбрасываем таймер.
     @Override
     public boolean dispatchKeyEvent(KeyEvent e) {
-        resetIdle();
+        wakeAndSchedule(true);
         return super.dispatchKeyEvent(e);
     }
 
     @Override
     public boolean dispatchTouchEvent(MotionEvent e) {
-        resetIdle();
+        wakeAndSchedule(true);
         return super.dispatchTouchEvent(e);
     }
 
@@ -83,6 +104,20 @@ public class MainActivity extends Activity {
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
         }
         getWindow().setAttributes(lp);
+
+        // Device Admin для настоящего гашения экрана (lockNow). Если ещё не активирован —
+        // просим один раз (пользователь подтверждает; на тесте — adb dpm set-active-admin).
+        dpm = (DevicePolicyManager) getSystemService(Context.DEVICE_POLICY_SERVICE);
+        admin = new ComponentName(this, AdminReceiver.class);
+        if (dpm != null && !dpm.isAdminActive(admin)) {
+            try {
+                Intent it = new Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN);
+                it.putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, admin);
+                it.putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION,
+                    "Нужно, чтобы гасить экран после простоя (телефон-приставка ночью).");
+                startActivity(it);
+            } catch (Exception ignored) {}
+        }
 
         url = resolveUrl(getIntent());
 
@@ -116,7 +151,10 @@ public class MainActivity extends Activity {
         });
         setContentView(web);
         hideSystemUi();
-        resetIdle(); // KEEP_SCREEN_ON + рабочая яркость + старт отсчёта неактивности
+        // idle-таймаут из intent (секунды) — для теста; иначе 3 часа
+        long idleSec = getIntent() != null ? getIntent().getLongExtra("idle", 0) : 0;
+        if (idleSec > 0) idleMs = idleSec * 1000;
+        wakeAndSchedule(true); // KEEP_SCREEN_ON + рабочая яркость + старт отсчёта неактивности
         web.loadUrl(url);
     }
 
@@ -228,7 +266,10 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         web.onResume();
-        resetIdle(); // вернулись (например, после фильма в VLC) — экран включён, отсчёт заново
+        // Вернулись на экран (пробуждение после lockNow, возврат из VLC) — это реальное
+        // действие пользователя: экран включён, даём свежий отсчёт. Ложных onResume тут не
+        // бывает: пока экран погашен нами, активити не в foreground и onResume не приходит.
+        wakeAndSchedule(true);
     }
 
     @Override
