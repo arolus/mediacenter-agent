@@ -9,8 +9,8 @@
 set -euo pipefail
 
 # --- версия приложения: бампать при каждом изменении tvapp/ ---
-VERSION_CODE=7
-VERSION_NAME="1.6"
+VERSION_CODE=8
+VERSION_NAME="1.7"
 
 DIR="$(cd "$(dirname "$0")" && pwd)"          # agent/tvapp
 OUT_APK="$DIR/../tv/app/mediacenter-tv.apk"   # артефакт в репо агента
@@ -19,10 +19,27 @@ KEYSTORE="$KEYS_DIR/tvapp.jks"
 KEYPASS_FILE="$KEYS_DIR/tvapp.pass"
 
 SDK="${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}"
-BT="$SDK/build-tools/35.0.1"
-PLATFORM="$SDK/platforms/android-35/android.jar"
-[ -f "$PLATFORM" ] || { echo "нет android.jar: $PLATFORM"; exit 1; }
-[ -x "$BT/aapt2" ] || { echo "нет build-tools 35.0.1 в $SDK"; exit 1; }
+# Pick whatever the SDK actually has installed — pinning versions here just breaks the build
+# every time Android Studio updates its components.
+BT="$(ls -d "$SDK"/build-tools/*/ 2>/dev/null | sort -V | tail -1)"
+BT="${BT%/}"
+PLATFORM="$(ls "$SDK"/platforms/*/android.jar 2>/dev/null | sort -V | tail -1)"
+if [ ! -f "$PLATFORM" ]; then echo "нет android.jar в $SDK/platforms"; exit 1; fi
+if [ ! -x "$BT/aapt2" ]; then echo "нет build-tools в $SDK"; exit 1; fi
+
+# javac/keytool: macOS ships no JDK, but Android Studio bundles one (JetBrains Runtime).
+# `command -v javac` is useless here — macOS keeps a stub that only prints "Unable to locate
+# a Java Runtime", so probe whether it actually runs.
+if ! javac -version >/dev/null 2>&1; then
+  JBR="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+  if [ -x "$JBR/bin/javac" ]; then
+    export JAVA_HOME="$JBR"
+    export PATH="$JAVA_HOME/bin:$PATH"
+  else
+    echo "нет javac: поставь JDK или Android Studio"; exit 1
+  fi
+fi
+echo "→ SDK: $(basename "$BT") / $(basename "$(dirname "$PLATFORM")")"
 
 # --- keystore: генерим один раз, пароль в файле рядом ---
 if [ ! -f "$KEYSTORE" ]; then

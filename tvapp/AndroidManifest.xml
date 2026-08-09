@@ -23,6 +23,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- Cloudflare clearance harvester: agent starts it when rutracker challenges us.
+             Not a launcher entry — no MAIN/LAUNCHER filter, only `am start -n …/.ClearanceActivity` -->
+        <activity
+            android:name=".ClearanceActivity"
+            android:label="rutracker"
+            android:exported="true" />
         <!-- Device Admin — только ради lockNow() (гасить экран после простоя) -->
         <receiver
             android:name=".AdminReceiver"

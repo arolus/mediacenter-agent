@@ -15,6 +15,7 @@ const { syncLibrary } = require("./lib/library");
 const { watchCommands } = require("./lib/commands");
 const { watchTransfers } = require("./lib/transfer");
 const { watchDownloads } = require("./lib/downloads");
+const { watchRtRequests } = require("./lib/rtrelay");
 const { watchUpdates, currentSha, currentBranch } = require("./lib/updater");
 const { startLocalServer } = require("./lib/localserver");
 const { watchLibrary } = require("./lib/watcher");
@@ -107,6 +108,9 @@ async function main() {
   const stopCommands = watchCommands(ctx);
   const stopTransfers = watchTransfers(ctx);
   const stopDownloads = watchDownloads(ctx);
+  // Ретранслятор запросов к rutracker: Cloudflare пускает только с домашнего IP, поэтому
+  // сами HTTP-запросы уходят отсюда, а вся логика трекера остаётся на сервере (lib/rtrelay.js).
+  const stopRtRelay = watchRtRequests(ctx);
   const stopUpdates = watchUpdates(ctx);
   const stopLocal = startLocalServer(ctx);
   console.log("✓ Агент готов. Слушаю команды, переносы, загрузки и обновления…");
@@ -119,6 +123,7 @@ async function main() {
     stopCommands();
     stopTransfers();
     stopDownloads();
+    stopRtRelay();
     stopUpdates();
     stopLocal();
     await setDoc(deviceRef, { online: false, lastSeen: serverTimestamp() }, { merge: true }).catch(() => {});
