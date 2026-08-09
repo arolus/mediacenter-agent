@@ -113,7 +113,7 @@ const spinner = (label) => `
 async function load() {
   // Просим агента закрепить системную альбомную ориентацию (если у Termux есть права).
   try { fetch("/api/ensure-landscape").catch(() => {}); } catch (_) {}
-  try { deviceName = (await (await fetch("/api/device")).json()).name || ""; } catch (_) {}
+  await refreshDeviceName();
   try { const st = await (await fetch("/api/player-status")).json(); playerMissing = st && st.installed === false; } catch (_) {}
   // Наше TV-приложение: предлагаем поставить (в браузере) или обновить (везде)
   try {
@@ -138,7 +138,9 @@ async function load() {
     if (ssePending) return;
     ssePending = setTimeout(async () => {
       ssePending = null;
-      if (await reloadLibrary()) rerenderKeepingFocus();
+      // Имя устройства правят в дашборде — плашка в шапке должна меняться без перезапуска.
+      const renamed = await refreshDeviceName();
+      if ((await reloadLibrary()) || renamed) rerenderKeepingFocus();
     }, 1500);
   };
   const connectEvents = () => {
@@ -155,6 +157,17 @@ async function load() {
     else { connectEvents(); if (await reloadLibrary()) rerenderKeepingFocus(); } // догнать пропущенное
   });
   if (!document.hidden) connectEvents();
+}
+
+// Имя ноды агент отдаёт из Firestore (дашборд — источник правды), поэтому перечитываем его
+// по событиям, а не только при загрузке. true — если имя сменилось.
+async function refreshDeviceName() {
+  try {
+    const name = (await (await fetch("/api/device")).json()).name || "";
+    if (name === deviceName) return false;
+    deviceName = name;
+    return true;
+  } catch (_) { return false; }
 }
 
 let itemsJson = "";
