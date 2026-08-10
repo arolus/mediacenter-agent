@@ -873,8 +873,11 @@ function renderPerson() {
         <div id="person-info-film" class="hidden min-h-0 flex-1 flex-col">
           <!-- Обложка сфокусированного фильма — над описанием, как на детальной странице -->
           <div class="mb-3 flex-none">
-            <!-- Вдвое ниже фото актёра: описанию под ним нужна высота, а узнаётся постер и мелким -->
-            <div id="pf-poster" class="h-0 w-[21%] max-w-[75px] rounded-xl bg-zinc-800 bg-cover bg-center pb-[150%] shadow-2xl shadow-black/50 ring-1 ring-white/10"></div>
+            <!-- Обёртка обязательна: padding-bottom в % считается от ширины РОДИТЕЛЯ, и без неё
+                 постер тянулся на 150% ширины всей панели (~600px вместо 225). -->
+            <div class="w-[42%] max-w-[150px]">
+              <div id="pf-poster" class="h-0 w-full rounded-xl bg-zinc-800 bg-cover bg-center pb-[150%] shadow-2xl shadow-black/50 ring-1 ring-white/10"></div>
+            </div>
           </div>
           <div id="pf-title" class="flex-none text-[clamp(18px,calc(var(--uivh)*3.8),28px)] font-bold leading-tight tracking-tight"></div>
           <div id="pf-meta" class="mt-1.5 flex-none text-[clamp(11px,calc(var(--uivh)*2),14px)] text-zinc-400"></div>
