@@ -164,6 +164,7 @@ public class MainActivity extends Activity {
         wakeAndSchedule(true); // KEEP_SCREEN_ON + рабочая яркость + старт отсчёта неактивности
         web.loadUrl(url);
         syncHomeScreen();
+        cacheKioskPin();
         // Пришли по карточке из ленты «Продолжить просмотр» — сразу открываем этот фильм
         handlePlayIntent(getIntent());
     }
@@ -205,13 +206,32 @@ public class MainActivity extends Activity {
             "button{margin-top:28px;padding:10px 22px;font-size:16px;color:#a1a1aa;background:#18181b;" +
             "border:1px solid #3f3f46;border-radius:12px;outline:none}" +
             "button:focus{color:#fff;border-color:#a78bfa;box-shadow:0 0 0 4px rgba(167,139,250,.25)}" +
+            "#pin{margin-top:18px;font-size:28px;letter-spacing:.4em;color:#a78bfa;height:34px}" +
+            "#hint{margin-top:6px;font-size:13px;color:#52525b}" +
             "</style></head>" +
             // Аварийный выход. Если агент не поднимется (а в режиме домашнего экрана уходить
             // больше некуда), приставка не должна запирать пользователя: отсюда всегда можно
             // попасть в системные настройки — пультом, без adb и клавиатуры.
+            // Кнопка выхода появляется не сразу: обычный старт агента занимает секунды, и
+            // мелькать ею незачем. Через 2 минуты становится ясно, что он не поднимется —
+            // тогда даём выход, но по родительскому коду (проверяет MCApp локально).
             "<body><div class='s'></div><div>Жду агента…</div>" +
-            "<button autofocus onclick='MCApp.openSettings()'>Открыть настройки Android</button>" +
-            "<script>document.querySelector('button').focus()</script></body></html>",
+            "<div id='pin'></div><div id='hint'></div>" +
+            "<button id='b' style='display:none'>Открыть настройки Android</button>" +
+            "<script>" +
+            "var code='',ask=false;" +
+            "setTimeout(function(){var b=document.getElementById('b');b.style.display='';b.focus();" +
+            "  document.getElementById('hint').textContent='агент не отвечает 2 минуты';},120000);" +
+            "document.getElementById('b').onclick=function(){ask=true;" +
+            "  document.getElementById('hint').textContent='введите родительский код (цифры на пульте), OK — подтвердить';};" +
+            "document.addEventListener('keydown',function(e){ if(!ask) return;" +
+            "  if(e.key>='0'&&e.key<='9'){code+=e.key;document.getElementById('pin').textContent='•'.repeat(code.length);}" +
+            "  else if(e.key==='Enter'){ if(MCApp.checkPin(code)){MCApp.openSettings();} " +
+            "    else {document.getElementById('hint').textContent='неверный код';} code='';" +
+            "    document.getElementById('pin').textContent='';}" +
+            "  else if(e.key==='Backspace'){code=code.slice(0,-1);document.getElementById('pin').textContent='•'.repeat(code.length);}" +
+            "});" +
+            "</script></body></html>",
             "text/html", "utf-8", null);
         if (waiter != null && waiter.isAlive()) return;
         waiter = new Thread(() -> {
@@ -233,6 +253,28 @@ public class MainActivity extends Activity {
         waiter.start();
     }
 
+
+    // Код родительского режима держим и локально: экран «Жду агента…» должен уметь
+    // проверить его тогда, когда агента как раз и нет.
+    private void cacheKioskPin() {
+        final String base = url;
+        new Thread(() -> {
+            try {
+                HttpURLConnection c = (HttpURLConnection) new URL(base + "api/kiosk-pin").openConnection();
+                c.setConnectTimeout(3000);
+                c.setReadTimeout(3000);
+                StringBuilder sb = new StringBuilder();
+                java.io.BufferedReader r = new java.io.BufferedReader(
+                        new java.io.InputStreamReader(c.getInputStream(), "UTF-8"));
+                String line;
+                while ((line = r.readLine()) != null) sb.append(line);
+                r.close();
+                c.disconnect();
+                String pin = new org.json.JSONObject(sb.toString()).optString("pin", "");
+                getSharedPreferences("tv", MODE_PRIVATE).edit().putString("kioskPin", pin).apply();
+            } catch (Exception ignored) {}
+        }).start();
+    }
 
     // --- Домашний экран Android TV -------------------------------------------------------------
 
@@ -307,6 +349,8 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 Intent i = new Intent(Intent.ACTION_VIEW);
                 i.setDataAndType(Uri.parse(url), "video/*");
+                // БЕЗ FLAG_ACTIVITY_NEW_TASK: вместе с startActivityForResult система возвращает
+                // результат сразу и плеер не успевает открыть поток ("cannot peek" в логах VLC).
                 // Продолжаем с сохранённой секунды — VLC понимает extra "position" (мс)
                 if (positionMs > 0) i.putExtra("position", positionMs);
                 if (title != null && !title.isEmpty()) i.putExtra("title", title);
@@ -324,6 +368,14 @@ public class MainActivity extends Activity {
                     try { startActivity(i); } catch (Exception ignored) {}
                 }
             });
+        }
+
+        // Сверка родительского кода без агента — по локальному кэшу (см. cacheKioskPin).
+        // Пустой код означает, что родительский режим не настроен: тогда выход свободный.
+        @JavascriptInterface
+        public boolean checkPin(String entered) {
+            String pin = getSharedPreferences("tv", MODE_PRIVATE).getString("kioskPin", "");
+            return pin == null || pin.isEmpty() || pin.equals(entered);
         }
 
         // Аварийный выход в системные настройки — доступен и с экрана «Жду агента…»,
