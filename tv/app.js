@@ -601,7 +601,9 @@ async function markWatched(btn) {
   try {
     await fetch(`/api/watched?id=${encodeURIComponent(btn.dataset.id)}&set=${btn.dataset.set}`);
     await reloadLibrary();
-    render();                      // не ждём SSE — он придёт следом и ничего не изменит
+    // Именно rerenderKeepingFocus, а не render(): он подтягивает свежий state.current, иначе
+    // страница рисовалась по старым данным и кнопка оставалась в прежнем состоянии.
+    rerenderKeepingFocus();
   } catch (_) {
     btn.innerHTML = label;         // не вышло — возвращаем кнопку как была
     btn.classList.remove("pointer-events-none", "opacity-60");
