@@ -190,8 +190,17 @@ public class MainActivity extends Activity {
             "justify-content:center;background:#09090b;color:#a1a1aa;font-family:sans-serif}" +
             "@keyframes r{to{transform:rotate(360deg)}}" +
             ".s{width:40px;height:40px;border:4px solid rgba(167,139,250,.2);border-top-color:#a78bfa;" +
-            "border-radius:50%;animation:r 1s linear infinite;margin-bottom:16px}</style></head>" +
-            "<body><div class='s'></div><div>Жду агента…</div></body></html>",
+            "border-radius:50%;animation:r 1s linear infinite;margin-bottom:16px}" +
+            "button{margin-top:28px;padding:10px 22px;font-size:16px;color:#a1a1aa;background:#18181b;" +
+            "border:1px solid #3f3f46;border-radius:12px;outline:none}" +
+            "button:focus{color:#fff;border-color:#a78bfa;box-shadow:0 0 0 4px rgba(167,139,250,.25)}" +
+            "</style></head>" +
+            // Аварийный выход. Если агент не поднимется (а в режиме домашнего экрана уходить
+            // больше некуда), приставка не должна запирать пользователя: отсюда всегда можно
+            // попасть в системные настройки — пультом, без adb и клавиатуры.
+            "<body><div class='s'></div><div>Жду агента…</div>" +
+            "<button autofocus onclick='MCApp.openSettings()'>Открыть настройки Android</button>" +
+            "<script>document.querySelector('button').focus()</script></body></html>",
             "text/html", "utf-8", null);
         if (waiter != null && waiter.isAlive()) return;
         waiter = new Thread(() -> {
@@ -255,6 +264,17 @@ public class MainActivity extends Activity {
                     i.setPackage(null);
                     try { startActivity(i); } catch (Exception ignored) {}
                 }
+            });
+        }
+
+        // Аварийный выход в системные настройки — доступен и с экрана «Жду агента…»,
+        // чтобы отсутствие агента никогда не запирало приставку.
+        @JavascriptInterface
+        public void openSettings() {
+            runOnUiThread(() -> {
+                Intent i = new Intent(android.provider.Settings.ACTION_SETTINGS);
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                try { startActivity(i); } catch (Exception ignored) {}
             });
         }
 
