@@ -368,10 +368,13 @@ public class MainActivity extends Activity {
                 // VLC подхватит одноимённый .srt, если агент его нашёл рядом с фильмом
                 if (subtitles != null && !subtitles.isEmpty()) i.putExtra("subtitles_location", subtitles);
                 if (pkg != null && !pkg.isEmpty()) i.setPackage(pkg);
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 try {
-                    // startActivityForResult: по выходу VLC вернёт extra_position — она нужна
-                    // ленте «Продолжить просмотр» и продолжению с того же места
-                    startActivityForResult(i, REQ_PLAY);
+                    // Обычный startActivity, БЕЗ ожидания результата: с startActivityForResult
+                    // VLC получал интент и сразу завершался ("http stream: connection failed"),
+                    // фильм не стартовал. Позицию просмотра считает агент — по Range-запросам
+                    // к /stream, ему для этого плеер не нужен.
+                    startActivity(i);
                 } catch (Exception e) {
                     // нет такого плеера — отдаём системе, пусть предложит чем открыть
                     i.setPackage(null);
