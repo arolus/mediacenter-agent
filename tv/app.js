@@ -1412,7 +1412,14 @@ function closeTrailerInline() {
   return true;
 }
 
+let playBusy = false;
 async function play(id) {
+  // Кнопка «Смотреть» срабатывает дважды: наш обработчик Enter зовёт click(), и браузер
+  // генерирует click сам. Два интента подряд — второй обрывает первому соединение с потоком
+  // ("http stream: connection failed"), и фильм не стартует.
+  if (playBusy) return;
+  playBusy = true;
+  setTimeout(() => { playBusy = false; }, 4000);
   showOverlay("Запускаю плеер…", true);
   // В приложении плеер запускаем САМИ через мост: агент сидит в фоне Termux, и с Android 12+
   // система рубит его `am start` как background activity launch. Агент в этом режиме только
