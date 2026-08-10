@@ -799,7 +799,9 @@ function renderDetail() {
   if (trailerBtn) trailerBtn.addEventListener("click", async () => {
     showOverlay("Открываю трейлер…", true);
     try {
-      if (IN_APP && i.trailer) return openTrailerInline(i.trailer, i.title);
+      // Плашку убираем сразу: ролик открывается тут же, а иначе она висела под ним
+      // и всплывала обратно, когда трейлер закрывали.
+      if (IN_APP && i.trailer) { hideOverlay(); return openTrailerInline(i.trailer, i.title); }
       const r = await (await fetch("/api/trailer?id=" + encodeURIComponent(i.id))).json();
       showOverlay(r.ok ? "Трейлер открыт" : "⚠️ " + (r.error || "ошибка"), r.ok);
     } catch (_) { showOverlay("⚠️ Не удалось открыть трейлер"); }
