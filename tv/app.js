@@ -565,6 +565,50 @@ function renderCollection() {
 }
 
 // Длительность для мета-строки: 148 мин → «2 ч 28 мин»
+// Число голосов коротко: 4447 → 4,4K; 1 250 000 → 1,3M. На ТВ его читают мельком,
+// полные разряды только зашумляют строку.
+const fmtVotes = (n) => {
+  const v = Number(n) || 0;
+  if (v >= 1000000) return (v / 1000000).toFixed(1).replace(".", ",") + "M";
+  if (v >= 1000) return (v / 1000).toFixed(v >= 10000 ? 0 : 1).replace(".", ",") + "K";
+  return String(v);
+};
+
+// Рейтинг с числом голосов мелкой строкой под ним: сам балл читается издалека, а «сколько
+// людей его поставили» — уточнение, которому крупный шрифт не нужен.
+const ratingCell = (i) => {
+  const imdb = Number(i.imdbRating || 0);
+  const value = imdb || Number(i.rating || 0);
+  if (!value) return "";
+  const votes = imdb ? Number(i.imdbVotes || 0) : Number(i.votes || 0);
+  return `<div><span class="font-semibold text-yellow-300">★ ${value.toFixed(1)}</span>` +
+    ` <span class="text-zinc-600">${imdb ? "IMDb" : "TMDb"}</span></div>` +
+    (votes ? `<div class="text-[clamp(9px,calc(var(--uivh)*1.5),11px)] leading-tight text-zinc-500">${fmtVotes(votes)} голосов</div>` : "");
+};
+
+// Отметка «Просмотрено» идёт в Firestore и возвращается по SSE — на ТВ это ощутимая пауза.
+// Показываем, что нажатие принято: кнопка гаснет и крутит спиннер до ответа агента.
+async function markWatched(btn) {
+  if (btn.dataset.busy === "1") return;
+  btn.dataset.busy = "1";
+  const label = btn.innerHTML;
+  const compact = !btn.textContent.trim();   // у серий кнопка — иконка 8x8, подпись не влезет
+  btn.classList.add("pointer-events-none", "opacity-60");
+  btn.innerHTML = `<svg class="${compact ? "h-4 w-4" : "mr-2 h-5 w-5"} animate-spin" viewBox="0 0 24 24" fill="none">
+      <circle class="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+      <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+    </svg>${compact ? "" : "Сохраняю…"}`;
+  try {
+    await fetch(`/api/watched?id=${encodeURIComponent(btn.dataset.id)}&set=${btn.dataset.set}`);
+    await reloadLibrary();
+    render();                      // не ждём SSE — он придёт следом и ничего не изменит
+  } catch (_) {
+    btn.innerHTML = label;         // не вышло — возвращаем кнопку как была
+    btn.classList.remove("pointer-events-none", "opacity-60");
+    btn.dataset.busy = "";
+  }
+}
+
 const fmtRuntime = (min) => {
   if (!min) return "";
   const h = Math.floor(min / 60), m = Math.round(min % 60);
