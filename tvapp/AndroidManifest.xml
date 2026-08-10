@@ -31,6 +31,16 @@
                 <!-- иконка в лаунчере Android TV (телефоны её игнорируют) -->
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
+            <!-- Родительский режим: приложение может быть домашним экраном приставки. Тогда она
+                 включается сразу в медиатеку, а кнопка Home возвращает сюда же; выйти в Google TV
+                 можно лишь по коду (TV-страница → /api/kiosk-exit). Назначается это НЕ здесь, а
+                 выбором лаунчера по умолчанию: `cmd package set-home-activity` или диалог системы,
+                 так что на телефоне-ноде поведение не меняется. -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
         </activity>
         <!-- Cloudflare clearance harvester: agent starts it when rutracker challenges us.
              Not a launcher entry — no MAIN/LAUNCHER filter, only `am start -n …/.ClearanceActivity` -->

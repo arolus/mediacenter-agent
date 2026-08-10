@@ -73,6 +73,9 @@ setInterval(async () => {
 // ландшафт и негаснущий экран — браузерные пляски с orientation-lock не нужны.
 const IN_APP = /MediaCenterTV/.test(navigator.userAgent);
 let appOffer = null; // "install" | "update" | null — кнопка приложения на экране категорий
+// Родительский режим: код задан в дашборде. Сам код сюда НЕ приходит — введённый
+// отправляем агенту, он сверяет (иначе любой в локальной сети прочитал бы его в исходнике).
+let kioskPinSet = false;
 
 /* ---------- Статус-точки (правый верхний угол): агент / сервер / live ----------
    агент  — отвечает ли HTTP локального сервера (сам факт ответа /api/health);
@@ -114,6 +117,7 @@ async function load() {
   // Просим агента закрепить системную альбомную ориентацию (если у Termux есть права).
   try { fetch("/api/ensure-landscape").catch(() => {}); } catch (_) {}
   await refreshDeviceName();
+  try { kioskPinSet = !!(await (await fetch("/api/kiosk")).json()).pinSet; } catch (_) {}
   try { const st = await (await fetch("/api/player-status")).json(); playerMissing = st && st.installed === false; } catch (_) {}
   // Наше TV-приложение: предлагаем поставить (в браузере) или обновить (везде)
   try {
@@ -327,6 +331,9 @@ function renderCategories() {
         ${logo("h-[clamp(36px,calc(var(--uivh)*6),48px)] w-[clamp(36px,calc(var(--uivh)*6),48px)]")}
         <span class="text-[clamp(22px,calc(var(--uivh)*4),30px)] font-extrabold tracking-tight">MediaCenter</span>
         ${deviceName ? `<span class="rounded-full border border-zinc-800 bg-zinc-900/80 px-4 py-1.5 text-lg text-zinc-400">${esc(deviceName)}</span>` : ""}
+        ${kioskPinSet ? `
+          <button id="cat-exit" tabindex="0" title="Выход из режима ТВ — нужен код"
+            class="ml-auto mr-2 cursor-pointer rounded-full border border-zinc-800 bg-zinc-900/80 px-4 py-1.5 text-lg text-zinc-500 outline-none transition focus:border-violet-500/60 focus:text-zinc-200 focus:ring-4 focus:ring-violet-500/25">🔒</button>` : ""}
       </div>
       ${playerMissing ? `
         <button id="cat-vlc" tabindex="0" class="mx-12 mt-4 flex cursor-pointer items-center self-start rounded-2xl border border-red-500/30 bg-red-500/10 px-6 py-3.5 text-lg font-semibold text-red-300 outline-none transition focus:scale-[1.02] focus:border-red-400 focus:ring-4 focus:ring-red-500/30">
@@ -352,6 +359,8 @@ function renderCategories() {
   if (vlc) vlc.addEventListener("click", installVLC);
   const appBtn = document.getElementById("cat-app");
   if (appBtn) appBtn.addEventListener("click", installApp);
+  const exitBtn = document.getElementById("cat-exit");
+  if (exitBtn) exitBtn.addEventListener("click", openPinPad);
   // фокус: если VLC не установлен — сразу на кнопку установки, иначе на текущую категорию
   if (vlc) vlc.focus();
   else { const idx = CATS.findIndex((c) => c.type === state.type); app.querySelectorAll(".cat-tile")[idx >= 0 ? idx : 0].focus(); }
@@ -1159,6 +1168,23 @@ document.addEventListener("keydown", (e) => {
     else if (e.key === "Enter" || e.key === " ") picker.querySelector(`.torrent-row[data-i="${pickerSel}"]`)?.click();
     return;
   }
+  // Панель родительского кода: стрелки — по цифрам, Enter — нажать, Back — отмена.
+  // Перехватываем всё, чтобы из-под неё нельзя было управлять медиатекой.
+  if (document.getElementById("pin-pad")) {
+    e.preventDefault();
+    if (["Escape", "Backspace", "GoBack", "BrowserBack"].includes(e.key)) return closePinPad();
+    if (e.key === "Enter" || e.key === " ") return document.activeElement?.click();
+    // Сетка 3 в ряд — nearest() тут не помощник, он ходит только по карточкам медиатеки.
+    const keys = [...document.querySelectorAll(".pin-key")];
+    const i = keys.indexOf(document.activeElement);
+    if (i < 0) return keys[0]?.focus();
+    const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -3, ArrowDown: 3 }[e.key];
+    if (step === undefined) return;
+    // ←/→ не должны перепрыгивать на соседнюю строку
+    if (Math.abs(step) === 1 && Math.floor((i + step) / 3) !== Math.floor(i / 3)) return;
+    keys[i + step]?.focus();
+    return;
+  }
   // Модальный Да/Нет (скачать?): ←/→ между кнопками, Enter, Back = отмена.
   if (document.getElementById("mc-modal")) {
     e.preventDefault();
@@ -1301,6 +1327,68 @@ async function play(id) {
   } catch (_) { showOverlay("⚠️ Не удалось запустить"); }
   setTimeout(hideOverlay, 2500);
 }
+// --- Родительский код: экранная цифровая панель (на пульте Google TV цифр нет) ---
+let pinEntered = "";
+const PIN_MAX = 8;
+
+function paintPin() {
+  const dots = document.getElementById("pin-dots");
+  if (dots) dots.textContent = pinEntered ? "•".repeat(pinEntered.length) : "";
+}
+
+function openPinPad() {
+  if (document.getElementById("pin-pad")) return;
+  pinEntered = "";
+  const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "⌫", "0", "OK"];
+  const wrap = document.createElement("div");
+  wrap.id = "pin-pad";
+  wrap.className = "fixed top-0 right-0 bottom-0 left-0 z-50 flex flex-col items-center justify-center bg-black/85 backdrop-blur";
+  wrap.innerHTML = `
+    <div class="mb-2 text-2xl font-semibold">Родительский код</div>
+    <div class="mb-6 text-base text-zinc-400">введите код, чтобы выйти из режима ТВ</div>
+    <div id="pin-dots" class="mb-6 h-9 text-4xl tracking-[0.4em] text-violet-300"></div>
+    <div class="grid grid-cols-3 gap-3">
+      ${keys.map((k) => `
+        <button tabindex="0" data-key="${k}"
+          class="pin-key h-16 w-24 cursor-pointer rounded-2xl border border-zinc-700 bg-zinc-900 text-2xl font-semibold outline-none transition focus:scale-105 focus:border-violet-500/60 focus:bg-zinc-800 focus:ring-4 focus:ring-violet-500/25">${k}</button>`).join("")}
+    </div>
+    <div id="pin-msg" class="mt-5 h-6 text-lg text-red-400"></div>`;
+  document.body.appendChild(wrap);
+  wrap.querySelectorAll(".pin-key").forEach((b) => b.addEventListener("click", () => pinKey(b.dataset.key)));
+  wrap.querySelector(".pin-key").focus();
+}
+
+function closePinPad() {
+  document.getElementById("pin-pad")?.remove();
+  pinEntered = "";
+  renderCategories();
+}
+
+async function pinKey(k) {
+  const msg = document.getElementById("pin-msg");
+  if (msg) msg.textContent = "";
+  if (k === "⌫") { pinEntered = pinEntered.slice(0, -1); return paintPin(); }
+  if (k !== "OK") {
+    if (pinEntered.length < PIN_MAX) pinEntered += k;
+    return paintPin();
+  }
+  if (!pinEntered) return;
+  try {
+    const r = await fetch("/api/kiosk-exit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin: pinEntered })
+    });
+    const j = await r.json();
+    if (j.ok) return document.getElementById("pin-pad")?.remove();   // уходим в системный лаунчер
+    if (msg) msg.textContent = j.error || "неверный код";
+  } catch (_) {
+    if (msg) msg.textContent = "нода не ответила";
+  }
+  pinEntered = "";
+  paintPin();
+}
+
 function showOverlay(t, withPlay) {
   document.getElementById("tv-overlay-text").innerHTML =
     (withPlay ? `<span class="text-violet-400">${ICONS.play("h-8 w-8")}</span>` : "") + `<span>${esc(t)}</span>`;
