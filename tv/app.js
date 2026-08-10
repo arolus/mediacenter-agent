@@ -1042,9 +1042,11 @@ function paintModalSel() {
   y.classList.toggle("ring-4", modalSel === "yes"); y.classList.toggle("scale-105", modalSel === "yes");
   n.classList.toggle("ring-4", modalSel === "no"); n.classList.toggle("scale-105", modalSel === "no");
 }
-function askConfirm(text, onYes) {
+function askConfirm(text, onYes, labels) {
   closeModal();
   modalYes = onYes; modalSel = "no";
+  const yesLabel = (labels && labels.yes) || "Да";
+  const noLabel = (labels && labels.no) || "Нет";
   const wrap = document.createElement("div");
   wrap.id = "mc-modal";
   wrap.className = "fixed top-0 right-0 bottom-0 left-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm";
@@ -1052,13 +1054,15 @@ function askConfirm(text, onYes) {
     <div class="max-w-[70%] rounded-3xl border border-white/10 bg-zinc-900/95 px-10 py-8 text-center shadow-2xl shadow-black/60">
       <div class="mb-6 text-2xl font-bold">${esc(text)}</div>
       <div class="flex justify-center space-x-4">
-        <button id="modal-yes" class="cursor-pointer rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-9 py-3 text-lg font-bold text-white outline-none ring-violet-400/60 transition">Да</button>
-        <button id="modal-no" class="cursor-pointer rounded-2xl border border-white/15 bg-white/5 px-9 py-3 text-lg font-semibold text-zinc-300 outline-none ring-violet-500/50 transition">Нет</button>
+        <button id="modal-yes" class="cursor-pointer rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-9 py-3 text-lg font-bold text-white outline-none ring-violet-400/60 transition">${esc(yesLabel)}</button>
+        <button id="modal-no" class="cursor-pointer rounded-2xl border border-white/15 bg-white/5 px-9 py-3 text-lg font-semibold text-zinc-300 outline-none ring-violet-500/50 transition">${esc(noLabel)}</button>
       </div>
     </div>`;
   document.getElementById("rot").appendChild(wrap);
   document.getElementById("modal-yes").addEventListener("click", () => { const cb = modalYes; closeModal(); cb && cb(); });
-  document.getElementById("modal-no").addEventListener("click", closeModal);
+  document.getElementById("modal-no").addEventListener("click", () => {
+    const cb = labels && labels.onNo; closeModal(); cb && cb();
+  });
   paintModalSel();
 }
 function closeModal() { document.getElementById("mc-modal")?.remove(); modalYes = null; }
@@ -1413,7 +1417,28 @@ function closeTrailerInline() {
 }
 
 let playBusy = false;
-async function play(id) {
+
+// Фильм начат — предлагаем выбор вместо молчаливого решения за зрителя: продолжить с той
+// секунды, где остановились, или смотреть сначала.
+function play(id) {
+  const it = items.find((x) => x.id === id);
+  const pos = it ? Number(it.position || 0) : 0;
+  if (pos > 60000) {
+    return askConfirm(`Продолжить с ${fmtClock(pos)}?`, () => startPlay(id, pos),
+      { yes: `Продолжить с ${fmtClock(pos)}`, no: "Начать сначала", onNo: () => startPlay(id, 0) });
+  }
+  return startPlay(id, 0);
+}
+
+// Позиция в фильме как на часах: 0:35 / 1:24:10
+function fmtClock(ms) {
+  const t = Math.max(0, Math.round(ms / 1000));
+  const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), sec = t % 60;
+  const mm = String(m).padStart(h ? 2 : 1, "0");
+  return (h ? h + ":" : "") + mm + ":" + String(sec).padStart(2, "0");
+}
+
+async function startPlay(id, fromMs) {
   // Кнопка «Смотреть» срабатывает дважды: наш обработчик Enter зовёт click(), и браузер
   // генерирует click сам. Два интента подряд — второй обрывает первому соединение с потоком
   // ("http stream: connection failed"), и фильм не стартует.
@@ -1427,7 +1452,7 @@ async function play(id) {
   const viaApp = IN_APP && window.MCApp && typeof window.MCApp.playVideo === "function";
   try {
     const r = await (await fetch("/api/play?id=" + encodeURIComponent(id) + (viaApp ? "&via=app" : ""))).json();
-    if (r.ok && viaApp) window.MCApp.playVideo(r.url, r.package || "", r.title || "", r.subtitles || "", id, r.position || 0);
+    if (r.ok && viaApp) window.MCApp.playVideo(r.url, r.package || "", r.title || "", r.subtitles || "", id, fromMs || 0);
     showOverlay(r.ok ? "Играет в плеере" : "⚠️ " + (r.error || "ошибка"), r.ok);
   } catch (_) { showOverlay("⚠️ Не удалось запустить"); }
   setTimeout(hideOverlay, 2500);

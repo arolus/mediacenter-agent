@@ -131,6 +131,9 @@ public class MainActivity extends Activity {
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         s.setMediaPlaybackRequiresUserGesture(false);
+        // Страница живёт на самой ноде и меняется с каждым обновлением агента — кэш WebView
+        // тут только вредит: после git pull приложение показывало старый app.js.
+        s.setCacheMode(WebSettings.LOAD_NO_CACHE);
         // По суффиксу UA страница понимает, что живёт в приложении (не просит fullscreen и т.п.)
         s.setUserAgentString(s.getUserAgentString() + " MediaCenterTV/1.0");
         // Мост для страницы: MCApp.exitApp() — «Да» в диалоге «Выйти из приложения?»
