@@ -76,6 +76,20 @@ let appOffer = null; // "install" | "update" | null — кнопка прило�
 // Родительский режим: код задан в дашборде. Сам код сюда НЕ приходит — введённый
 // отправляем агенту, он сверяет (иначе любой в локальной сети прочитал бы его в исходнике).
 let kioskPinSet = false;
+// Режим приставки задаётся в дашборде (config/tv.mode): «kids» — детский, с замками
+// (выйти из медиатеки можно только по коду), «normal» — обычный телевизор без ограничений.
+// Системная часть (наше приложение как домашний экран, перехват кнопок пульта) от режима
+// не зависит — она живёт на уровне Android; режим решает, спрашивать ли код.
+let kidsMode = false;
+async function refreshKiosk() {
+  try {
+    const k = await (await fetch("/api/kiosk", { cache: "no-store" })).json();
+    const before = kidsMode;
+    kioskPinSet = !!k.pinSet;
+    kidsMode = k.mode === "kids" && kioskPinSet;   // без кода запирать нельзя: ключа не будет
+    return before !== kidsMode;
+  } catch (_) { return false; }
+}
 
 /* ---------- Статус-точки (правый верхний угол): агент / сервер / live ----------
    агент  — отвечает ли HTTP локального сервера (сам факт ответа /api/health);
@@ -117,7 +131,7 @@ async function load() {
   // Просим агента закрепить системную альбомную ориентацию (если у Termux есть права).
   try { fetch("/api/ensure-landscape").catch(() => {}); } catch (_) {}
   await refreshDeviceName();
-  try { kioskPinSet = !!(await (await fetch("/api/kiosk")).json()).pinSet; } catch (_) {}
+  await refreshKiosk();
   try { const st = await (await fetch("/api/player-status")).json(); playerMissing = st && st.installed === false; } catch (_) {}
   // Наше TV-приложение: предлагаем поставить (в браузере) или обновить (везде)
   try {
@@ -152,7 +166,8 @@ async function load() {
       ssePending = null;
       // Имя устройства правят в дашборде — плашка в шапке должна меняться без перезапуска.
       const renamed = await refreshDeviceName();
-      if ((await reloadLibrary()) || renamed) rerenderKeepingFocus();
+      const modeChanged = await refreshKiosk();   // режим правят в дашборде
+      if ((await reloadLibrary()) || renamed || modeChanged) rerenderKeepingFocus();
     }, 1500);
   };
   const connectEvents = () => {
@@ -353,9 +368,6 @@ function renderCategories() {
         ${logo("h-[clamp(36px,calc(var(--uivh)*6),48px)] w-[clamp(36px,calc(var(--uivh)*6),48px)]")}
         <span class="text-[clamp(22px,calc(var(--uivh)*4),30px)] font-extrabold tracking-tight">MediaCenter</span>
         ${deviceName ? `<span class="rounded-full border border-zinc-800 bg-zinc-900/80 px-4 py-1.5 text-lg text-zinc-400">${esc(deviceName)}</span>` : ""}
-        ${kioskPinSet ? `
-          <button id="cat-exit" tabindex="0" title="Выход из режима ТВ — нужен код"
-            class="ml-auto mr-2 cursor-pointer rounded-full border border-zinc-800 bg-zinc-900/80 px-4 py-1.5 text-lg text-zinc-500 outline-none transition focus:border-violet-500/60 focus:text-zinc-200 focus:ring-4 focus:ring-violet-500/25">🔒</button>` : ""}
       </div>
       ${playerMissing ? `
         <button id="cat-vlc" tabindex="0" class="mx-12 mt-4 flex cursor-pointer items-center self-start rounded-2xl border border-red-500/30 bg-red-500/10 px-6 py-3.5 text-lg font-semibold text-red-300 outline-none transition focus:scale-[1.02] focus:border-red-400 focus:ring-4 focus:ring-red-500/30">
@@ -381,8 +393,6 @@ function renderCategories() {
   if (vlc) vlc.addEventListener("click", installVLC);
   const appBtn = document.getElementById("cat-app");
   if (appBtn) appBtn.addEventListener("click", installApp);
-  const exitBtn = document.getElementById("cat-exit");
-  if (exitBtn) exitBtn.addEventListener("click", openPinPad);
   // фокус: если VLC не установлен — сразу на кнопку установки, иначе на текущую категорию
   if (vlc) vlc.focus();
   else { const idx = CATS.findIndex((c) => c.type === state.type); app.querySelectorAll(".cat-tile")[idx >= 0 ? idx : 0].focus(); }
@@ -1066,7 +1076,7 @@ function back() {
   if (state.screen !== "categories") { history.back(); return; }
   // В приложении (приставка — наш домашний экран) уйти можно только по коду; в обычном
   // браузере на телефоне-ноде запирать нечего — там прежний вопрос о выходе.
-  if (IN_APP) openPinPad(); else showExitConfirm();
+  if (IN_APP && kidsMode) openPinPad(); else showExitConfirm();
 }
 
 /* ---------- Скачивание фильма-«призрака» с rutracker ---------- */
@@ -1253,9 +1263,9 @@ window.mcHandleBack = () => {
   if (document.getElementById("mc-modal")) { closeModal(); return true; }
   if (document.getElementById("exit-confirm")) { hideExitConfirm(); return true; }
   if (state.screen !== "categories") { history.back(); return true; }
-  // С первого экрана выйти можно только по родительскому коду — иначе «Назад» была бы
-  // дырой в родительском режиме шире замка: приставка и так наш домашний экран.
-  openPinPad();
+  // В детском режиме с первого экрана выпускает только код — иначе «Назад» была бы дырой
+  // шире замка: приставка и так наш домашний экран. В обычном — прежний вопрос о выходе.
+  if (kidsMode) openPinPad(); else showExitConfirm();
   return true;
 };
 // Брендовая кнопка пульта (Xiaomi TV+, YouTube, Netflix…) — всегда на первый экран медиатеки,
@@ -1336,22 +1346,16 @@ document.addEventListener("keydown", (e) => {
   if (state.screen === "categories") {
     const tiles = [...app.querySelectorAll(".cat-tile")];
     const vlc = document.getElementById("cat-vlc");
-    const exitBtn = document.getElementById("cat-exit");   // замок в шапке (родительский режим)
     const idx = tiles.indexOf(cur);
     if (cur === vlc) {
       if (e.key === "ArrowDown") { e.preventDefault(); tiles[0]?.focus(); }
       else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); installVLC(); }
       return;
     }
-    if (cur === exitBtn) {
-      if (e.key === "ArrowDown") { e.preventDefault(); (vlc || tiles[0])?.focus(); }
-      else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openPinPad(); }
-      return;
-    }
     if (e.key === "ArrowRight") { e.preventDefault(); tiles[Math.min(tiles.length - 1, idx + 1)]?.focus(); }
     else if (e.key === "ArrowLeft") { e.preventDefault(); tiles[Math.max(0, idx - 1)]?.focus(); }
-    // вверх: сперва предложение установить VLC, иначе — замок (если родительский код задан)
-    else if (e.key === "ArrowUp" && (vlc || exitBtn)) { e.preventDefault(); (vlc || exitBtn).focus(); }
+    // вверх — к предложению установить VLC, если оно есть
+    else if (e.key === "ArrowUp" && vlc) { e.preventDefault(); vlc.focus(); }
     else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); cur?.dataset?.type && enterGrid(cur.dataset.type); }
     return;
   }
