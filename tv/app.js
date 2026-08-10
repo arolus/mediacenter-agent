@@ -1453,7 +1453,12 @@ function onTrailerMessage(e) {
     const info = d && d.info;
     if (!info) return;
     if (typeof info.currentTime === "number") trailerTime = info.currentTime;
-    if (typeof info.playerState === "number") trailerPlaying = info.playerState === 1;
+    if (typeof info.playerState === "number") {
+      trailerPlaying = info.playerState === 1;
+      // 0 = ended: ролик кончился — закрываем сами, чтобы не оставлять зрителя перед
+      // экраном «похожих видео» YouTube, из которого он всё равно никуда не пойдёт.
+      if (info.playerState === 0) closeTrailerInline();
+    }
   } catch (_) {}
 }
 
@@ -1519,6 +1524,8 @@ function closeTrailerInline() {
   trailerTimer = null;
   window.removeEventListener("message", onTrailerMessage);
   b.remove();
+  // Возвращаем фокус на кнопку, с которой ушли: после автозакрытия пульт иначе «повисает».
+  document.getElementById("detail-trailer")?.focus();
   return true;
 }
 
