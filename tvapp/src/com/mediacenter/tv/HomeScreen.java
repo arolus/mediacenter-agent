@@ -49,10 +49,10 @@ public class HomeScreen {
     private static void syncWatchNext(Context ctx, JSONArray items, String baseUrl) {
         if (items == null) return;
         ContentResolver cr = ctx.getContentResolver();
-        // Проще всего перестроить наши записи целиком: их единицы, а вычислять дельту —
-        // лишний код ради пары строк в базе.
-        cr.delete(TvContract.WatchNextPrograms.CONTENT_URI,
-                TvContract.WatchNextPrograms.COLUMN_INTERNAL_PROVIDER_ID + " IS NOT NULL", null);
+        // Перестраиваем свои записи целиком: их единицы, дельту считать незачем. Удалять
+        // приходится по одной — провайдер отвергает delete с условием ("Selection not allowed"),
+        // а видим мы через query только собственные строки.
+        deleteAll(cr, TvContract.WatchNextPrograms.CONTENT_URI);
         for (int i = 0; i < items.length(); i++) {
             JSONObject it = items.optJSONObject(i);
             if (it == null) continue;
@@ -85,8 +85,7 @@ public class HomeScreen {
         if (channelId < 0) return;
 
         Uri progUri = TvContract.PreviewPrograms.CONTENT_URI;
-        cr.delete(progUri, TvContract.PreviewPrograms.COLUMN_CHANNEL_ID + "=?",
-                new String[]{ String.valueOf(channelId) });
+        deleteAll(cr, TvContract.buildPreviewProgramsUriForChannel(channelId));
         for (int i = 0; i < items.length(); i++) {
             JSONObject it = items.optJSONObject(i);
             if (it == null) continue;
@@ -106,6 +105,17 @@ public class HomeScreen {
             catch (Exception e) { Log.d(TAG, "preview insert: " + e.getMessage()); }
         }
         Log.d(TAG, "channel: " + items.length() + " шт.");
+    }
+
+    // Провайдер TV не принимает delete с selection — забираем свои _ID и сносим поштучно.
+    private static void deleteAll(ContentResolver cr, Uri uri) {
+        try (Cursor c = cr.query(uri, new String[]{ TvContract.WatchNextPrograms._ID }, null, null, null)) {
+            if (c == null) return;
+            while (c.moveToNext()) {
+                try { cr.delete(ContentUris.withAppendedId(uri, c.getLong(0)), null, null); }
+                catch (Exception ignored) {}
+            }
+        } catch (Exception e) { Log.d(TAG, "cleanup: " + e.getMessage()); }
     }
 
     // Канал создаём один раз и запоминаем по INTERNAL_PROVIDER_ID. Показывать его в ленте или
