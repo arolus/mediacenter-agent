@@ -478,13 +478,19 @@ function cardHtml(i) {
   // но докачка ещё идёт, и прогресс нужно продолжать показывать. У коллекций — не сюда.
   const dl = i.isCollection ? null : downloads.get(dlKey(i.title, i.year));
   // рейтинг на карточке: у коллекции — лучшей части; иначе IMDb, иначе TMDb
+  const best = i.isCollection
+    ? i.parts.slice().sort((a, b) => (b.imdbRating || b.rating || 0) - (a.imdbRating || a.rating || 0))[0] || {}
+    : i;
   const rt = i.isCollection
-    ? Math.max(0, ...i.parts.map((x) => x.imdbRating || x.rating || 0))
+    ? Number(best.imdbRating || best.rating || 0)
     : Number(i.imdbRating || i.rating || 0);
+  // Голоса — от того же источника, что и балл (как на плитках фильмографии)
+  const votes = best.imdbRating ? Number(best.imdbVotes || 0) : Number(best.votes || 0);
   return `
     <div class="tv-card relative w-[var(--card-w)] cursor-pointer overflow-hidden rounded-xl bg-zinc-900 ring-1 ring-white/10 outline-none transition duration-150 focus:z-10 focus:scale-[1.06] focus:shadow-[0_16px_50px_-8px_rgba(139,92,246,.45)] focus:ring-[3px] focus:ring-violet-500${i.isGhost ? " opacity-40" : ""}" tabindex="0" data-id="${esc(i.id)}">
       ${p ? `<div class="h-0 w-full bg-zinc-800 bg-cover bg-center pb-[150%]" style="background-image:url('${p}')"></div>` : `<div class="relative h-0 w-full bg-gradient-to-br from-zinc-800 to-zinc-900 pb-[150%]"><div class="absolute top-0 right-0 bottom-0 left-0 flex items-center justify-center p-2 text-center text-[13px] leading-snug text-zinc-300">${esc(i.title)}</div></div>`}
-      ${rt ? `<div class="absolute top-1.5 left-1.5 rounded-md bg-black/75 px-1.5 py-0.5 text-[11px] font-semibold text-yellow-300">★ ${rt.toFixed(1)}</div>` : ""}
+      ${rt ? `<div class="absolute top-1.5 left-1.5 rounded-md bg-black/75 px-1.5 py-0.5 text-center text-[11px] font-semibold leading-tight text-yellow-300">★ ${rt.toFixed(1)}${
+        votes ? `<div class="text-[9px] font-normal text-zinc-400">${fmtVotes(votes)}</div>` : ""}</div>` : ""}
       ${badge ? `<div class="absolute top-1.5 right-1.5 rounded-md bg-black/75 px-1.5 py-0.5 text-[11px] font-semibold text-zinc-100">${badge}</div>` : ""}
       ${isWatched(i) ? `<div class="absolute bottom-1.5 right-1.5 grid h-6 w-6 place-items-center rounded-md bg-black/70 text-emerald-400">${ICONS.check("h-4 w-4")}</div>` : ""}
       ${dl ? `<div class="absolute right-0 bottom-0 left-0 bg-black/80 px-2 py-1.5">

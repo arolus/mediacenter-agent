@@ -22,9 +22,16 @@ public class KeyService extends AccessibilityService {
     private static final String TAG = "MCKeys";
 
     // BUTTON_1…BUTTON_16 (188…203) — сюда попадают все брендовые кнопки этого пульта;
-    // ALL_APPS (284) — кнопка «Приложения». Обычные DPAD/OK/Back/громкость не трогаем.
+    // ALL_APPS (284) — кнопка «Приложения»; ASSIST/SEARCH/VOICE_ASSIST — кнопка микрофона
+    // (голосовой помощник нам не нужен, а «поиск» в медиатеке и так на своём экране).
+    // Обычные DPAD/OK/Back/громкость не трогаем. HOME сюда не попадает в принципе: систему
+    // он не покидает — её перехватывает оболочка раньше любых служб (см. CLAUDE.md).
     private static boolean ours(int code) {
-        return (code >= KeyEvent.KEYCODE_BUTTON_1 && code <= KeyEvent.KEYCODE_BUTTON_16) || code == 284;
+        if (code >= KeyEvent.KEYCODE_BUTTON_1 && code <= KeyEvent.KEYCODE_BUTTON_16) return true;
+        return code == 284                                   // KEYCODE_ALL_APPS
+            || code == KeyEvent.KEYCODE_ASSIST
+            || code == KeyEvent.KEYCODE_VOICE_ASSIST
+            || code == KeyEvent.KEYCODE_SEARCH;
     }
 
     @Override
