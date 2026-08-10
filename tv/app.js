@@ -160,7 +160,7 @@ async function load() {
     try {
       es = new EventSource("/api/events");
       es.onmessage = onChange;
-      es.onopen = () => setDot("st-live", "ok");
+      es.onopen = () => { setDot("st-live", "ok"); reloadIfAgentUpdated(); };
       es.onerror = () => setDot("st-live", "bad"); // EventSource сам переподключится (retry)
     } catch (_) { es = null; setDot("st-live", "bad"); }
   };
@@ -169,6 +169,20 @@ async function load() {
     else { connectEvents(); if (await reloadLibrary()) rerenderKeepingFocus(); } // догнать пропущенное
   });
   if (!document.hidden) connectEvents();
+}
+
+// Агент обновился — перезагружаем страницу. Иначе телевизор неделями крутит код, загруженный
+// при первом открытии: агент подтягивает новый app.js, а WebView об этом не знает, и правки
+// «не появляются». Sha берём при старте и сверяем на каждом (пере)подключении SSE — рестарт
+// агента рвёт поток, так что момент ровно тот.
+let agentVersion = null;
+async function reloadIfAgentUpdated() {
+  try {
+    const v = (await (await fetch("/api/device", { cache: "no-store" })).json()).version || null;
+    if (!v) return;
+    if (agentVersion === null) { agentVersion = v; return; }
+    if (v !== agentVersion) location.reload();
+  } catch (_) { /* агент перезапускается — проверим на следующем подключении */ }
 }
 
 // Имя ноды агент отдаёт из Firestore (дашборд — источник правды), поэтому перечитываем его
