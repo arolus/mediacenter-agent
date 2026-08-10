@@ -1424,23 +1424,15 @@ let playBusy = false;
 // секунды, где остановились, или смотреть сначала.
 function play(id) {
   const it = items.find((x) => x.id === id);
-  const pos = it ? Number(it.position || 0) : 0;
-  if (pos > 60000) {
-    return askConfirm(`Продолжить с ${fmtClock(pos)}?`, () => startPlay(id, pos),
-      { yes: `Продолжить с ${fmtClock(pos)}`, no: "Начать сначала", onNo: () => startPlay(id, 0) });
+  // Секунду остановки помнит сам плеер, нам достаточно знать, что фильм уже начинали.
+  if (it && it.started && !it.watched) {
+    return askConfirm("Фильм уже начат", () => startPlay(id, false),
+      { yes: "Продолжить", no: "Начать сначала", onNo: () => startPlay(id, true) });
   }
-  return startPlay(id, 0);
+  return startPlay(id, false);
 }
 
-// Позиция в фильме как на часах: 0:35 / 1:24:10
-function fmtClock(ms) {
-  const t = Math.max(0, Math.round(ms / 1000));
-  const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), sec = t % 60;
-  const mm = String(m).padStart(h ? 2 : 1, "0");
-  return (h ? h + ":" : "") + mm + ":" + String(sec).padStart(2, "0");
-}
-
-async function startPlay(id, fromMs) {
+async function startPlay(id, fromStart) {
   // Кнопка «Смотреть» срабатывает дважды: наш обработчик Enter зовёт click(), и браузер
   // генерирует click сам. Два интента подряд — второй обрывает первому соединение с потоком
   // ("http stream: connection failed"), и фильм не стартует.
@@ -1454,7 +1446,7 @@ async function startPlay(id, fromMs) {
   const viaApp = IN_APP && window.MCApp && typeof window.MCApp.playVideo === "function";
   try {
     const r = await (await fetch("/api/play?id=" + encodeURIComponent(id) + (viaApp ? "&via=app" : ""))).json();
-    if (r.ok && viaApp) window.MCApp.playVideo(r.url, r.package || "", r.title || "", r.subtitles || "", id, fromMs || 0);
+    if (r.ok && viaApp) window.MCApp.playVideo(r.url, r.package || "", r.title || "", r.subtitles || "", id, !!fromStart);
     showOverlay(r.ok ? "Играет в плеере" : "⚠️ " + (r.error || "ошибка"), r.ok);
   } catch (_) { showOverlay("⚠️ Не удалось запустить"); }
   setTimeout(hideOverlay, 2500);

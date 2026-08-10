@@ -355,15 +355,14 @@ public class MainActivity extends Activity {
         // адрес потока — здесь только сам запуск.
         @JavascriptInterface
         public void playVideo(final String url, final String pkg, final String title,
-                              final String subtitles, final String id, final long positionMs) {
+                              final String subtitles, final String id, final boolean fromStart) {
             playingId = id;
             runOnUiThread(() -> {
                 Intent i = new Intent(Intent.ACTION_VIEW);
                 i.setDataAndType(Uri.parse(url), "video/*");
-                // БЕЗ FLAG_ACTIVITY_NEW_TASK: вместе с startActivityForResult система возвращает
-                // результат сразу и плеер не успевает открыть поток ("cannot peek" в логах VLC).
-                // Продолжаем с сохранённой секунды — VLC понимает extra "position" (мс)
-                if (positionMs > 0) i.putExtra("position", positionMs);
+                // Где остановились, VLC помнит сам — мы лишь говорим, когда нужно начать заново
+                // (зритель выбрал «Начать сначала»).
+                if (fromStart) i.putExtra("from_start", true);
                 if (title != null && !title.isEmpty()) i.putExtra("title", title);
                 // VLC подхватит одноимённый .srt, если агент его нашёл рядом с фильмом
                 if (subtitles != null && !subtitles.isEmpty()) i.putExtra("subtitles_location", subtitles);

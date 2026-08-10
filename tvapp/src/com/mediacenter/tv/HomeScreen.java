@@ -68,9 +68,10 @@ public class HomeScreen {
                     TvContract.WatchNextPrograms.ASPECT_RATIO_2_3);
             v.put(TvContract.WatchNextPrograms.COLUMN_INTENT_URI, playIntentUri(ctx, it.optString("id")));
             v.put(TvContract.WatchNextPrograms.COLUMN_LAST_ENGAGEMENT_TIME_UTC_MILLIS, System.currentTimeMillis());
-            long dur = it.optLong("durationMs"), pos = it.optLong("positionMs");
+            // Прогресс не показываем: точную секунду знает только сам плеер, а врать полоской
+            // на карточке хуже, чем не рисовать её вовсе.
+            long dur = it.optLong("durationMs");
             if (dur > 0) v.put(TvContract.WatchNextPrograms.COLUMN_DURATION_MILLIS, (int) dur);
-            if (pos > 0) v.put(TvContract.WatchNextPrograms.COLUMN_LAST_PLAYBACK_POSITION_MILLIS, (int) pos);
             try { cr.insert(TvContract.WatchNextPrograms.CONTENT_URI, v); }
             catch (Exception e) { Log.d(TAG, "watchNext insert: " + e.getMessage()); }
         }
