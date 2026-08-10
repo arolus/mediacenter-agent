@@ -201,6 +201,15 @@ public class MainActivity extends Activity {
         String next = resolveUrl(i);
         if (!next.equals(url)) { url = next; web.loadUrl(url); }
         // тот же URL — страницу не трогаем: SSE сам дотянет изменения, а reload сбил бы фокус
+        handleHomeIntent(i);
+    }
+
+    // Брендовая кнопка пульта (KeyService) — просим страницу вернуться на экран категорий.
+    // Не reload: перезагрузка гасит экран на секунду и теряет уже загруженную библиотеку.
+    private void handleHomeIntent(Intent i) {
+        if (i == null || !i.getBooleanExtra("goHome", false)) return;
+        i.removeExtra("goHome");
+        web.evaluateJavascript("window.mcGoHome ? mcGoHome() : false", null);
     }
 
     // Экран ожидания: агент ещё поднимается (например, сразу после загрузки телефона).

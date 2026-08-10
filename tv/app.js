@@ -1248,6 +1248,18 @@ window.mcHandleBack = () => {
   showExitConfirm();
   return true;
 };
+// Брендовая кнопка пульта (Xiaomi TV+, YouTube, Netflix…) — всегда на первый экран медиатеки,
+// даже если мы уже внутри: зритель жмёт её, чтобы «вернуться к началу», а не продолжить с места.
+window.mcGoHome = () => {
+  closeTrailerInline();
+  if (document.getElementById("pin-pad")) closePinPad();
+  if (document.getElementById("mc-picker")) closePicker();
+  if (document.getElementById("mc-modal")) closeModal();
+  history.pushState({ screen: "categories" }, "");
+  applyState({ screen: "categories" });
+  return true;
+};
+
 window.addEventListener("popstate", (e) => applyState(e.state || { screen: "categories" }));
 
 /* ---------- Навигация пультом ---------- */
