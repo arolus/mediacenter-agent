@@ -823,16 +823,19 @@ function libByCatalog() {
 }
 
 // Мини-карточка фильмографии (постер TMDb): есть в медиатеке — яркая с галкой, нет — приглушена.
-// Бейджи: год (низ-лево), рейтинг (верх-лево; IMDb у элементов медиатеки, иначе TMDb).
-function pcardHtml(c, inLib, rating) {
+// Бейджи: год (низ-лево), рейтинг (верх-лево; IMDb у элементов медиатеки, иначе TMDb),
+// под рейтингом — число проголосовавших (без подписи: на плитке для неё нет места).
+function pcardHtml(c, inLib, rating, votes) {
   const r = Number(rating || 0);
+  const v = Number(votes || 0);
   return `
     <div class="tv-card pcard relative w-[calc(var(--card-w)*0.7)] flex-none cursor-pointer overflow-hidden rounded-lg bg-zinc-900 ring-1 ring-white/10 outline-none transition duration-150 focus:z-10 focus:scale-[1.06] focus:ring-2 focus:ring-violet-500 ${inLib ? "" : "opacity-70"}"
       tabindex="0" data-key="${esc(c.kind + "_" + c.tmdbId)}" data-title="${esc(c.title)}" data-year="${c.year || ""}" data-roles="${esc((c.roles || []).slice(0, 2).join(", "))}">
       ${c.poster
         ? `<div class="h-0 w-full bg-zinc-800 bg-cover bg-center pb-[150%]" style="background-image:url('${IMG}/w185${c.poster}')"></div>`
         : `<div class="relative h-0 w-full bg-gradient-to-br from-zinc-800 to-zinc-900 pb-[150%]"><div class="absolute top-0 right-0 bottom-0 left-0 flex items-center justify-center p-1 text-center text-[10px] leading-snug text-zinc-300">${esc(c.title)}</div></div>`}
-      ${r ? `<div class="absolute top-1 left-1 rounded bg-black/75 px-1 py-0.5 text-[10px] font-semibold text-yellow-300">★ ${r.toFixed(1)}</div>` : ""}
+      ${r ? `<div class="absolute top-1 left-1 rounded bg-black/75 px-1 py-0.5 text-center text-[10px] font-semibold leading-tight text-yellow-300">★ ${r.toFixed(1)}${
+        v ? `<div class="text-[9px] font-normal text-zinc-400">${fmtVotes(v)}</div>` : ""}</div>` : ""}
       ${c.year ? `<div class="absolute bottom-1 left-1 rounded bg-black/75 px-1 py-0.5 text-[10px] font-semibold text-zinc-200">${c.year}</div>` : ""}
       ${inLib ? `<div class="absolute top-1 right-1 grid h-5 w-5 place-items-center rounded bg-violet-600 text-white shadow">${ICONS.check("h-3.5 w-3.5")}</div>` : ""}
     </div>`;
@@ -870,7 +873,8 @@ function renderPerson() {
         <div id="person-info-film" class="hidden min-h-0 flex-1 flex-col">
           <!-- Обложка сфокусированного фильма — над описанием, как на детальной странице -->
           <div class="mb-3 flex-none">
-            <div id="pf-poster" class="h-0 w-[42%] max-w-[150px] rounded-xl bg-zinc-800 bg-cover bg-center pb-[150%] shadow-2xl shadow-black/50 ring-1 ring-white/10"></div>
+            <!-- Вдвое ниже фото актёра: описанию под ним нужна высота, а узнаётся постер и мелким -->
+            <div id="pf-poster" class="h-0 w-[21%] max-w-[75px] rounded-xl bg-zinc-800 bg-cover bg-center pb-[150%] shadow-2xl shadow-black/50 ring-1 ring-white/10"></div>
           </div>
           <div id="pf-title" class="flex-none text-[clamp(18px,calc(var(--uivh)*3.8),28px)] font-bold leading-tight tracking-tight"></div>
           <div id="pf-meta" class="mt-1.5 flex-none text-[clamp(11px,calc(var(--uivh)*2),14px)] text-zinc-400"></div>
@@ -923,8 +927,11 @@ function renderPersonFilms(credits, lib, full) {
       ${sorted.map((c) => {
         const key = c.kind + "_" + c.tmdbId;
         const libItem = lib.get(key);
-        // рейтинг: IMDb для того, что в медиатеке; TMDb (из фильмографии) для остального
-        return `<div class="mb-3 mr-3">${pcardHtml(c, lib.has(key), (libItem && libItem.imdbRating) || c.rating || 0)}</div>`;
+        // рейтинг: IMDb для того, что в медиатеке; TMDb (из фильмографии) для остального.
+        // Голоса берём от ТОГО ЖЕ источника, что и балл, иначе цифры не про одно и то же.
+        const imdb = Number((libItem && libItem.imdbRating) || 0);
+        const votes = imdb ? Number((libItem && libItem.imdbVotes) || 0) : Number(c.votes || 0);
+        return `<div class="mb-3 mr-3">${pcardHtml(c, lib.has(key), imdb || c.rating || 0, votes)}</div>`;
       }).join("")}
     </div>`;
   const progress = document.getElementById("person-progress");
