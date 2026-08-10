@@ -1061,10 +1061,12 @@ function enterCollection(col) { navigate({ screen: "collection", type: col.type 
 function enterDetail(item) { navigate({ screen: "detail", type: item.type || state.type, id: item.id }); }
 function enterPerson(name, photo) { if (name) navigate({ screen: "person", name, photo: photo || null }); }
 // Назад: кнопка «Назад», Esc/Backspace пульта И браузерная «Назад» — всё через историю.
-// В корне (категории) — вопрос «Выйти из приложения?».
+// В корне (категории) — родительский код: выйти отсюда = покинуть медиатеку.
 function back() {
   if (state.screen !== "categories") { history.back(); return; }
-  showExitConfirm();
+  // В приложении (приставка — наш домашний экран) уйти можно только по коду; в обычном
+  // браузере на телефоне-ноде запирать нечего — там прежний вопрос о выходе.
+  if (IN_APP) openPinPad(); else showExitConfirm();
 }
 
 /* ---------- Скачивание фильма-«призрака» с rutracker ---------- */
@@ -1251,7 +1253,9 @@ window.mcHandleBack = () => {
   if (document.getElementById("mc-modal")) { closeModal(); return true; }
   if (document.getElementById("exit-confirm")) { hideExitConfirm(); return true; }
   if (state.screen !== "categories") { history.back(); return true; }
-  showExitConfirm();
+  // С первого экрана выйти можно только по родительскому коду — иначе «Назад» была бы
+  // дырой в родительском режиме шире замка: приставка и так наш домашний экран.
+  openPinPad();
   return true;
 };
 // Брендовая кнопка пульта (Xiaomi TV+, YouTube, Netflix…) — всегда на первый экран медиатеки,
@@ -1643,7 +1647,7 @@ async function pinKey(k) {
       document.getElementById("pin-pad")?.remove();
       // Уводит с экрана САМО приложение: `am start` из фонового Termux Android 12+ рубит
       // как BAL — агент код проверил, но открыть ничего не смог бы (проверено на приставке).
-      try { window.MCApp && MCApp.openSettings(); } catch (_) {}
+      try { if (window.MCApp) MCApp.openSettings(); else exitApp(); } catch (_) {}
       return;
     }
     if (msg) msg.textContent = j.error || "неверный код";
