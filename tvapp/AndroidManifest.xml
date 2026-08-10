@@ -4,6 +4,9 @@
     package="com.mediacenter.tv">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Ленты домашнего экрана Android TV: «Продолжить просмотр» и свой канал (HomeScreen.java) -->
+    <uses-permission android:name="com.android.providers.tv.permission.READ_EPG_DATA" />
+    <uses-permission android:name="com.android.providers.tv.permission.WRITE_EPG_DATA" />
 
     <!-- Android TV (Xiaomi TV Box S и т.п.): без этих двух строк приставка считает приложение
          несовместимым и не показывает его в лаунчере — у неё нет тачскрина, а leanback-оболочку
@@ -48,6 +51,18 @@
             android:name=".ClearanceActivity"
             android:label="rutracker"
             android:exported="true" />
+        <!-- Заставка: постеры медиатеки вместо стандартного скринсейвера Google.
+             Выбирается в Настройки → Система → Заставка. -->
+        <service
+            android:name=".Screensaver"
+            android:exported="true"
+            android:label="MediaCenter"
+            android:permission="android.permission.BIND_DREAM_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.dreams.DreamService" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </service>
         <!-- Device Admin — только ради lockNow() (гасить экран после простоя) -->
         <receiver
             android:name=".AdminReceiver"

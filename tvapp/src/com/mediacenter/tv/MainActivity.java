@@ -47,6 +47,10 @@ public class MainActivity extends Activity {
     private long lastInput;
     private DevicePolicyManager dpm;
     private ComponentName admin;
+    // Что сейчас играет: VLC при выходе возвращает позицию, и мы отдаём её агенту —
+    // из неё живёт лента «Продолжить просмотр» и продолжение с той же секунды.
+    private String playingId;
+    private static final int REQ_PLAY = 1001;
 
     // Настоящее гашение экрана. Обычному приложению система не даёт «усыпить» дисплей
     // (яркость 0 — лишь чёрный AMOLED, дисплей включён и не гаснет по таймауту), поэтому
@@ -156,6 +160,9 @@ public class MainActivity extends Activity {
         if (idleSec > 0) idleMs = idleSec * 1000;
         wakeAndSchedule(true); // KEEP_SCREEN_ON + рабочая яркость + старт отсчёта неактивности
         web.loadUrl(url);
+        syncHomeScreen();
+        // Пришли по карточке из ленты «Продолжить просмотр» — сразу открываем этот фильм
+        handlePlayIntent(getIntent());
     }
 
     // Порт/URL из интента; запоминаем, чтобы следующий холодный старт (с ярлыка) шёл туда же.
@@ -175,6 +182,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onNewIntent(Intent i) {
         super.onNewIntent(i);
+        handlePlayIntent(i);
         String next = resolveUrl(i);
         if (!next.equals(url)) { url = next; web.loadUrl(url); }
         // тот же URL — страницу не трогаем: SSE сам дотянет изменения, а reload сбил бы фокус
@@ -222,6 +230,48 @@ public class MainActivity extends Activity {
         waiter.start();
     }
 
+
+    // --- Домашний экран Android TV -------------------------------------------------------------
+
+    // Ленты обновляем в фоне: при старте и после каждого возврата из плеера.
+    private void syncHomeScreen() {
+        final String base = url;
+        new Thread(() -> HomeScreen.sync(getApplicationContext(), base)).start();
+    }
+
+    // Карточка из ленты «Продолжить просмотр» открывает нас с id фильма — страница поймёт
+    // параметр ?play= и сразу запустит его.
+    private void handlePlayIntent(Intent i) {
+        String id = i != null ? i.getStringExtra("playId") : null;
+        if (id == null || id.isEmpty()) return;
+        String target = url + (url.contains("?") ? "&" : "?") + "play=" + Uri.encode(id);
+        web.loadUrl(target);
+    }
+
+    // VLC вернул позицию остановки — отдаём агенту (он же решит, считать ли фильм досмотренным).
+    @Override
+    protected void onActivityResult(int req, int result, Intent data) {
+        super.onActivityResult(req, result, data);
+        if (req != REQ_PLAY || playingId == null) return;
+        final String id = playingId;
+        playingId = null;
+        long pos = data != null ? data.getLongExtra("extra_position", -1) : -1;
+        final long position = pos;
+        new Thread(() -> {
+            if (position >= 0) {
+                try {
+                    HttpURLConnection c = (HttpURLConnection) new URL(
+                        url + "api/position?id=" + Uri.encode(id) + "&pos=" + position).openConnection();
+                    c.setConnectTimeout(4000);
+                    c.setReadTimeout(4000);
+                    c.getResponseCode();
+                    c.disconnect();
+                } catch (Exception ignored) {}
+            }
+            HomeScreen.sync(getApplicationContext(), url);
+        }).start();
+    }
+
     // Immersive sticky: система прячет статус-бар и навигацию, жест с края показывает их
     // на пару секунд. Возвращаем после диалогов/VLC (onWindowFocusChanged).
     private void hideSystemUi() {
@@ -248,20 +298,26 @@ public class MainActivity extends Activity {
         // ему запускать активности можно. Агент по-прежнему решает ЧТО играть и отдаёт готовый
         // адрес потока — здесь только сам запуск.
         @JavascriptInterface
-        public void playVideo(final String url, final String pkg, final String title, final String subtitles) {
+        public void playVideo(final String url, final String pkg, final String title,
+                              final String subtitles, final String id, final long positionMs) {
+            playingId = id;
             runOnUiThread(() -> {
                 Intent i = new Intent(Intent.ACTION_VIEW);
                 i.setDataAndType(Uri.parse(url), "video/*");
-                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                // Продолжаем с сохранённой секунды — VLC понимает extra "position" (мс)
+                if (positionMs > 0) i.putExtra("position", positionMs);
                 if (title != null && !title.isEmpty()) i.putExtra("title", title);
                 // VLC подхватит одноимённый .srt, если агент его нашёл рядом с фильмом
                 if (subtitles != null && !subtitles.isEmpty()) i.putExtra("subtitles_location", subtitles);
                 if (pkg != null && !pkg.isEmpty()) i.setPackage(pkg);
                 try {
-                    startActivity(i);
+                    // startActivityForResult: по выходу VLC вернёт extra_position — она нужна
+                    // ленте «Продолжить просмотр» и продолжению с того же места
+                    startActivityForResult(i, REQ_PLAY);
                 } catch (Exception e) {
                     // нет такого плеера — отдаём системе, пусть предложит чем открыть
                     i.setPackage(null);
+                    i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                     try { startActivity(i); } catch (Exception ignored) {}
                 }
             });

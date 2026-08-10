@@ -131,6 +131,14 @@ async function load() {
   await loadDownloads(); // активные загрузки — для прогресса на «призраках»
   history.replaceState({ screen: "categories" }, ""); // корневая запись истории
   render();
+  // Пришли из ленты «Продолжить просмотр» на домашнем экране (?play=<id>) — открываем фильм
+  // сразу: карточка там показывает прогресс, и ждать от зрителя ещё пары нажатий незачем.
+  const playId = new URLSearchParams(location.search).get("play");
+  if (playId && items.some((x) => x.id === playId)) {
+    history.replaceState({ screen: "categories" }, "", location.pathname);
+    openDetail(items.find((x) => x.id === playId));
+    play(playId);
+  }
   tryLandscape(false); // PWA/standalone может залочить сразу; браузер — при первом взаимодействии
   // live-обновление: любое изменение (скан, «Исправить» из дашборда, переименование) прилетает сюда.
   // SSE держим ТОЛЬКО на видимой вкладке: фоновые дубли (агент открывает страницу при каждом
@@ -635,9 +643,7 @@ function renderDetail() {
     .map((n) => ({ n, c: "режиссёр", p: (castX.find((a) => a.n === n) || {}).p || null }));
   const BTN = "dfoc flex flex-none cursor-pointer items-center rounded-2xl border border-white/15 px-4 py-[clamp(7px,calc(var(--uivh)*1.8),12px)] text-[clamp(12px,calc(var(--uivh)*2.2),15px)] font-semibold outline-none backdrop-blur transition focus:ring-4";
   const metaTable = `
-    ${metaRow("Рейтинг", i.imdbRating
-      ? `<span class="font-semibold text-yellow-300">★ ${Number(i.imdbRating).toFixed(1)}</span>${i.imdbVotes ? ` <span class="text-zinc-500">(${Number(i.imdbVotes).toLocaleString("ru-RU")})</span>` : ""} <span class="text-zinc-600">IMDb</span>`
-      : (i.rating ? `<span class="font-semibold text-yellow-300">★ ${Number(i.rating).toFixed(1)}</span> <span class="text-zinc-600">TMDb</span>` : ""))}
+    ${metaRow("Рейтинг", ratingCell(i))}
     ${metaRow("Жанр", esc((i.genres || []).join(", ")))}
     ${metaRow("Страна", esc(i.country))}
     ${metaRow("Студия", esc(i.studio))}
@@ -723,9 +729,7 @@ function renderDetail() {
   });
   app.querySelectorAll(".ep").forEach((b) => b.addEventListener("click", () => play(b.dataset.id)));
   // Отметка «Просмотрено/Не просмотрено» — агент запишет, SSE перерисует экран
-  app.querySelectorAll(".epw").forEach((b) => b.addEventListener("click", () => {
-    fetch(`/api/watched?id=${encodeURIComponent(b.dataset.id)}&set=${b.dataset.set}`).catch(() => {});
-  }));
+  app.querySelectorAll(".epw").forEach((b) => b.addEventListener("click", () => markWatched(b)));
   // Актёры и персоны из таблицы → страница персоны
   app.querySelectorAll(".actor").forEach((b) => b.addEventListener("click", () => enterPerson(b.dataset.name, b.dataset.photo || null)));
   app.querySelectorAll(".plink").forEach((b) => b.addEventListener("click", () => enterPerson(b.dataset.name, null)));
@@ -735,6 +739,7 @@ function renderDetail() {
   if (trailerBtn) trailerBtn.addEventListener("click", async () => {
     showOverlay("Открываю трейлер…", true);
     try {
+      if (IN_APP && i.trailer) return openTrailerInline(i.trailer, i.title);
       const r = await (await fetch("/api/trailer?id=" + encodeURIComponent(i.id))).json();
       showOverlay(r.ok ? "Трейлер открыт" : "⚠️ " + (r.error || "ошибка"), r.ok);
     } catch (_) { showOverlay("⚠️ Не удалось открыть трейлер"); }
@@ -776,7 +781,7 @@ function libByCatalog() {
 function pcardHtml(c, inLib, rating) {
   const r = Number(rating || 0);
   return `
-    <div class="tv-card pcard relative w-[calc(var(--card-w)*0.7)] flex-none cursor-pointer overflow-hidden rounded-lg bg-zinc-900 ring-1 ring-white/10 outline-none transition duration-150 focus:z-10 focus:scale-[1.06] focus:ring-2 focus:ring-violet-500 ${inLib ? "" : "opacity-40"}"
+    <div class="tv-card pcard relative w-[calc(var(--card-w)*0.7)] flex-none cursor-pointer overflow-hidden rounded-lg bg-zinc-900 ring-1 ring-white/10 outline-none transition duration-150 focus:z-10 focus:scale-[1.06] focus:ring-2 focus:ring-violet-500 ${inLib ? "" : "opacity-70"}"
       tabindex="0" data-key="${esc(c.kind + "_" + c.tmdbId)}" data-title="${esc(c.title)}" data-year="${c.year || ""}" data-roles="${esc((c.roles || []).slice(0, 2).join(", "))}">
       ${c.poster
         ? `<div class="h-0 w-full bg-zinc-800 bg-cover bg-center pb-[150%]" style="background-image:url('${IMG}/w185${c.poster}')"></div>`
@@ -817,6 +822,10 @@ function renderPerson() {
           <div id="person-bio" tabindex="0" class="thin-scroll mt-3 min-h-0 flex-1 overflow-y-auto rounded-md pr-1 text-[clamp(11px,calc(var(--uivh)*2.1),14px)] leading-snug text-zinc-400 outline-none focus:ring-2 focus:ring-violet-500/40"></div>
         </div>
         <div id="person-info-film" class="hidden min-h-0 flex-1 flex-col">
+          <!-- Обложка сфокусированного фильма — над описанием, как на детальной странице -->
+          <div class="mb-3 flex-none">
+            <div id="pf-poster" class="h-0 w-[42%] max-w-[150px] rounded-xl bg-zinc-800 bg-cover bg-center pb-[150%] shadow-2xl shadow-black/50 ring-1 ring-white/10"></div>
+          </div>
           <div id="pf-title" class="flex-none text-[clamp(18px,calc(var(--uivh)*3.8),28px)] font-bold leading-tight tracking-tight"></div>
           <div id="pf-meta" class="mt-1.5 flex-none text-[clamp(11px,calc(var(--uivh)*2),14px)] text-zinc-400"></div>
           <div id="pf-overview" class="mt-3 flex-1 overflow-y-auto pr-1 text-[clamp(12px,calc(var(--uivh)*2.2),15px)] leading-snug text-zinc-300"></div>
@@ -893,6 +902,12 @@ function renderPersonFilms(credits, lib, full) {
       li ? fmtRuntime(li.runtime) : "",
       (c.roles || []).length ? esc(c.roles.slice(0, 2).join(", ")) : ""
     ].filter(Boolean).join('<span class="mx-1.5 text-zinc-600">·</span>');
+    const poster = (li && li.poster) || c.poster || null;
+    const pe = document.getElementById("pf-poster");
+    if (pe) {
+      pe.style.backgroundImage = poster ? `url('${IMG}/w342${poster}')` : "";
+      pe.classList.toggle("hidden", !poster);
+    }
     document.getElementById("pf-title").textContent = (li && li.title) || c.title || "";
     document.getElementById("pf-meta").innerHTML = meta;
     document.getElementById("pf-overview").textContent = (li && li.overview) || c.overview || "Нет описания";
@@ -1158,6 +1173,11 @@ window.addEventListener("popstate", (e) => applyState(e.state || { screen: "cate
 /* ---------- Навигация пультом ---------- */
 document.addEventListener("keydown", (e) => {
   armOrientation(); // первая клавиша — момент для fullscreen + landscape-lock
+  // Трейлер поверх всего: любая «назад» закрывает его и возвращает в медиатеку
+  if (document.getElementById("trailer-box")) {
+    if (["Escape", "Backspace", "GoBack", "BrowserBack"].includes(e.key)) { e.preventDefault(); closeTrailerInline(); }
+    return;
+  }
   // Окно выбора торрента: ↑/↓ по списку, Enter — скачать, Esc/Back — отмена.
   const picker = document.getElementById("mc-picker");
   if (picker) {
@@ -1326,6 +1346,28 @@ function nearest(cur, dir) {
   return best;
 }
 
+
+// Трейлер играем ВНУТРИ приложения (youtube.com/embed): приложения YouTube на приставке нет,
+// а открывать его ради ролика значило бы выпускать зрителя в бесконечную ленту. Здесь же
+// доступен ровно один ролик, Back возвращает в медиатеку.
+function openTrailerInline(key, title) {
+  if (document.getElementById("trailer-box")) return;
+  const box = document.createElement("div");
+  box.id = "trailer-box";
+  box.className = "fixed top-0 right-0 bottom-0 left-0 z-50 bg-black";
+  box.innerHTML = `
+    <iframe class="h-full w-full border-0" allow="autoplay; encrypted-media" allowfullscreen
+      src="https://www.youtube.com/embed/${encodeURIComponent(key)}?autoplay=1&rel=0&modestbranding=1"></iframe>
+    <div class="pointer-events-none absolute top-4 left-6 text-lg text-zinc-300">${esc(title || "Трейлер")} — Назад для выхода</div>`;
+  document.body.appendChild(box);
+}
+function closeTrailerInline() {
+  const b = document.getElementById("trailer-box");
+  if (!b) return false;
+  b.remove();
+  return true;
+}
+
 async function play(id) {
   showOverlay("Запускаю плеер…", true);
   // В приложении плеер запускаем САМИ через мост: агент сидит в фоне Termux, и с Android 12+
@@ -1334,7 +1376,7 @@ async function play(id) {
   const viaApp = IN_APP && window.MCApp && typeof window.MCApp.playVideo === "function";
   try {
     const r = await (await fetch("/api/play?id=" + encodeURIComponent(id) + (viaApp ? "&via=app" : ""))).json();
-    if (r.ok && viaApp) window.MCApp.playVideo(r.url, r.package || "", r.title || "", r.subtitles || "");
+    if (r.ok && viaApp) window.MCApp.playVideo(r.url, r.package || "", r.title || "", r.subtitles || "", id, r.position || 0);
     showOverlay(r.ok ? "Играет в плеере" : "⚠️ " + (r.error || "ошибка"), r.ok);
   } catch (_) { showOverlay("⚠️ Не удалось запустить"); }
   setTimeout(hideOverlay, 2500);
