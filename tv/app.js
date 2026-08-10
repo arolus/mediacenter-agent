@@ -1235,6 +1235,10 @@ function exitApp() {
 // точка Back-логики: сначала закрываем открытый оверлей (пикер/модалка/диалог), затем
 // навигация по истории, в корне — вопрос о выходе. Всегда возвращаем true (обрабатываем сами).
 window.mcHandleBack = () => {
+  // Оверлеи — первыми, иначе Back уходил в историю ПОД ними: трейлер оставался играть
+  // поверх уже сменившегося экрана, и выйти из него было нечем.
+  if (closeTrailerInline()) return true;
+  if (document.getElementById("pin-pad")) { closePinPad(); return true; }
   if (document.getElementById("mc-picker")) { closePicker(); return true; }
   if (document.getElementById("mc-modal")) { closeModal(); return true; }
   if (document.getElementById("exit-confirm")) { hideExitConfirm(); return true; }
