@@ -5,9 +5,16 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Android TV (Xiaomi TV Box S и т.п.): без этих двух строк приставка считает приложение
+         несовместимым и не показывает его в лаунчере — у неё нет тачскрина, а leanback-оболочку
+         мы не используем (интерфейс свой, на D-pad он и так рассчитан). -->
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+
     <application
         android:label="MediaCenter TV"
         android:icon="@mipmap/ic_launcher"
+        android:banner="@drawable/banner"
         android:allowBackup="false"
         android:usesCleartextTraffic="true"
         android:theme="@style/TvTheme">
@@ -21,6 +28,8 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+                <!-- иконка в лаунчере Android TV (телефоны её игнорируют) -->
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
         <!-- Cloudflare clearance harvester: agent starts it when rutracker challenges us.
