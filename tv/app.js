@@ -1249,7 +1249,12 @@ document.addEventListener("keydown", (e) => {
   armOrientation(); // первая клавиша — момент для fullscreen + landscape-lock
   // Трейлер поверх всего: любая «назад» закрывает его и возвращает в медиатеку
   if (document.getElementById("trailer-box")) {
-    if (["Escape", "Backspace", "GoBack", "BrowserBack"].includes(e.key)) { e.preventDefault(); closeTrailerInline(); }
+    e.preventDefault();
+    if (["Escape", "Backspace", "GoBack", "BrowserBack"].includes(e.key)) return void closeTrailerInline();
+    if (["Enter", " ", "MediaPlayPause", "MediaPlay", "MediaPause"].includes(e.key)) return trailerToggle();
+    if (e.key === "ArrowRight" || e.key === "MediaFastForward") return trailerSeek(10);
+    if (e.key === "ArrowLeft" || e.key === "MediaTrackPrevious") return trailerSeek(-10);
+    if (e.key === "MediaStop") return void closeTrailerInline();
     return;
   }
   // Окно выбора торрента: ↑/↓ по списку, Enter — скачать, Esc/Back — отмена.
@@ -1424,20 +1429,95 @@ function nearest(cur, dir) {
 // Трейлер играем ВНУТРИ приложения (youtube.com/embed): приложения YouTube на приставке нет,
 // а открывать его ради ролика значило бы выпускать зрителя в бесконечную ленту. Здесь же
 // доступен ровно один ролик, Back возвращает в медиатеку.
+// Пультом управляем САМИ, а не отдаём клавиши плееру YouTube: его встроенные контролы ловят
+// фокус внутрь iframe (это чужой origin — наши обработчики там уже не слышат клавиш), и зритель
+// оказывается заперт в ролике. Поэтому iframe — только картинка (`pointer-events:none`, фокус
+// возвращаем себе), а пауза/перемотка идут командами postMessage через YouTube IFrame API.
+let trailerTimer = null;
+let trailerTime = 0;     // текущая позиция, её присылает сам плеер (infoDelivery)
+let trailerPlaying = true;
+
+function trailerCmd(func, args) {
+  const f = document.querySelector("#trailer-box iframe");
+  if (!f || !f.contentWindow) return;
+  try {
+    f.contentWindow.postMessage(JSON.stringify({ event: "command", func, args: args || [] }), "*");
+  } catch (_) {}
+}
+
+// Плеер шлёт состояние только тому, кто попросил: после загрузки отправляем «listening».
+function onTrailerMessage(e) {
+  if (!/youtube(-nocookie)?\.com$/.test(String(e.origin).replace(/^https?:\/\//, ""))) return;
+  try {
+    const d = typeof e.data === "string" ? JSON.parse(e.data) : e.data;
+    const info = d && d.info;
+    if (!info) return;
+    if (typeof info.currentTime === "number") trailerTime = info.currentTime;
+    if (typeof info.playerState === "number") trailerPlaying = info.playerState === 1;
+  } catch (_) {}
+}
+
 function openTrailerInline(key, title) {
   if (document.getElementById("trailer-box")) return;
+  trailerTime = 0;
+  trailerPlaying = true;
   const box = document.createElement("div");
   box.id = "trailer-box";
-  box.className = "fixed top-0 right-0 bottom-0 left-0 z-50 bg-black";
+  box.tabIndex = 0;   // клавиши должны приходить в НАШ документ
+  box.className = "fixed top-0 right-0 bottom-0 left-0 z-50 bg-black outline-none";
+  // controls=0 — свои контролы плеера не нужны, до них всё равно не добраться пультом
+  // Надписи гаснут через пару секунд: ролик смотрят, а не читают экран.
   box.innerHTML = `
-    <iframe class="h-full w-full border-0" allow="autoplay; encrypted-media" allowfullscreen
-      src="https://www.youtube.com/embed/${encodeURIComponent(key)}?autoplay=1&rel=0&modestbranding=1"></iframe>
-    <div class="pointer-events-none absolute top-4 left-6 text-lg text-zinc-300">${esc(title || "Трейлер")} — Назад для выхода</div>`;
+    <iframe class="pointer-events-none h-full w-full border-0" allow="autoplay; encrypted-media"
+      src="https://www.youtube.com/embed/${encodeURIComponent(key)}?autoplay=1&rel=0&modestbranding=1&controls=0&playsinline=1&enablejsapi=1"></iframe>
+    <div id="trailer-osd" class="pointer-events-none absolute top-0 right-0 bottom-0 left-0 transition-opacity duration-700">
+      <div class="absolute top-4 left-6 text-lg text-zinc-300">${esc(title || "Трейлер")}</div>
+      <div id="trailer-hint" class="absolute right-6 bottom-5 left-6 text-center text-sm text-zinc-500">
+        OK — пауза · ← / → — 10 секунд</div>
+    </div>`;
   document.body.appendChild(box);
+  box.focus();
+  setTimeout(() => document.getElementById("trailer-osd")?.classList.add("opacity-0"), 2500);
+  window.addEventListener("message", onTrailerMessage);
+  const f = box.querySelector("iframe");
+  f.addEventListener("load", () => {
+    try { f.contentWindow.postMessage(JSON.stringify({ event: "listening" }), "*"); } catch (_) {}
+  });
+  // WebView норовит отдать фокус iframe при автозапуске — забираем обратно, пока ролик открыт.
+  trailerTimer = setInterval(() => {
+    if (document.activeElement !== box) box.focus();
+  }, 500);
 }
+
+// Любое действие пультом снова показывает подпись — и она опять гаснет.
+function trailerOsd(text) {
+  const osd = document.getElementById("trailer-osd");
+  const hint = document.getElementById("trailer-hint");
+  if (!osd || !hint) return;
+  hint.textContent = text;
+  osd.classList.remove("opacity-0");
+  clearTimeout(trailerOsd.t);
+  trailerOsd.t = setTimeout(() => osd.classList.add("opacity-0"), 2500);
+}
+
+function trailerToggle() {
+  trailerPlaying = !trailerPlaying;
+  trailerCmd(trailerPlaying ? "playVideo" : "pauseVideo");
+  trailerOsd(trailerPlaying ? "Воспроизведение" : "Пауза");
+}
+
+function trailerSeek(delta) {
+  trailerTime = Math.max(0, trailerTime + delta);
+  trailerCmd("seekTo", [trailerTime, true]);
+  trailerOsd((delta > 0 ? "+" : "−") + Math.abs(delta) + " секунд");
+}
+
 function closeTrailerInline() {
   const b = document.getElementById("trailer-box");
   if (!b) return false;
+  clearInterval(trailerTimer);
+  trailerTimer = null;
+  window.removeEventListener("message", onTrailerMessage);
   b.remove();
   return true;
 }
