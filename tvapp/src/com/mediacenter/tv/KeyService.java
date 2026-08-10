@@ -11,6 +11,9 @@ package com.mediacenter.tv;
 
 import android.accessibilityservice.AccessibilityService;
 import android.content.Intent;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.view.accessibility.AccessibilityEvent;
@@ -44,6 +47,21 @@ public class KeyService extends AccessibilityService {
         } catch (Exception ex) {
             Log.d(TAG, "open: " + ex.getMessage());
         }
+    }
+
+    // Автозапуск после включения приставки. Системе всё равно, кто просит открыть экран, если
+    // просящего связала она сама: активити из фона (Termux, BOOT_COMPLETED) Android 12+ блокирует
+    // как BAL, а вот отсюда — разрешает (тем же путём открывается медиатека по кнопке пульта).
+    // Службу система поднимает при каждой загрузке; чтобы не выскакивать при её перезапусках
+    // среди дня, открываемся только если приставка включилась только что.
+    private static final long JUST_BOOTED_MS = 3 * 60 * 1000;
+    private static final long LAUNCHER_HEADSTART_MS = 8000;   // даём лаунчеру подняться первым
+
+    @Override
+    protected void onServiceConnected() {
+        super.onServiceConnected();
+        if (SystemClock.elapsedRealtime() > JUST_BOOTED_MS) return;
+        new Handler(Looper.getMainLooper()).postDelayed(this::open, LAUNCHER_HEADSTART_MS);
     }
 
     @Override public void onAccessibilityEvent(AccessibilityEvent event) { /* не слушаем экран */ }
