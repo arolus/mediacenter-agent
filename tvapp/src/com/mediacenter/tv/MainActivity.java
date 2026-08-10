@@ -24,6 +24,8 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
+import android.webkit.ConsoleMessage;
+import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -138,6 +140,15 @@ public class MainActivity extends Activity {
         s.setUserAgentString(s.getUserAgentString() + " MediaCenterTV/1.0");
         // Мост для страницы: MCApp.exitApp() — «Да» в диалоге «Выйти из приложения?»
         web.addJavascriptInterface(new AppBridge(), "MCApp");
+        // Ошибки страницы — в logcat (adb logcat -s MCWeb). Без этого JS-исключение выглядит
+        // как «кнопка не нажимается», и причину приходится угадывать.
+        web.setWebChromeClient(new WebChromeClient() {
+            @Override public boolean onConsoleMessage(ConsoleMessage m) {
+                android.util.Log.d("MCWeb", m.messageLevel() + " " + m.message()
+                        + " (" + m.sourceId() + ":" + m.lineNumber() + ")");
+                return true;
+            }
+        });
         web.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView v, String target) {

@@ -1421,6 +1421,7 @@ let playBusy = false;
 // Фильм начат — предлагаем выбор вместо молчаливого решения за зрителя: продолжить с той
 // секунды, где остановились, или смотреть сначала.
 function play(id) {
+  console.log("[play] вызван", id, "IN_APP=", IN_APP, "мост=", !!(window.MCApp && window.MCApp.playVideo));
   const it = items.find((x) => x.id === id);
   const pos = it ? Number(it.position || 0) : 0;
   if (pos > 60000) {
