@@ -1639,7 +1639,13 @@ async function pinKey(k) {
       body: JSON.stringify({ pin: pinEntered })
     });
     const j = await r.json();
-    if (j.ok) return document.getElementById("pin-pad")?.remove();   // уходим в системный лаунчер
+    if (j.ok) {
+      document.getElementById("pin-pad")?.remove();
+      // Уводит с экрана САМО приложение: `am start` из фонового Termux Android 12+ рубит
+      // как BAL — агент код проверил, но открыть ничего не смог бы (проверено на приставке).
+      try { window.MCApp && MCApp.openSettings(); } catch (_) {}
+      return;
+    }
     if (msg) msg.textContent = j.error || "неверный код";
   } catch (_) {
     if (msg) msg.textContent = "нода не ответила";
