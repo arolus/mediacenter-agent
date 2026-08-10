@@ -1328,8 +1328,13 @@ function nearest(cur, dir) {
 
 async function play(id) {
   showOverlay("Запускаю плеер…", true);
+  // В приложении плеер запускаем САМИ через мост: агент сидит в фоне Termux, и с Android 12+
+  // система рубит его `am start` как background activity launch. Агент в этом режиме только
+  // отдаёт адрес потока. В браузере моста нет — там всё как раньше, запускает агент.
+  const viaApp = IN_APP && window.MCApp && typeof window.MCApp.playVideo === "function";
   try {
-    const r = await (await fetch("/api/play?id=" + encodeURIComponent(id))).json();
+    const r = await (await fetch("/api/play?id=" + encodeURIComponent(id) + (viaApp ? "&via=app" : ""))).json();
+    if (r.ok && viaApp) window.MCApp.playVideo(r.url, r.package || "", r.title || "", r.subtitles || "");
     showOverlay(r.ok ? "Играет в плеере" : "⚠️ " + (r.error || "ошибка"), r.ok);
   } catch (_) { showOverlay("⚠️ Не удалось запустить"); }
   setTimeout(hideOverlay, 2500);

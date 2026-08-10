@@ -233,6 +233,41 @@ public class MainActivity extends Activity {
 
     // Мост из WebView: полный выход из приложения (закрыть задачу и убить процесс).
     private class AppBridge {
+        // Запуск плеера ДОЛЖЕН идти отсюда, а не из агента. Начиная с Android 12 система режет
+        // "background activity launch": Termux сидит в фоне, и его `am start` на VLC отбивается
+        // с BAL_BLOCK (проверено на Xiaomi TV Box S, Android 14). Приложение же на переднем плане,
+        // ему запускать активности можно. Агент по-прежнему решает ЧТО играть и отдаёт готовый
+        // адрес потока — здесь только сам запуск.
+        @JavascriptInterface
+        public void playVideo(final String url, final String pkg, final String title, final String subtitles) {
+            runOnUiThread(() -> {
+                Intent i = new Intent(Intent.ACTION_VIEW);
+                i.setDataAndType(Uri.parse(url), "video/*");
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                if (title != null && !title.isEmpty()) i.putExtra("title", title);
+                // VLC подхватит одноимённый .srt, если агент его нашёл рядом с фильмом
+                if (subtitles != null && !subtitles.isEmpty()) i.putExtra("subtitles_location", subtitles);
+                if (pkg != null && !pkg.isEmpty()) i.setPackage(pkg);
+                try {
+                    startActivity(i);
+                } catch (Exception e) {
+                    // нет такого плеера — отдаём системе, пусть предложит чем открыть
+                    i.setPackage(null);
+                    try { startActivity(i); } catch (Exception ignored) {}
+                }
+            });
+        }
+
+        // Внешняя ссылка (трейлер и т.п.) — по той же причине открывается отсюда.
+        @JavascriptInterface
+        public void openUrl(final String url) {
+            runOnUiThread(() -> {
+                Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                try { startActivity(i); } catch (Exception ignored) {}
+            });
+        }
+
         @JavascriptInterface
         public void exitApp() {
             runOnUiThread(() -> {
