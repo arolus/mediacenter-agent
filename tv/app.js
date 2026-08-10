@@ -1209,15 +1209,22 @@ document.addEventListener("keydown", (e) => {
   if (state.screen === "categories") {
     const tiles = [...app.querySelectorAll(".cat-tile")];
     const vlc = document.getElementById("cat-vlc");
+    const exitBtn = document.getElementById("cat-exit");   // замок в шапке (родительский режим)
     const idx = tiles.indexOf(cur);
     if (cur === vlc) {
       if (e.key === "ArrowDown") { e.preventDefault(); tiles[0]?.focus(); }
       else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); installVLC(); }
       return;
     }
+    if (cur === exitBtn) {
+      if (e.key === "ArrowDown") { e.preventDefault(); (vlc || tiles[0])?.focus(); }
+      else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openPinPad(); }
+      return;
+    }
     if (e.key === "ArrowRight") { e.preventDefault(); tiles[Math.min(tiles.length - 1, idx + 1)]?.focus(); }
     else if (e.key === "ArrowLeft") { e.preventDefault(); tiles[Math.max(0, idx - 1)]?.focus(); }
-    else if (e.key === "ArrowUp" && vlc) { e.preventDefault(); vlc.focus(); }
+    // вверх: сперва предложение установить VLC, иначе — замок (если родительский код задан)
+    else if (e.key === "ArrowUp" && (vlc || exitBtn)) { e.preventDefault(); (vlc || exitBtn).focus(); }
     else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); cur?.dataset?.type && enterGrid(cur.dataset.type); }
     return;
   }
