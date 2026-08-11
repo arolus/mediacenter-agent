@@ -69,7 +69,12 @@ class Torrents(
 
         session.addListener(object : AlertListener {
             override fun types(): IntArray = intArrayOf(
-                AlertType.TORRENT_FINISHED.swig(), AlertType.BLOCK_FINISHED.swig()
+                AlertType.TORRENT_FINISHED.swig(), AlertType.BLOCK_FINISHED.swig(),
+                // Диагностика: без этих сообщений сбой выглядит как «висит на нуле» и
+                // отличить «не подключились» от «не смогли записать файл» невозможно.
+                AlertType.ADD_TORRENT.swig(), AlertType.TORRENT_ERROR.swig(),
+                AlertType.FILE_ERROR.swig(), AlertType.METADATA_RECEIVED.swig(),
+                AlertType.PEER_CONNECT.swig(), AlertType.PEER_DISCONNECTED.swig()
             )
             override fun alert(a: Alert<*>) {
                 try { handleAlert(a) } catch (e: Exception) { Log.e("torrent alert: ${e.message}") }
@@ -119,6 +124,11 @@ class Torrents(
                 val h = (a as TorrentFinishedAlert).handle()
                 finished(h)
             }
+            AlertType.ADD_TORRENT -> Log.i("torrent: добавлен ${a.message()}")
+            AlertType.METADATA_RECEIVED -> Log.i("torrent: метаданные получены")
+            AlertType.TORRENT_ERROR, AlertType.FILE_ERROR -> Log.e("torrent: ${a.message()}")
+            AlertType.PEER_CONNECT -> Log.i("torrent: пир подключён")
+            AlertType.PEER_DISCONNECTED -> Log.i("torrent: пир отвалился — ${a.message()}")
             else -> {}
         }
     }
@@ -241,7 +251,11 @@ class Torrents(
                 val t = ch.document.data
                 if (ch.type == DocumentChange.Type.REMOVED) { stopByDoc(id); return@forEach }
                 val status = t["status"] as? String
-                if (t["source"] == config.deviceId && status == "requested") startSeed(id, t)
+                // Источник берётся за задачу не только по свежему запросу: агент мог
+                // перезапуститься (обновление, перезагрузка, телевизор выключали) уже посреди
+                // переноса — тогда раздавать некому, и приёмник вечно висит на нуле.
+                if (t["source"] == config.deviceId &&
+                    (status == "requested" || status == "seeding" || status == "downloading")) startSeed(id, t)
                 // "downloading" — тоже наш случай: агент мог перезапуститься (обновление,
                 // перезагрузка), а перенос продолжается — иначе он навсегда завис бы на месте.
                 if (t["target"] == config.deviceId && (status == "seeding" || status == "downloading") &&
@@ -301,10 +315,12 @@ class Torrents(
                             h.swig().connect_peer(org.libtorrent4j.swig.tcp_endpoint(
                                 org.libtorrent4j.swig.address.from_string(ip, org.libtorrent4j.swig.error_code()), port))
                         } catch (e: Exception) { Log.e("addPeer: ${e.message}") }
+                        Log.i("transfer: подключаюсь к раздающему $addr")
                         return@launch
                     }
                     kotlinx.coroutines.delay(1000)
                 }
+                Log.e("transfer: торрент так и не появился в сессии — раздающий $addr не подключён")
             }
         }
         db.collection("transfers").document(id).update("status", "downloading")

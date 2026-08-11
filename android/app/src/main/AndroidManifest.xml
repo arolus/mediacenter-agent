@@ -35,8 +35,13 @@
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.software.leanback" android:required="false" />
 
+    <!-- allowNativeHeapPointerTagging=false: Android 11 включил «мечение указателей» в
+         нативной куче на arm64, и libtorrent4j падал сразу при переносе — «Scudo ERROR:
+         invalid chunk state when deallocating» (поймано на Galaxy S10+, Android 11).
+         Телевизор переносы делал нормально: у него другая архитектура. -->
     <application
         android:label="MediaCenter TV"
+        android:allowNativeHeapPointerTagging="false"
         android:icon="@mipmap/ic_launcher"
         android:banner="@drawable/banner"
         android:allowBackup="false"
