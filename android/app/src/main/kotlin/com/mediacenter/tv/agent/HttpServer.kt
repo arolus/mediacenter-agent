@@ -349,6 +349,7 @@ class HttpServer(
     private fun rtClearance(session: IHTTPSession): Response {
         if (!isLocal(session)) return err("только с localhost", Response.Status.FORBIDDEN)
         val body = readBody(session)
+        Log.i("rt-clearance: получено ${body.length} байт от ClearanceActivity")
         return try {
             val o = JSONObject(body)
             RtRelay.instance?.submitClearance(

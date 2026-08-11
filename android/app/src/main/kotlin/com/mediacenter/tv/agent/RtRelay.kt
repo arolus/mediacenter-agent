@@ -39,6 +39,24 @@ class RtRelay(
         private const val PART_CHARS = 700_000
         private const val HARVEST_TIMEOUT_MS = 150_000L
         @Volatile var instance: RtRelay? = null
+
+        // Кука приходит из ClearanceActivity — она в ЭТОМ же процессе, так что ходить за ней
+        // по HTTP незачем (и ненадёжно: сервер мог ещё не подняться). Если релей уже работает,
+        // отдаём ему; иначе просто кладём на диск — он подхватит при старте.
+        @JvmStatic
+        fun deliverClearance(ctx: Context, cookie: String?, ua: String?, error: String?) {
+            val r = instance
+            if (r != null) { r.submitClearance(cookie, ua, error); return }
+            if (error != null || cookie == null || ua == null) {
+                Log.e("rt: WebView не добыл куку: ${error ?: "пусто"}")
+                return
+            }
+            val c = JSONObject().put("cookie", cookie).put("ua", ua).put("at", System.currentTimeMillis())
+            try {
+                File(ctx.filesDir, "rt-clearance.json").writeText(c.toString())
+                Log.i("rt: cf_clearance сохранена до старта релея")
+            } catch (e: Exception) { Log.e("rt: не сохранил куку: ${e.message}") }
+        }
     }
 
     fun start() {
@@ -86,8 +104,10 @@ class RtRelay(
             clearance = c
             try { cacheFile.writeText(c.toString()) } catch (_: Exception) {}
             publishState()
+            Log.i("rt: cf_clearance сохранена (ua=${ua.take(40)})")
             w?.complete(c)
         } else {
+            Log.e("rt: WebView не добыл куку: ${error ?: "пусто"}")
             w?.completeExceptionally(Exception(error ?: "нода не добыла cf_clearance"))
         }
         harvestWaiter = null
