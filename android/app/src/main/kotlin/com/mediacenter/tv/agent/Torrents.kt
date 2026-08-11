@@ -158,13 +158,27 @@ class Torrents(
         }
     }
 
+    // Задачу убрали из Firestore (кнопка «Остановить» в дашборде) — прекращаем и раздачу,
+    // и скачивание: недокачанные куски останутся на диске, но сеть освободится сразу.
+    private fun stopByDoc(docId: String) {
+        val hashes = jobs.filterValues { it.docId == docId }.keys.toList()
+        for (h in hashes) {
+            val job = jobs.remove(h) ?: continue
+            try {
+                val handle = session.find(org.libtorrent4j.Sha1Hash.parseHex(h))
+                if (handle != null && handle.isValid) session.remove(handle)
+            } catch (e: Exception) { Log.e("stop ${job.kind}: ${e.message}") }
+            Log.i("torrent: остановлен ${job.kind} (${job.meta["title"]})")
+        }
+    }
+
     // --- transfers/ ---------------------------------------------------------------------------
     private fun watchTransfers() {
         subs.add(db.collection("transfers").addSnapshotListener { snap, _ ->
             snap?.documentChanges?.forEach { ch ->
                 val id = ch.document.id
                 val t = ch.document.data
-                if (ch.type == DocumentChange.Type.REMOVED) return@forEach
+                if (ch.type == DocumentChange.Type.REMOVED) { stopByDoc(id); return@forEach }
                 val status = t["status"] as? String
                 if (t["source"] == config.deviceId && status == "requested") startSeed(id, t)
                 if (t["target"] == config.deviceId && status == "seeding" && t["magnet"] != null)
@@ -233,8 +247,8 @@ class Torrents(
     private fun watchDownloads() {
         subs.add(db.collection("downloads").addSnapshotListener { snap, _ ->
             snap?.documentChanges?.forEach { ch ->
-                if (ch.type == DocumentChange.Type.REMOVED) return@forEach
                 val id = ch.document.id
+                if (ch.type == DocumentChange.Type.REMOVED) { stopByDoc(id); return@forEach }
                 val t = ch.document.data
                 val status = t["status"] as? String
                 if (t["target"] == config.deviceId && (status == "fetched" || status == "downloading") &&
