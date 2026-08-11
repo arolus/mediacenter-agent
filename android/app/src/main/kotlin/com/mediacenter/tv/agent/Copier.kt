@@ -20,7 +20,8 @@ object Copier {
     // Одна пара «откуда → куда» для конкретного файла. Приёмник бывает двух видов: обычная
     // папка (dst) или USB через системный доступ к документам (dstRel — путь внутри накопителя,
     // см. SafStore). На телефоне второй случай — единственно возможный.
-    data class Item(val src: File, val dst: File?, val dstRel: String?, val size: Long)
+    data class Item(val src: File, val dst: File?, val dstRel: String?,
+                    val tree: android.net.Uri?, val size: Long)
 
     @Volatile private var job: Job? = null
     @Volatile private var current: String = ""
@@ -63,7 +64,7 @@ object Copier {
                     // Уже на месте и того же размера — пропускаем: повторный запуск дожимает
                     // прерванное копирование, а не начинает всё сначала.
                     val already = if (it.dst != null) (if (it.dst.exists()) it.dst.length() else 0)
-                                  else SafStore.sizeOf(ctx, it.dstRel!!)
+                                  else SafStore.sizeOf(ctx, it.tree!!, it.dstRel!!)
                     if (already == it.size) { doneFiles++; doneBytes += it.size; continue }
                     try {
                         if (it.dst != null) copyToFile(it) else copyToSaf(ctx, it)
@@ -101,12 +102,12 @@ object Copier {
     // USB через системный доступ к документам: переименование там недоступно, поэтому пишем
     // сразу под нужным именем, а по обрыву удаляем недописанное.
     private suspend fun copyToSaf(ctx: Context, it: Item) = kotlinx.coroutines.coroutineScope {
-        val out = SafStore.openForWrite(ctx, it.dstRel!!)
+        val out = SafStore.openForWrite(ctx, it.tree!!, it.dstRel!!)
             ?: throw java.io.IOException("накопитель не принял файл (нет доступа?)")
         try {
             it.src.inputStream().use { input -> out.use { o -> pump(input, o) } }
         } catch (e: Exception) { throw e }
-        val got = SafStore.sizeOf(ctx, it.dstRel)
+        val got = SafStore.sizeOf(ctx, it.tree, it.dstRel)
         if (isActive && got != it.size)
             throw java.io.IOException("скопировалось $got из ${it.size} байт")
     }
