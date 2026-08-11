@@ -583,6 +583,7 @@ function renderCollection() {
     .filter((g) => g.tmdbId && !ownedIds.has(g.tmdbId))
     .map((g) => ({
       isGhost: true, isCollectionPart: true, id: "ghost_" + g.tmdbId, type: col.type,
+      tmdbId: g.tmdbId,   // нужен, чтобы открыть карточку фильма (страница «Скачать»)
       title: g.title || "", year: g.year || null, poster: g.poster || null,
       overview: g.overview || "", rating: g.rating || 0
     }));
