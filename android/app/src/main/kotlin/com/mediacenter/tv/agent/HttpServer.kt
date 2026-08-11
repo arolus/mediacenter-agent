@@ -199,8 +199,13 @@ class HttpServer(
         return ip == "127.0.0.1" || ip == "::1" || ip.startsWith("127.")
     }
 
+    // Версия = имя + номер сборки. По ней TV-страница понимает, что агент обновился, и
+    // перезагружает себя (иначе WebView крутил бы старый app.js): одного versionName мало —
+    // он меняется редко, а APK пересобирается на каждую правку интерфейса.
     private fun appVersion(): String = try {
-        ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: "app"
+        val p = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
+        val code = if (android.os.Build.VERSION.SDK_INT >= 28) p.longVersionCode else p.versionCode.toLong()
+        "${p.versionName}.$code"
     } catch (_: Exception) { "app" }
 
     private fun isPackageInstalled(pkg: String): Boolean = try {
