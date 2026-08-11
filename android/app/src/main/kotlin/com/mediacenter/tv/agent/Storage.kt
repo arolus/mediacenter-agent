@@ -40,35 +40,35 @@ object Storage {
         try { file(ctx).writeText(o.toString()) } catch (e: Exception) { Log.e("storage: ${e.message}") }
     }
 
-    // Все доступные носители. Индекс 0 в getExternalFilesDirs — встроенная память, дальше — съёмные.
+    // Все доступные носители: съёмные из getExternalFilesDirs плюс встроенная память.
+    //
+    // Внутреннее хранилище — ВСЕГДА собственный каталог приложения (filesDir), а не запись из
+    // getExternalFilesDirs. Общий том /storage/emulated может быть то смонтирован, то нет (на
+    // телевизоре он поднялся только после переразметки флешки), и путь под ним уезжал бы вместе
+    // с ним — уже скачанное переставало находиться при сканировании. filesDir лежит на том же
+    // разделе, доступен всегда и не требует разрешений.
     fun volumes(ctx: Context): List<Volume> {
         val out = mutableListOf<Volume>()
-        val dirs = ctx.getExternalFilesDirs(null).filterNotNull()
-        dirs.forEachIndexed { i, base ->
+        ctx.getExternalFilesDirs(null).filterNotNull().forEach { base ->
             val path = base.absolutePath
             val removable = !path.contains("/emulated/") && path.startsWith("/storage/")
-            if (removable && Environment.getExternalStorageState(base) != Environment.MEDIA_MOUNTED) return@forEachIndexed
-            val id = if (removable) uuidOf(path) else "internal"
-            val dir = File(base, "media")
+            if (!removable) return@forEach
+            if (Environment.getExternalStorageState(base) != Environment.MEDIA_MOUNTED) return@forEach
+            val id = uuidOf(path)
             val stat = try { StatFs(base.path) } catch (_: Exception) { null }
             out.add(Volume(
                 id = id,
-                label = if (removable) "USB-накопитель${if (id.isNotEmpty()) " $id" else ""}" else "Встроенная память",
-                removable = removable,
-                dir = dir,
+                label = "USB-накопитель${if (id.isNotEmpty()) " $id" else ""}",
+                removable = true,
+                dir = File(base, "media"),
                 totalBytes = stat?.totalBytes ?: 0,
                 freeBytes = stat?.availableBytes ?: 0
             ))
         }
-        // Внутренняя память: на телевизоре общий раздел не смонтирован вовсе, и в списке выше
-        // его нет — но собственный каталог приложения доступен всегда, и это честное «встроенное
-        // хранилище», которое можно выбрать (с лимитом в процентах).
-        if (out.none { !it.removable }) {
-            val f = File(ctx.filesDir, "media")
-            val stat = try { StatFs(ctx.filesDir.path) } catch (_: Exception) { null }
-            out.add(Volume("internal", "Встроенная память", false, f,
-                stat?.totalBytes ?: 0, stat?.availableBytes ?: 0))
-        }
+        val f = File(ctx.filesDir, "media")
+        val stat = try { StatFs(ctx.filesDir.path) } catch (_: Exception) { null }
+        out.add(Volume("internal", "Встроенная память", false, f,
+            stat?.totalBytes ?: 0, stat?.availableBytes ?: 0))
         return out
     }
 

@@ -74,9 +74,27 @@ class Torrents(
             }
         })
         session.start(SessionParams(sp))
+        watchdog()
         watchTransfers()
         watchDownloads()
         Log.i("torrents: session on port ${config.torrentPort}")
+    }
+
+    // Торрент, добавленный уже скачанным (агент перезапустился на середине, файл на диске),
+    // НЕ присылает torrent_finished: libtorrent шлёт его только при переходе состояния.
+    // Поэтому раз в несколько секунд сами проверяем, не готово ли — иначе задача висела бы
+    // в «скачивается» вечно, хотя файл давно на месте.
+    private fun watchdog() {
+        scope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(5000)
+                for ((hash, job) in jobs.toList()) {
+                    if (job.kind == "seed") continue
+                    val h = try { session.find(org.libtorrent4j.Sha1Hash.parseHex(hash)) } catch (_: Exception) { null }
+                    if (h != null && h.isValid && h.status().isFinished) finished(h)
+                }
+            }
+        }
     }
 
     // Идёт ли сейчас приём/раздача: пока да, полный скан медиатеки только мешает
