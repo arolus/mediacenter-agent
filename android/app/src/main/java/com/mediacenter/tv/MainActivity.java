@@ -30,6 +30,7 @@ import android.webkit.ConsoleMessage;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
+import android.widget.Toast;
 import android.webkit.WebViewClient;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -62,6 +63,7 @@ public class MainActivity extends Activity {
     private long playStartPos;
     private long playStartedAt;
     private static final int REQ_PLAY = 1001;
+    private static final int REQ_TREE = 1002;   // системный выбор папки на USB (OTG)
 
     // Настоящее гашение экрана. Обычному приложению система не даёт «усыпить» дисплей
     // (яркость 0 — лишь чёрный AMOLED, дисплей включён и не гаснет по таймауту), поэтому
@@ -386,6 +388,20 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int req, int result, Intent data) {
         super.onActivityResult(req, result, data);
+        if (req == REQ_TREE) {
+            android.net.Uri tree = data != null ? data.getData() : null;
+            if (tree != null) {
+                String label = "USB-накопитель";
+                try {
+                    // В идентификаторе дерева первым идёт UUID тома — им и подписываем накопитель
+                    String docId = android.provider.DocumentsContract.getTreeDocumentId(tree);
+                    if (docId != null && docId.contains(":")) label = "USB " + docId.split(":")[0];
+                } catch (Exception ignored) {}
+                com.mediacenter.tv.agent.SafStore.INSTANCE.save(this, tree, label);
+                web.reload();
+            }
+            return;
+        }
         if (req != REQ_PLAY || playingId == null) return;
         final String id = playingId;
         playingId = null;
@@ -511,6 +527,24 @@ public class MainActivity extends Activity {
                         p3.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                         try { startActivity(p3); } catch (Exception ignored) {}
                     }
+                }
+            });
+        }
+
+        // Флешку, воткнутую в телефон через OTG, прошивка не отдаёт приложениям как папку —
+        // единственный путь к ней лежит через системный выбор папки. Показываем его; дальше
+        // разрешение сохраняется навсегда (см. SafStore).
+        @JavascriptInterface
+        public void pickUsbFolder() {
+            runOnUiThread(() -> {
+                try {
+                    Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                    i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                        | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+                    startActivityForResult(i, REQ_TREE);
+                } catch (Exception e) {
+                    Toast.makeText(MainActivity.this, "Не удалось открыть выбор папки", Toast.LENGTH_LONG).show();
                 }
             });
         }

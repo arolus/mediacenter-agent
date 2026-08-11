@@ -182,6 +182,7 @@ class HttpServer(
                 uri == "/api/copy-plan" -> copyPlan(q["from"])
                 uri == "/api/copy-status" -> json(Copier.status())
                 uri == "/api/copy-stop" -> { Copier.stop(); json(Copier.status()) }
+                uri == "/api/usb-forget" -> { SafStore.forget(ctx); json(JSONObject().put("ok", true)) }
                 uri == "/api/copy" -> copyStart(session)
                 uri == "/api/home-screen" -> json(homeScreenView())
                 // Хранилища: что нашли, что выбрано, сколько занято. POST — сохранить выбор.
@@ -652,6 +653,10 @@ class HttpServer(
                 .put("removable", v.removable)
                 .put("freeBytes", v.freeBytes).put("totalBytes", v.totalBytes))
         }
+        // Флешка, подключённая через системный выбор папки (единственный способ на телефоне):
+        // копировать НА неё можно, а вот источником она быть не может — у неё нет пути,
+        // по которому агент сканирует медиатеку.
+        SafStore.view(ctx)?.let { arr.put(it) }
         val src = vols.firstOrNull { it.id == from } ?: vols.firstOrNull()
         val items = if (src != null) Copier.plan(ctx, library, src.dir) else JSONArray()
         return json(JSONObject().put("volumes", arr).put("from", src?.id ?: "").put("items", items))
@@ -666,9 +671,13 @@ class HttpServer(
         val vols = Storage.volumes(ctx)
         val src = vols.firstOrNull { it.id == o.optString("from") }
             ?: return err("нет носителя-источника", Response.Status.BAD_REQUEST)
-        val dst = vols.firstOrNull { it.id == o.optString("to") }
+        val toId = o.optString("to")
+        val toSaf = toId == "usb-saf"
+        val dst = if (toSaf) null else vols.firstOrNull { it.id == toId }
             ?: return err("нет носителя-приёмника", Response.Status.BAD_REQUEST)
-        if (src.id == dst.id) return err("носители совпадают", Response.Status.BAD_REQUEST)
+        if (toSaf && SafStore.treeUri(ctx) == null)
+            return err("USB-накопитель не подключён", Response.Status.BAD_REQUEST)
+        if (!toSaf && src.id == dst!!.id) return err("носители совпадают", Response.Status.BAD_REQUEST)
         val keys = o.optJSONArray("keys") ?: JSONArray()
         val want = (0 until keys.length()).map { keys.optString(it) }.toSet()
         val plan = Copier.plan(ctx, library, src.dir)
@@ -683,16 +692,19 @@ class HttpServer(
                 val rel = fp.removePrefix(src.dir.absolutePath + File.separator)
                 val f = File(fp)
                 if (!f.isFile) continue
-                items.add(Copier.Item(f, File(dst.dir, rel), f.length()))
+                items.add(if (toSaf) Copier.Item(f, null, rel, f.length())
+                          else Copier.Item(f, File(dst!!.dir, rel), null, f.length()))
                 need += f.length()
             }
         }
         if (items.isEmpty()) return err("нечего копировать", Response.Status.BAD_REQUEST)
         // Запас 300 МБ: файловой системе нужно место и на служебные записи.
-        if (need + 300L * 1024 * 1024 > dst.freeBytes)
-            return err("на «${dst.label}» не хватит места: нужно ${need / 1048576} МБ, свободно ${dst.freeBytes / 1048576} МБ",
+        val free = if (toSaf) SafStore.freeBytes(ctx) else dst!!.freeBytes
+        val where = if (toSaf) SafStore.label(ctx) else dst!!.label
+        if (free > 0 && need + 300L * 1024 * 1024 > free)
+            return err("на «$where» не хватит места: нужно ${need / 1048576} МБ, свободно ${free / 1048576} МБ",
                 Response.Status.BAD_REQUEST)
-        Copier.start(scope, items) { onStorageChanged() }
+        Copier.start(ctx, scope, items) { onStorageChanged() }
         return json(Copier.status())
     }
 

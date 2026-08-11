@@ -1373,6 +1373,7 @@ window.mcHandleBack = () => {
   if (document.getElementById("pin-pad")) { closePinPad(); return true; }
   if (document.getElementById("mc-picker")) { closePicker(); return true; }
   if (document.getElementById("mc-modal")) { closeModal(); return true; }
+  if (document.getElementById("copy-box")) { closeCopy(); return true; }
   if (document.getElementById("exit-confirm")) { hideExitConfirm(); return true; }
   if (state.screen !== "categories") { history.back(); return true; }
   // В детском режиме с первого экрана выпускает только код — иначе «Назад» была бы дырой
@@ -1906,17 +1907,164 @@ function paintSettings() {
                tabindex="0" data-mode="${id}">${label}</div>`).join("")}
       </div>
     </div>
+    <div class="mt-8">
+      <div class="text-lg font-semibold">Копирование между дисками</div>
+      <div class="mt-1 text-sm text-zinc-400">Перенести уже скачанное с одного носителя на другой —
+        отметив галочками, что именно. Флешку, воткнутую в телефон, Android отдаёт приложениям
+        только по разрешению: нажмите «Подключить USB» и выберите её в системном окне.</div>
+      <div class="mt-3 flex space-x-3">
+        <div id="st-copy" tabindex="0" class="cursor-pointer rounded-2xl border border-zinc-800 bg-zinc-900/70 px-5 py-3 text-base font-semibold text-zinc-200 outline-none transition focus:scale-[1.03] focus:border-violet-400 focus:ring-4 focus:ring-violet-500/25">Копировать фильмы…</div>
+        ${IN_APP ? `<div id="st-usb" tabindex="0" class="cursor-pointer rounded-2xl border border-zinc-800 bg-zinc-900/70 px-5 py-3 text-base font-semibold text-zinc-200 outline-none transition focus:scale-[1.03] focus:border-violet-400 focus:ring-4 focus:ring-violet-500/25">Подключить USB…</div>` : ""}
+      </div>
+    </div>
     <div class="mt-10 flex space-x-4">
       <button id="st-close" tabindex="0" class="flex cursor-pointer items-center rounded-2xl border border-white/15 bg-white/5 px-5 py-3 text-lg font-semibold text-zinc-200 outline-none transition focus:scale-[1.03] focus:border-violet-400 focus:ring-4 focus:ring-violet-500/40">${ICONS.back("mr-2 h-5 w-5")} Назад</button>
     </div>`;
 
   box.querySelectorAll(".st-vol").forEach((el) => el.addEventListener("click", () => toggleVolume(el.dataset.id)));
   box.querySelectorAll(".st-mode").forEach((el) => el.addEventListener("click", () => saveStorage({ bufferMode: el.dataset.mode })));
+  document.getElementById("st-copy")?.addEventListener("click", openCopy);
+  document.getElementById("st-usb")?.addEventListener("click", () => {
+    if (window.MCApp && MCApp.pickUsbFolder) MCApp.pickUsbFolder();
+    else { showOverlay("Доступно только в приложении"); setTimeout(hideOverlay, 2000); }
+  });
   document.getElementById("st-close")?.addEventListener("click", closeSettings);
   (box.querySelector(".st-vol") || document.getElementById("st-close"))?.focus();
 }
 
-async function saveStorage(patch) {
+/* ---------- Копирование между носителями ноды ---------- */
+// Экран: слева выбор «откуда» и «куда», справа список того, что лежит на источнике —
+// фильмы, мультфильмы и сериалы (сериал одной строкой). Отмечаем галочками и копируем.
+let copyState = null;   // { volumes, from, to, items, picked:Set, status }
+
+async function openCopy(fromId) {
+  document.getElementById("settings-box")?.remove();
+  const box = document.createElement("div");
+  box.id = "copy-box";
+  box.className = "absolute top-0 right-0 bottom-0 left-0 z-30 overflow-y-auto bg-zinc-950 px-8 py-7";
+  box.innerHTML = spinner("Читаю носители…");
+  document.getElementById("rot").appendChild(box);
+  try {
+    const r = await (await fetch("/api/copy-plan" + (fromId ? "?from=" + encodeURIComponent(fromId) : ""))).json();
+    copyState = { ...r, picked: new Set(), status: null };
+  } catch (_) { box.innerHTML = '<div class="p-8 text-amber-300">Не удалось получить список носителей</div>'; return; }
+  paintCopy();
+  pollCopyStatus();
+}
+
+function closeCopy() { document.getElementById("copy-box")?.remove(); copyState = null; openSettings(); }
+
+function fmtGb(b) { return (Number(b || 0) / 1073741824).toFixed(1) + " ГиБ"; }
+
+function paintCopy() {
+  const box = document.getElementById("copy-box");
+  if (!box || !copyState) return;
+  const st = copyState.status;
+  const vols = copyState.volumes || [];
+  const items = copyState.items || [];
+  const pickedSize = items.filter((i) => copyState.picked.has(i.key)).reduce((s, i) => s + Number(i.size || 0), 0);
+  const chip = (v, kind) => `
+    <div class="cp-vol cursor-pointer rounded-xl border px-4 py-2 text-sm font-semibold outline-none transition focus:scale-[1.03] focus:border-violet-400 focus:ring-4 focus:ring-violet-500/25
+         ${(kind === "from" ? copyState.from === v.id : copyState.to === v.id)
+           ? "border-violet-500/60 bg-violet-500/10 text-white" : "border-zinc-800 bg-zinc-900/70 text-zinc-300"}"
+         tabindex="0" data-kind="${kind}" data-id="${esc(v.id)}">
+      ${esc(v.label)} <span class="ml-1 font-normal text-zinc-500">${fmtGb(v.freeBytes)} своб.</span>
+    </div>`;
+  box.innerHTML = `
+    <div class="text-[clamp(20px,calc(var(--uivh)*3.4),28px)] font-bold">Копирование между дисками</div>
+    <div class="mt-4 flex flex-wrap items-center">
+      <span class="mr-3 text-zinc-400">Откуда:</span>
+      ${vols.filter((v) => !v.saf).map((v) => chip(v, "from")).join("")}
+    </div>
+    <div class="mt-3 flex flex-wrap items-center">
+      <span class="mr-3 text-zinc-400">Куда:</span>
+      ${vols.filter((v) => v.id !== copyState.from).map((v) => chip(v, "to")).join("")}
+      ${vols.filter((v) => v.id !== copyState.from).length ? "" : '<span class="text-zinc-500">второго носителя нет</span>'}
+    </div>
+    ${st && st.running ? `
+      <div class="mt-5 rounded-2xl border border-violet-500/40 bg-violet-500/10 px-5 py-4">
+        <div class="font-semibold">Копирую: ${esc(st.current || "…")}</div>
+        <div class="mt-1 text-sm text-zinc-300">${st.doneFiles} из ${st.totalFiles} файлов ·
+          ${fmtGb(st.doneBytes)} из ${fmtGb(st.totalBytes)} ·
+          ${(Number(st.speed || 0) / 1048576).toFixed(1)} МБ/с</div>
+        <div class="mt-2 h-2 w-full overflow-hidden rounded-full bg-zinc-800">
+          <div class="h-full bg-violet-500" style="width:${st.totalBytes ? Math.round(100 * st.doneBytes / st.totalBytes) : 0}%"></div>
+        </div>
+        <div id="cp-stop" tabindex="0" class="mt-3 inline-block cursor-pointer rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm font-semibold outline-none focus:ring-4 focus:ring-violet-500/40">Остановить</div>
+      </div>` : ""}
+    ${st && !st.running && st.error ? `<div class="mt-5 text-amber-300">⚠️ ${esc(st.error)}</div>` : ""}
+    <div class="mt-6 space-y-2">
+      ${items.length ? items.map((i) => `
+        <div class="cp-item flex cursor-pointer items-center rounded-xl border px-4 py-2.5 outline-none transition focus:scale-[1.01] focus:border-violet-400 focus:ring-4 focus:ring-violet-500/25
+             ${copyState.picked.has(i.key) ? "border-violet-500/60 bg-violet-500/10" : "border-zinc-800 bg-zinc-900/60"}"
+             tabindex="0" data-key="${esc(i.key)}">
+          <div class="mr-4 grid h-7 w-7 flex-none place-items-center rounded-md ${copyState.picked.has(i.key) ? "bg-violet-600 text-white" : "border border-zinc-700 text-transparent"}">
+            ${ICONS.check("h-4 w-4")}
+          </div>
+          <div class="min-w-0 flex-1 truncate">${esc(i.title)}${i.year ? ` <span class="text-zinc-500">(${i.year})</span>` : ""}</div>
+          <div class="ml-4 flex-none text-sm text-zinc-400">${i.type === "series" ? (i.files || []).length + " серий · " : ""}${fmtGb(i.size)}</div>
+        </div>`).join("") : '<div class="text-zinc-500">На этом носителе пусто</div>'}
+    </div>
+    <div class="mt-7 flex items-center space-x-3">
+      <div id="cp-back" tabindex="0" class="cursor-pointer rounded-2xl border border-white/15 bg-white/5 px-5 py-3 font-semibold text-zinc-200 outline-none focus:scale-[1.03] focus:ring-4 focus:ring-violet-500/40">Назад</div>
+      <div id="cp-all" tabindex="0" class="cursor-pointer rounded-2xl border border-white/15 bg-white/5 px-5 py-3 font-semibold text-zinc-200 outline-none focus:scale-[1.03] focus:ring-4 focus:ring-violet-500/40">${copyState.picked.size === items.length && items.length ? "Снять всё" : "Выбрать всё"}</div>
+      <div id="cp-go" tabindex="0" class="cursor-pointer rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-6 py-3 font-bold text-white shadow-xl shadow-violet-600/40 outline-none focus:scale-[1.04] focus:ring-4 focus:ring-violet-400/50">
+        Копировать${copyState.picked.size ? ` (${copyState.picked.size} · ${fmtGb(pickedSize)})` : ""}
+      </div>
+    </div>`;
+
+  box.querySelectorAll(".cp-vol").forEach((el) => el.addEventListener("click", () => {
+    if (el.dataset.kind === "from") return openCopy(el.dataset.id);
+    copyState.to = el.dataset.id; paintCopy();
+  }));
+  box.querySelectorAll(".cp-item").forEach((el) => el.addEventListener("click", () => {
+    const k = el.dataset.key;
+    copyState.picked.has(k) ? copyState.picked.delete(k) : copyState.picked.add(k);
+    paintCopy();
+    box.querySelector(`.cp-item[data-key="${CSS.escape(k)}"]`)?.focus({ preventScroll: true });
+  }));
+  document.getElementById("cp-all")?.addEventListener("click", () => {
+    if (copyState.picked.size === items.length) copyState.picked.clear();
+    else items.forEach((i) => copyState.picked.add(i.key));
+    paintCopy();
+  });
+  document.getElementById("cp-back")?.addEventListener("click", closeCopy);
+  document.getElementById("cp-stop")?.addEventListener("click", async () => {
+    try { copyState.status = await (await fetch("/api/copy-stop")).json(); } catch (_) {}
+    paintCopy();
+  });
+  document.getElementById("cp-go")?.addEventListener("click", startCopy);
+  (box.querySelector(".cp-item") || document.getElementById("cp-back"))?.focus({ preventScroll: true });
+}
+
+async function startCopy() {
+  if (!copyState || !copyState.picked.size) { showOverlay("Ничего не отмечено"); return setTimeout(hideOverlay, 1600); }
+  if (!copyState.to) { showOverlay("Выберите, куда копировать"); return setTimeout(hideOverlay, 1800); }
+  try {
+    const r = await (await fetch("/api/copy", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ from: copyState.from, to: copyState.to, keys: [...copyState.picked] })
+    })).json();
+    if (r.error) { showOverlay("⚠️ " + r.error); return setTimeout(hideOverlay, 4000); }
+    copyState.status = r;
+    paintCopy();
+  } catch (_) { showOverlay("⚠️ Не удалось запустить"); setTimeout(hideOverlay, 2500); }
+}
+
+// Пока экран открыт — раз в 2 секунды подтягиваем прогресс.
+function pollCopyStatus() {
+  const timer = setInterval(async () => {
+    if (!document.getElementById("copy-box")) return clearInterval(timer);
+    try {
+      const st = await (await fetch("/api/copy-status")).json();
+      const was = copyState.status && copyState.status.running;
+      copyState.status = st;
+      if (st.running || was) paintCopy();
+    } catch (_) {}
+  }, 2000);
+}
+
+async function saveStorage(patch) {async function saveStorage(patch) {
   try {
     storageState = await (await fetch("/api/storage", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch)
