@@ -108,6 +108,7 @@ class AgentService : Service() {
             "branch" to "android",
             "lanIp" to lanIp(),
             "tvPort" to config.localPort,
+            "adbPort" to adbPort(),
             "disk" to disk(),
             "lastSeen" to FieldValue.serverTimestamp()
         )
@@ -147,12 +148,27 @@ class AgentService : Service() {
         mapOf("freeBytes" to st.availableBytes, "totalBytes" to st.totalBytes)
     } catch (_: Exception) { null }
 
+    // Порт беспроводной отладки (Android 11+). Система держит его в системном свойстве
+    // service.adb.tls.port; читаем через SystemProperties — обычному приложению это доступно.
+    // 0 — отладка выключена (или прошивка свойство не выставляет).
+    private fun adbPort(): Int {
+        return try {
+            val cls = Class.forName("android.os.SystemProperties")
+            val get = cls.getMethod("get", String::class.java, String::class.java)
+            val v = get.invoke(null, "service.adb.tls.port", "") as? String ?: ""
+            v.toIntOrNull()?.takeIf { it > 0 } ?: 0
+        } catch (_: Exception) { 0 }
+    }
+
     private fun heartbeat(devRef: com.google.firebase.firestore.DocumentReference) {
         scope.launch {
             while (true) {
                 try {
                     devRef.set(mapOf(
                         "online" to true, "lanIp" to lanIp(), "disk" to disk(),
+                        // Порт беспроводной отладки меняется после каждой перезагрузки, и его
+                        // приходилось диктовать руками. Пусть нода сама его сообщает.
+                        "adbPort" to adbPort(),
                         "lastSeen" to FieldValue.serverTimestamp()), SetOptions.merge()).await()
                     http?.firebaseOk = true
                     http?.lastFirebaseOk = System.currentTimeMillis()

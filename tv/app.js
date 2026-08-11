@@ -1981,18 +1981,18 @@ function paintCopy() {
       ${vols.filter((v) => v.id !== copyState.from).map((v) => chip(v, "to")).join("")}
       ${vols.filter((v) => v.id !== copyState.from).length ? "" : '<span class="text-zinc-500">второго носителя нет</span>'}
     </div>
-    ${st && st.running ? `
-      <div class="mt-5 rounded-2xl border border-violet-500/40 bg-violet-500/10 px-5 py-4">
-        <div class="font-semibold">Копирую: ${esc(st.current || "…")}</div>
-        <div class="mt-1 text-sm text-zinc-300">${st.doneFiles} из ${st.totalFiles} файлов ·
-          ${fmtGb(st.doneBytes)} из ${fmtGb(st.totalBytes)} ·
-          ${(Number(st.speed || 0) / 1048576).toFixed(1)} МБ/с</div>
+    ${(st && st.jobs || []).map((j) => `
+      <div class="mt-5 rounded-2xl border ${j.running ? "border-violet-500/40 bg-violet-500/10" : "border-zinc-800 bg-zinc-900/60"} px-5 py-4">
+        <div class="font-semibold">${esc(j.targetLabel || j.target)}${j.running ? `: ${esc(j.current || "…")}` : " — готово"}</div>
+        <div class="mt-1 text-sm text-zinc-300">${j.doneFiles} из ${j.totalFiles} файлов ·
+          ${fmtGb(j.doneBytes)} из ${fmtGb(j.totalBytes)}${j.running ? ` · ${(Number(j.speed || 0) / 1048576).toFixed(1)} МБ/с` : ""}${
+          j.failed ? ` · <span class="text-amber-300">сбоев: ${j.failed}</span>` : ""}</div>
         <div class="mt-2 h-2 w-full overflow-hidden rounded-full bg-zinc-800">
-          <div class="h-full bg-violet-500" style="width:${st.totalBytes ? Math.round(100 * st.doneBytes / st.totalBytes) : 0}%"></div>
+          <div class="h-full ${j.running ? "bg-violet-500" : "bg-emerald-500"}" style="width:${j.totalBytes ? Math.round(100 * j.doneBytes / j.totalBytes) : 0}%"></div>
         </div>
-        <div id="cp-stop" tabindex="0" class="mt-3 inline-block cursor-pointer rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm font-semibold outline-none focus:ring-4 focus:ring-violet-500/40">Остановить</div>
-      </div>` : ""}
-    ${st && !st.running && st.error ? `<div class="mt-5 text-amber-300">⚠️ ${esc(st.error)}</div>` : ""}
+        ${j.error ? `<div class="mt-2 text-sm text-amber-300">⚠️ ${esc(j.error)}</div>` : ""}
+        ${j.running ? `<div class="cp-stop mt-3 inline-block cursor-pointer rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm font-semibold outline-none focus:ring-4 focus:ring-violet-500/40" tabindex="0" data-target="${esc(j.target)}">Остановить</div>` : ""}
+      </div>`).join("")}
     <div class="mt-6 space-y-2">
       ${items.length ? items.map((i) => `
         <div class="cp-item flex cursor-pointer items-center rounded-xl border px-4 py-2.5 outline-none transition focus:scale-[1.01] focus:border-violet-400 focus:ring-4 focus:ring-violet-500/25
@@ -2029,10 +2029,10 @@ function paintCopy() {
     paintCopy();
   });
   document.getElementById("cp-back")?.addEventListener("click", closeCopy);
-  document.getElementById("cp-stop")?.addEventListener("click", async () => {
-    try { copyState.status = await (await fetch("/api/copy-stop")).json(); } catch (_) {}
+  box.querySelectorAll(".cp-stop").forEach((el) => el.addEventListener("click", async () => {
+    try { copyState.status = await (await fetch("/api/copy-stop?to=" + encodeURIComponent(el.dataset.target))).json(); } catch (_) {}
     paintCopy();
-  });
+  }));
   document.getElementById("cp-go")?.addEventListener("click", startCopy);
   (box.querySelector(".cp-item") || document.getElementById("cp-back"))?.focus({ preventScroll: true });
 }
@@ -2059,7 +2059,7 @@ function pollCopyStatus() {
       const st = await (await fetch("/api/copy-status")).json();
       const was = copyState.status && copyState.status.running;
       copyState.status = st;
-      if (st.running || was) paintCopy();
+      if (st.running || was) paintCopy();   // пока что-то идёт — обновляем прогресс
     } catch (_) {}
   }, 2000);
 }

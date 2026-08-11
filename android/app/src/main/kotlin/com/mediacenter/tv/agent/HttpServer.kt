@@ -181,7 +181,7 @@ class HttpServer(
                     else savePosition(q["id"], q["pos"]?.toLongOrNull(), q["dur"]?.toLongOrNull())
                 uri == "/api/copy-plan" -> copyPlan(q["from"])
                 uri == "/api/copy-status" -> json(Copier.status())
-                uri == "/api/copy-stop" -> { Copier.stop(); json(Copier.status()) }
+                uri == "/api/copy-stop" -> { Copier.stop(q["to"]); json(Copier.status()) }
                 uri == "/api/usb-forget" -> { SafStore.forget(ctx, q["id"] ?: ""); json(JSONObject().put("ok", true)) }
                 uri == "/api/copy" -> copyStart(session)
                 uri == "/api/home-screen" -> json(homeScreenView())
@@ -664,7 +664,7 @@ class HttpServer(
 
     // Запуск: {"from":"<vol>","to":"<vol>","keys":["f:/path", "s:Сериал", …]}
     private fun copyStart(session: IHTTPSession): Response {
-        if (Copier.running()) return err("копирование уже идёт", Response.Status.CONFLICT)
+        // Параллельные задачи разрешены, но по одной на приёмник.
         val o = try { JSONObject(readBody(session)) } catch (e: Exception) {
             return err("не разобрал запрос", Response.Status.BAD_REQUEST)
         }
@@ -705,7 +705,8 @@ class HttpServer(
         if (free > 0 && need + 300L * 1024 * 1024 > free)
             return err("на «$where» не хватит места: нужно ${need / 1048576} МБ, свободно ${free / 1048576} МБ",
                 Response.Status.BAD_REQUEST)
-        Copier.start(ctx, scope, items) { onStorageChanged() }
+        if (Copier.running(toId)) return err("на «$where» уже идёт копирование", Response.Status.CONFLICT)
+        Copier.start(ctx, scope, toId, where, items) { onStorageChanged() }
         return json(Copier.status())
     }
 

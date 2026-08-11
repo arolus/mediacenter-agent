@@ -30,13 +30,26 @@ object SafStore {
     // Накопителей может быть несколько (флешку меняют, или их две через хаб), поэтому храним
     // список выданных разрешений. Ключ — UUID тома из идентификатора дерева: он же стоит на
     // самой флешке, так что после перевтыкания разрешение находится само.
-    fun list(ctx: Context): List<JSONObject> = try {
-        val arr = org.json.JSONArray(file(ctx).readText())
-        (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }.filter { o ->
+    fun list(ctx: Context): List<JSONObject> {
+        val raw = try { file(ctx).readText() } catch (_: Exception) { return emptyList() }
+        val arr = try {
+            org.json.JSONArray(raw)
+        } catch (_: Exception) {
+            // Раньше хранили один накопитель объектом — переводим в список, не теряя выданный
+            // доступ (само разрешение живёт в системе и переживает обновление приложения).
+            try {
+                val o = JSONObject(raw)
+                val u = Uri.parse(o.optString("uri"))
+                org.json.JSONArray().put(JSONObject()
+                    .put("id", idOf(u)).put("uri", o.optString("uri"))
+                    .put("label", o.optString("label", "USB-накопитель")))
+            } catch (_: Exception) { return emptyList() }
+        }
+        return (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }.filter { o ->
             val u = Uri.parse(o.optString("uri"))
             ctx.contentResolver.persistedUriPermissions.any { it.uri == u && it.isWritePermission }
         }
-    } catch (_: Exception) { emptyList() }
+    }
 
     fun idOf(uri: Uri): String = try {
         "usb-" + DocumentsContract.getTreeDocumentId(uri).substringBefore(':')

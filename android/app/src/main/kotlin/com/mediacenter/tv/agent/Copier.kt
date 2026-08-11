@@ -4,6 +4,9 @@
 //
 // Копируем, а не перемещаем: исходник остаётся на месте до тех пор, пока человек сам его не
 // удалит. Так неудачное копирование (выдернули флешку) ничего не теряет.
+//
+// Задач может идти НЕСКОЛЬКО сразу — по одной на приёмник: наполнять две флешки одной и той же
+// медиатекой одновременно это нормальное желание, и ждать сутки ради второй копии незачем.
 package com.mediacenter.tv.agent
 
 import android.content.Context
@@ -15,68 +18,94 @@ import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 object Copier {
     // Одна пара «откуда → куда» для конкретного файла. Приёмник бывает двух видов: обычная
-    // папка (dst) или USB через системный доступ к документам (dstRel — путь внутри накопителя,
-    // см. SafStore). На телефоне второй случай — единственно возможный.
+    // папка (dst) или USB через системный доступ к документам (dstRel + tree, см. SafStore).
+    // На телефоне возможен только второй.
     data class Item(val src: File, val dst: File?, val dstRel: String?,
                     val tree: android.net.Uri?, val size: Long)
 
-    @Volatile private var job: Job? = null
-    @Volatile private var current: String = ""
-    @Volatile private var doneFiles = 0
-    @Volatile private var totalFiles = 0
-    @Volatile private var doneBytes = 0L
-    @Volatile private var totalBytes = 0L
-    @Volatile private var startedAt = 0L
-    @Volatile private var error: String? = null
-    @Volatile private var finishedAt = 0L
+    // Состояние одной задачи; ключ — id приёмника, так что на каждый носитель своя очередь.
+    class Task(val targetId: String, val targetLabel: String,
+               val totalFiles: Int, val totalBytes: Long) {
+        @Volatile var job: Job? = null
+        @Volatile var current: String = ""
+        @Volatile var doneFiles = 0
+        @Volatile var doneBytes = 0L
+        @Volatile var failed = 0
+        @Volatile var error: String? = null
+        @Volatile var startedAt = System.currentTimeMillis()
+        @Volatile var finishedAt = 0L
 
-    fun running(): Boolean = job?.isActive == true
+        fun running() = job?.isActive == true
 
-    fun status(): JSONObject {
-        val secs = ((System.currentTimeMillis() - startedAt) / 1000).coerceAtLeast(1)
-        return JSONObject()
-            .put("running", running())
-            .put("current", current)
-            .put("doneFiles", doneFiles).put("totalFiles", totalFiles)
-            .put("doneBytes", doneBytes).put("totalBytes", totalBytes)
-            .put("speed", if (running() && doneBytes > 0) doneBytes / secs else 0)
-            .put("error", error)
-            .put("finishedAgo", if (finishedAt > 0) (System.currentTimeMillis() - finishedAt) / 1000 else -1)
+        fun view(): JSONObject {
+            val secs = ((System.currentTimeMillis() - startedAt) / 1000).coerceAtLeast(1)
+            return JSONObject()
+                .put("target", targetId).put("targetLabel", targetLabel)
+                .put("running", running()).put("current", current)
+                .put("doneFiles", doneFiles).put("totalFiles", totalFiles)
+                .put("doneBytes", doneBytes).put("totalBytes", totalBytes)
+                .put("failed", failed)
+                .put("speed", if (running() && doneBytes > 0) doneBytes / secs else 0)
+                .put("error", error)
+                .put("finishedAgo", if (finishedAt > 0) (System.currentTimeMillis() - finishedAt) / 1000 else -1)
+        }
     }
 
-    fun stop() { job?.cancel(); job = null; current = "" }
+    private val tasks = ConcurrentHashMap<String, Task>()
+
+    fun running(targetId: String): Boolean = tasks[targetId]?.running() == true
+    fun anyRunning(): Boolean = tasks.values.any { it.running() }
+
+    fun status(): JSONObject {
+        val arr = JSONArray()
+        // Свежие сверху; завершённые держим полчаса, чтобы человек увидел итог.
+        tasks.values.sortedByDescending { it.startedAt }.forEach {
+            if (it.running() || it.finishedAt == 0L ||
+                System.currentTimeMillis() - it.finishedAt < 30 * 60 * 1000) arr.put(it.view())
+        }
+        return JSONObject().put("jobs", arr).put("running", anyRunning())
+    }
+
+    fun stop(targetId: String?) {
+        if (targetId.isNullOrEmpty()) tasks.values.forEach { it.job?.cancel() }
+        else tasks[targetId]?.job?.cancel()
+    }
 
     // onDone зовём в любом случае (в т.ч. при ошибке) — агент пересканирует медиатеку, чтобы
     // скопированное сразу появилось в списке на приёмнике.
-    fun start(ctx: Context, scope: CoroutineScope, items: List<Item>, onDone: () -> Unit): Boolean {
-        if (running()) return false
-        doneFiles = 0; totalFiles = items.size
-        doneBytes = 0; totalBytes = items.sumOf { it.size }
-        error = null; finishedAt = 0; startedAt = System.currentTimeMillis()
-        job = scope.launch(Dispatchers.IO) {
+    fun start(ctx: Context, scope: CoroutineScope, targetId: String, targetLabel: String,
+              items: List<Item>, onDone: () -> Unit): Boolean {
+        if (running(targetId)) return false
+        val t = Task(targetId, targetLabel, items.size, items.sumOf { it.size })
+        tasks[targetId] = t
+        t.job = scope.launch(Dispatchers.IO) {
             try {
                 for (it in items) {
                     if (!isActive) break
-                    current = it.src.name
+                    t.current = it.src.name
                     // Уже на месте и того же размера — пропускаем: повторный запуск дожимает
                     // прерванное копирование, а не начинает всё сначала.
                     val already = if (it.dst != null) (if (it.dst.exists()) it.dst.length() else 0)
                                   else SafStore.sizeOf(ctx, it.tree!!, it.dstRel!!)
-                    if (already == it.size) { doneFiles++; doneBytes += it.size; continue }
+                    if (already == it.size) { t.doneFiles++; t.doneBytes += it.size; continue }
                     try {
-                        if (it.dst != null) copyToFile(it) else copyToSaf(ctx, it)
-                        doneFiles++
+                        if (it.dst != null) copyToFile(t, it) else copyToSaf(ctx, t, it)
+                        t.doneFiles++
                     } catch (e: Exception) {
-                        error = "${it.src.name}: ${e.message}"
-                        Log.e("copy: $error")
-                        break
+                        // Один сбойный файл не должен хоронить всю ночную заливку: отмечаем и
+                        // идём дальше, а человек увидит, на чём споткнулись.
+                        t.failed++
+                        t.error = "${it.src.name}: ${e.message}"
+                        Log.e("copy[${t.targetId}]: ${t.error}")
                     }
                 }
             } finally {
-                current = ""; finishedAt = System.currentTimeMillis()
+                t.current = ""; t.finishedAt = System.currentTimeMillis()
+                Log.i("copy[${t.targetId}]: готово ${t.doneFiles}/${t.totalFiles}, сбоев ${t.failed}")
                 try { onDone() } catch (_: Exception) {}
             }
         }
@@ -85,13 +114,11 @@ object Copier {
 
     // Обычная папка: пишем во временный файл и переименовываем — оборванная копия не
     // притворится готовым фильмом.
-    private suspend fun copyToFile(it: Item) = kotlinx.coroutines.coroutineScope {
+    private suspend fun copyToFile(t: Task, it: Item) = kotlinx.coroutines.coroutineScope {
         it.dst!!.parentFile?.mkdirs()
         val tmp = File(it.dst.parentFile, it.dst.name + ".part")
         try {
-            it.src.inputStream().use { input ->
-                tmp.outputStream().use { out -> pump(input, out) }
-            }
+            it.src.inputStream().use { input -> tmp.outputStream().use { out -> pump(t, input, out) } }
             if (!isActive) { tmp.delete(); return@coroutineScope }
             if (tmp.length() != it.size)
                 throw java.io.IOException("скопировалось ${tmp.length()} из ${it.size} байт")
@@ -99,27 +126,25 @@ object Copier {
         } catch (e: Exception) { tmp.delete(); throw e }
     }
 
-    // USB через системный доступ к документам: переименование там недоступно, поэтому пишем
-    // сразу под нужным именем, а по обрыву удаляем недописанное.
-    private suspend fun copyToSaf(ctx: Context, it: Item) = kotlinx.coroutines.coroutineScope {
+    // USB через системный доступ к документам: переименования там нет, поэтому пишем сразу под
+    // нужным именем, а размер сверяем после.
+    private suspend fun copyToSaf(ctx: Context, t: Task, it: Item) = kotlinx.coroutines.coroutineScope {
         val out = SafStore.openForWrite(ctx, it.tree!!, it.dstRel!!)
             ?: throw java.io.IOException("накопитель не принял файл (нет доступа?)")
-        try {
-            it.src.inputStream().use { input -> out.use { o -> pump(input, o) } }
-        } catch (e: Exception) { throw e }
+        it.src.inputStream().use { input -> out.use { o -> pump(t, input, o) } }
         val got = SafStore.sizeOf(ctx, it.tree, it.dstRel)
         if (isActive && got != it.size)
             throw java.io.IOException("скопировалось $got из ${it.size} байт")
     }
 
-    private suspend fun pump(input: java.io.InputStream, out: java.io.OutputStream) =
+    private suspend fun pump(t: Task, input: java.io.InputStream, out: java.io.OutputStream) =
         kotlinx.coroutines.coroutineScope {
             val buf = ByteArray(4 * 1024 * 1024)
             while (isActive) {
                 val n = input.read(buf)
                 if (n <= 0) break
                 out.write(buf, 0, n)
-                doneBytes += n
+                t.doneBytes += n
             }
             out.flush()
         }
