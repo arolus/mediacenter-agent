@@ -418,12 +418,25 @@ public class MainActivity extends Activity {
                 Intent i = new Intent(Intent.ACTION_VIEW);
                 i.setDataAndType(Uri.parse(url), "video/*");
                 // Где остановились, VLC помнит сам — мы лишь говорим, когда нужно начать заново
-                // (зритель выбрал «Начать сначала»).
-                if (fromStart) i.putExtra("from_start", true);
+                // (зритель выбрал «Начать сначала»). ВАЖНО: extra "from_start" VLC 3.7 при
+                // ACTION_VIEW ИГНОРИРУЕТ (проверено на телевизоре: фильм всё равно продолжался
+                // с сохранённой секунды). А вот "position" (мс) он честно отрабатывает — им и
+                // отматываем в ноль; from_start оставляем на случай других плееров.
+                if (fromStart) { i.putExtra("from_start", true); i.putExtra("position", 0L); }
                 if (title != null && !title.isEmpty()) i.putExtra("title", title);
                 // VLC подхватит одноимённый .srt, если агент его нашёл рядом с фильмом
                 if (subtitles != null && !subtitles.isEmpty()) i.putExtra("subtitles_location", subtitles);
-                if (pkg != null && !pkg.isEmpty()) i.setPackage(pkg);
+                // ВАЖНО: у VLC интент ACTION_VIEW принимает «прихожая» StartActivity, которая
+                // строит для плеера СВОЙ интент и наши extra выбрасывает — из-за этого в шапке
+                // висел мусор из метаданных файла (CP1251), а «начать сначала» не работало.
+                // Целимся прямо в плеерную активность (она экспортирована), а если не пустит —
+                // откатываемся на обычный выбор по пакету.
+                if (pkg != null && !pkg.isEmpty()) {
+                    i.setPackage(pkg);
+                    if (pkg.startsWith("org.videolan.vlc")) {
+                        i.setClassName(pkg, "org.videolan.vlc.gui.video.VideoPlayerActivity");
+                    }
+                }
                 i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 try {
                     // Обычный startActivity, БЕЗ ожидания результата: с startActivityForResult
@@ -432,10 +445,19 @@ public class MainActivity extends Activity {
                     // к /stream, ему для этого плеер не нужен.
                     startActivity(i);
                 } catch (Exception e) {
-                    // нет такого плеера — отдаём системе, пусть предложит чем открыть
-                    i.setPackage(null);
-                    i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    try { startActivity(i); } catch (Exception ignored) {}
+                    // Не пустила плеерная активность — пробуем тот же пакет обычным путём
+                    try {
+                        Intent p2 = new Intent(i);
+                        p2.setComponent(null);
+                        if (pkg != null && !pkg.isEmpty()) p2.setPackage(pkg);
+                        startActivity(p2);
+                    } catch (Exception e2) {
+                        // нет такого плеера — отдаём системе, пусть предложит чем открыть
+                        Intent p3 = new Intent(i);
+                        p3.setComponent(null);
+                        p3.setPackage(null);
+                        try { startActivity(p3); } catch (Exception ignored) {}
+                    }
                 }
             });
         }

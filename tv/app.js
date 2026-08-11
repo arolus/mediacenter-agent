@@ -1096,7 +1096,10 @@ function paintModalSel() {
 }
 function askConfirm(text, onYes, labels) {
   closeModal();
-  modalYes = onYes; modalSel = "no";
+  modalYes = onYes;
+  // По умолчанию подсвечена безопасная кнопка «Нет»; диалог может попросить обратное
+  // (у «Фильм уже начат» ожидаемое действие — «Продолжить»).
+  modalSel = (labels && labels.def === "yes") ? "yes" : "no";
   const yesLabel = (labels && labels.yes) || "Да";
   const noLabel = (labels && labels.no) || "Нет";
   const wrap = document.createElement("div");
@@ -1610,7 +1613,7 @@ function play(id) {
   // Секунду остановки помнит сам плеер, нам достаточно знать, что фильм уже начинали.
   if (it && it.started && !it.watched) {
     return askConfirm("Фильм уже начат", () => startPlay(id, false),
-      { yes: "Продолжить", no: "Начать сначала", onNo: () => startPlay(id, true) });
+      { yes: "Продолжить", no: "Начать сначала", def: "yes", onNo: () => startPlay(id, true) });
   }
   return startPlay(id, false);
 }
@@ -1628,7 +1631,8 @@ async function startPlay(id, fromStart) {
   // отдаёт адрес потока. В браузере моста нет — там всё как раньше, запускает агент.
   const viaApp = IN_APP && window.MCApp && typeof window.MCApp.playVideo === "function";
   try {
-    const r = await (await fetch("/api/play?id=" + encodeURIComponent(id) + (viaApp ? "&via=app" : ""))).json();
+    const r = await (await fetch("/api/play?id=" + encodeURIComponent(id) + (viaApp ? "&via=app" : "")
+      + (fromStart ? "&fromStart=1" : ""))).json();
     if (r.ok && viaApp) window.MCApp.playVideo(r.url, r.package || "", r.title || "", r.subtitles || "", id, !!fromStart);
     showOverlay(r.ok ? "Играет в плеере" : "⚠️ " + (r.error || "ошибка"), r.ok);
   } catch (_) { showOverlay("⚠️ Не удалось запустить"); }
