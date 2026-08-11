@@ -114,6 +114,11 @@ class AgentService : Service() {
             onOpenUrl = { url -> openUrl(url) }
         ).also { it.startAll() }
 
+        // Страница в WebView стартует раньше сервера и в этот момент получает ответ из
+        // офлайн-кэша (service worker). Сообщаем активности, что агент готов, — она перезагрузит
+        // страницу, иначе после обновления APK телевизор крутил бы старый интерфейс.
+        sendBroadcast(Intent("com.mediacenter.tv.AGENT_READY").setPackage(packageName))
+
         torrents = Torrents(this, db, config, scope).also { it.start() }
         relay = RtRelay(this, db, config, scope).also { it.start() }
         commandsSub = Commands.watch(this, db, config, scope) { /* library listener refreshes UI */ }

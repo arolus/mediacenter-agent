@@ -8,7 +8,9 @@ package com.mediacenter.tv;
 
 import android.app.Activity;
 import android.app.admin.DevicePolicyManager;
+import android.content.BroadcastReceiver;
 import android.content.ComponentName;
+import android.content.IntentFilter;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -40,6 +42,8 @@ public class MainActivity extends Activity {
     private long idleMs = IDLE_OFF_DEFAULT;
 
     private WebView web;
+    private BroadcastReceiver agentReady;
+    private boolean reloadedOnAgentReady;
     private String url;
     private Thread waiter; // фоновая проба агента, пока он не поднялся
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -187,6 +191,17 @@ public class MainActivity extends Activity {
         if (idleSec > 0) idleMs = idleSec * 1000;
         wakeAndSchedule(true); // KEEP_SCREEN_ON + рабочая яркость + старт отсчёта неактивности
         web.loadUrl(url);
+        // Агент поднимается через пару секунд после активити: как только его сервер готов,
+        // перезагружаем страницу — до этого WebView мог показать её из офлайн-кэша.
+        agentReady = new BroadcastReceiver() {
+            @Override public void onReceive(Context c, Intent i) {
+                if (reloadedOnAgentReady) return;
+                reloadedOnAgentReady = true;
+                web.post(new Runnable() { @Override public void run() { web.reload(); } });
+            }
+        };
+        registerReceiver(agentReady, new IntentFilter("com.mediacenter.tv.AGENT_READY"),
+                Build.VERSION.SDK_INT >= 33 ? Context.RECEIVER_NOT_EXPORTED : 0);
         syncHomeScreen();
         cacheKioskPin();
         // Пришли по карточке из ленты «Продолжить просмотр» — сразу открываем этот фильм
@@ -492,6 +507,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (agentReady != null) { try { unregisterReceiver(agentReady); } catch (Exception ignored) {} }
         web.destroy();
         super.onDestroy();
     }
