@@ -56,6 +56,11 @@ public class MainActivity extends Activity {
     // Что сейчас играет: VLC при выходе возвращает позицию, и мы отдаём её агенту —
     // из неё живёт лента «Продолжить просмотр» и продолжение с той же секунды.
     private String playingId;
+    // Сколько плеер реально играл: VLC свою позицию наружу не отдаёт (см. playVideo), поэтому
+    // считаем от момента запуска. Пауза внутри плеера в эту оценку не попадает — она нужна
+    // только для подписи «Продолжить с …»; перематывает же VLC сам и точно.
+    private long playStartPos;
+    private long playStartedAt;
     private static final int REQ_PLAY = 1001;
 
     // Настоящее гашение экрана. Обычному приложению система не даёт «усыпить» дисплей
@@ -233,7 +238,8 @@ public class MainActivity extends Activity {
             i.removeExtra("playUrl");
             new AppBridge().playVideo(playUrl, i.getStringExtra("playPkg"),
                 i.getStringExtra("playTitle"), i.getStringExtra("playSubtitles"),
-                null, i.getBooleanExtra("playFromStart", false));
+                null, i.getBooleanExtra("playFromStart", false),
+                i.getLongExtra("playPosition", 0));
         }
         String open = i.getStringExtra("openUrl");
         if (open != null) { i.removeExtra("openUrl"); new AppBridge().openUrl(open); }
@@ -385,17 +391,43 @@ public class MainActivity extends Activity {
         playingId = null;
         long pos = data != null ? data.getLongExtra("extra_position", -1) : -1;
         final long position = pos;
+        final long duration = data != null ? data.getLongExtra("extra_duration", -1) : -1;
         new Thread(() -> {
             if (position >= 0) {
                 try {
                     HttpURLConnection c = (HttpURLConnection) new URL(
-                        url + "api/position?id=" + Uri.encode(id) + "&pos=" + position).openConnection();
+                        url + "api/position?id=" + Uri.encode(id) + "&pos=" + position
+                        + (duration > 0 ? "&dur=" + duration : "")).openConnection();
                     c.setConnectTimeout(4000);
                     c.setReadTimeout(4000);
                     c.getResponseCode();
                     c.disconnect();
                 } catch (Exception ignored) {}
             }
+            HomeScreen.sync(getApplicationContext(), url);
+        }).start();
+    }
+
+    // Вернулись из плеера — сохраняем, до какой секунды досмотрели. Оценка по времени в
+    // плеере: VLC свою позицию наружу не отдаёт (см. playVideo). Нужна она для подписи на
+    // кнопке («Продолжить с 00:36»); саму перемотку делает VLC по своей памяти, точно.
+    private void reportWatchedSoFar() {
+        if (playingId == null || playStartedAt == 0) return;
+        final String id = playingId;
+        final long pos = playStartPos + (android.os.SystemClock.elapsedRealtime() - playStartedAt);
+        playingId = null;
+        playStartedAt = 0;
+        // Меньше половины минуты — человек просто передумал, отметку не трогаем.
+        if (pos < 30_000) return;
+        new Thread(() -> {
+            try {
+                HttpURLConnection c = (HttpURLConnection) new URL(
+                    url + "api/position?id=" + Uri.encode(id) + "&pos=" + pos).openConnection();
+                c.setConnectTimeout(4000);
+                c.setReadTimeout(4000);
+                c.getResponseCode();
+                c.disconnect();
+            } catch (Exception ignored) {}
             HomeScreen.sync(getApplicationContext(), url);
         }).start();
     }
@@ -427,8 +459,11 @@ public class MainActivity extends Activity {
         // адрес потока — здесь только сам запуск.
         @JavascriptInterface
         public void playVideo(final String url, final String pkg, final String title,
-                              final String subtitles, final String id, final boolean fromStart) {
+                              final String subtitles, final String id, final boolean fromStart,
+                              final long positionMs) {
             playingId = id;
+            playStartPos = fromStart ? 0 : positionMs;
+            playStartedAt = android.os.SystemClock.elapsedRealtime();
             runOnUiThread(() -> {
                 Intent i = new Intent(Intent.ACTION_VIEW);
                 i.setDataAndType(Uri.parse(url), "video/*");
@@ -438,6 +473,7 @@ public class MainActivity extends Activity {
                 // с сохранённой секунды). А вот "position" (мс) он честно отрабатывает — им и
                 // отматываем в ноль; from_start оставляем на случай других плееров.
                 if (fromStart) { i.putExtra("from_start", true); i.putExtra("position", 0L); }
+                else if (positionMs > 0) i.putExtra("position", positionMs);
                 if (title != null && !title.isEmpty()) i.putExtra("title", title);
                 // VLC подхватит одноимённый .srt, если агент его нашёл рядом с фильмом
                 if (subtitles != null && !subtitles.isEmpty()) i.putExtra("subtitles_location", subtitles);
@@ -454,10 +490,10 @@ public class MainActivity extends Activity {
                 }
                 i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 try {
-                    // Обычный startActivity, БЕЗ ожидания результата: с startActivityForResult
-                    // VLC получал интент и сразу завершался ("http stream: connection failed"),
-                    // фильм не стартовал. Позицию просмотра считает агент — по Range-запросам
-                    // к /stream, ему для этого плеер не нужен.
+                    // ТОЛЬКО обычный startActivity. Пробовали startActivityForResult, чтобы
+                    // забрать у VLC "extra_position" (секунду остановки) — VLC при этом вообще
+                    // перестаёт открываться, сколько бы флагов ни ставили. Проверено, больше
+                    // не пробовать: позицию считаем сами (см. playStartedAt).
                     startActivity(i);
                 } catch (Exception e) {
                     // Не пустила плеерная активность — пробуем тот же пакет обычным путём
@@ -465,12 +501,14 @@ public class MainActivity extends Activity {
                         Intent p2 = new Intent(i);
                         p2.setComponent(null);
                         if (pkg != null && !pkg.isEmpty()) p2.setPackage(pkg);
+                        p2.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                         startActivity(p2);
                     } catch (Exception e2) {
                         // нет такого плеера — отдаём системе, пусть предложит чем открыть
                         Intent p3 = new Intent(i);
                         p3.setComponent(null);
                         p3.setPackage(null);
+                        p3.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                         try { startActivity(p3); } catch (Exception ignored) {}
                     }
                 }
@@ -539,6 +577,7 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         web.onResume();
+        reportWatchedSoFar();
         // Вернулись на экран (пробуждение после lockNow, возврат из VLC) — это реальное
         // действие пользователя: экран включён, даём свежий отсчёт. Ложных onResume тут не
         // бывает: пока экран погашен нами, активити не в foreground и onResume не приходит.

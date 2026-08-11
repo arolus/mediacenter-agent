@@ -176,6 +176,13 @@ class HttpServer(
                 uri == "/api/trailer" -> trailer(q["id"])
                 uri == "/api/person" -> person(q["name"], q["refresh"] != null)
                 uri == "/api/movie" -> movieInfo(q["tmdbId"], q["kind"])
+                uri == "/api/position" ->
+                    if (!isLocal(session)) err("только локально", Response.Status.FORBIDDEN)
+                    else savePosition(q["id"], q["pos"]?.toLongOrNull(), q["dur"]?.toLongOrNull())
+                uri == "/api/copy-plan" -> copyPlan(q["from"])
+                uri == "/api/copy-status" -> json(Copier.status())
+                uri == "/api/copy-stop" -> { Copier.stop(); json(Copier.status()) }
+                uri == "/api/copy" -> copyStart(session)
                 uri == "/api/home-screen" -> json(homeScreenView())
                 // Хранилища: что нашли, что выбрано, сколько занято. POST — сохранить выбор.
                 uri == "/api/storage" -> storage(session, q)
@@ -247,6 +254,8 @@ class HttpServer(
                 .put("fileName", it.opt("fileName"))
                 .put("watched", it.optBoolean("watched", false))
                 .put("started", it.optBoolean("started", false))
+                .put("position", it.optLong("position", 0))   // мс, отдал VLC при выходе
+                .put("duration", it.optLong("duration", 0))
                 .put("addedAt", it.optLong("addedAt", 0))
                 .put("collection", it.opt("collection"))
                 .put("castX", it.optJSONArray("castX") ?: JSONArray())
@@ -282,6 +291,8 @@ class HttpServer(
                 .put("description", it.optString("overview").take(300))
                 .put("durationMs", it.optInt("runtime", 0) * 60000L)
                 .put("started", it.optBoolean("started", false))
+                .put("position", it.optLong("position", 0))   // мс, отдал VLC при выходе
+                .put("duration", it.optLong("duration", 0))
                 .put("watched", it.optBoolean("watched", false))
                 .put("addedAt", it.optLong("addedAt", 0)))
         }
@@ -609,6 +620,80 @@ class HttpServer(
                 Response.Status.lookup(r.status) ?: Response.Status.OK,
                 "application/json; charset=utf-8", text)
         } catch (e: Exception) { err(e.message ?: "нет связи", Response.Status.SERVICE_UNAVAILABLE) }
+    }
+
+    // Секунда остановки, которую VLC вернул при выходе. Раньше мы её не знали вовсе (плеер
+    // запускался «без ответа»), и на карточке было глухое «фильм уже начат» — теперь на кнопке
+    // видно, с какого места продолжим. Досмотренным считаем с 92% длительности: у релизов в
+    // конце титры, и возвращаться к ним никто не станет.
+    private fun savePosition(id: String?, pos: Long?, dur: Long?): Response {
+        val item = findItem(id) ?: return err("не найдено", Response.Status.NOT_FOUND)
+        if (pos == null || pos < 0) return err("нет позиции", Response.Status.BAD_REQUEST)
+        val duration = dur ?: item.optLong("duration", 0)
+        val watched = duration > 0 && pos > duration * 92 / 100
+        val fields = mutableMapOf<String, Any>(
+            "position" to pos, "started" to true,
+            "positionAt" to FieldValue.serverTimestamp())
+        if (duration > 0) fields["duration"] = duration
+        if (watched) { fields["watched"] = true; fields["position"] = 0L }
+        db.collection("devices").document(config.deviceId).collection("library")
+            .document(item.optString("id")).set(fields, SetOptions.merge())
+        Log.i("position: ${item.optString("title")} — ${pos / 1000}s${if (watched) " (досмотрено)" else ""}")
+        return json(JSONObject().put("ok", true).put("watched", watched))
+    }
+
+    // ---- перенос между носителями ноды --------------------------------------------------------
+    // Что можно скопировать с выбранного тома (сериал — одной строкой) плюс список самих томов.
+    private fun copyPlan(from: String?): Response {
+        val vols = Storage.volumes(ctx)
+        val arr = JSONArray()
+        vols.forEach { v ->
+            arr.put(JSONObject().put("id", v.id).put("label", v.label)
+                .put("removable", v.removable)
+                .put("freeBytes", v.freeBytes).put("totalBytes", v.totalBytes))
+        }
+        val src = vols.firstOrNull { it.id == from } ?: vols.firstOrNull()
+        val items = if (src != null) Copier.plan(ctx, library, src.dir) else JSONArray()
+        return json(JSONObject().put("volumes", arr).put("from", src?.id ?: "").put("items", items))
+    }
+
+    // Запуск: {"from":"<vol>","to":"<vol>","keys":["f:/path", "s:Сериал", …]}
+    private fun copyStart(session: IHTTPSession): Response {
+        if (Copier.running()) return err("копирование уже идёт", Response.Status.CONFLICT)
+        val o = try { JSONObject(readBody(session)) } catch (e: Exception) {
+            return err("не разобрал запрос", Response.Status.BAD_REQUEST)
+        }
+        val vols = Storage.volumes(ctx)
+        val src = vols.firstOrNull { it.id == o.optString("from") }
+            ?: return err("нет носителя-источника", Response.Status.BAD_REQUEST)
+        val dst = vols.firstOrNull { it.id == o.optString("to") }
+            ?: return err("нет носителя-приёмника", Response.Status.BAD_REQUEST)
+        if (src.id == dst.id) return err("носители совпадают", Response.Status.BAD_REQUEST)
+        val keys = o.optJSONArray("keys") ?: JSONArray()
+        val want = (0 until keys.length()).map { keys.optString(it) }.toSet()
+        val plan = Copier.plan(ctx, library, src.dir)
+        val items = mutableListOf<Copier.Item>()
+        var need = 0L
+        for (i in 0 until plan.length()) {
+            val g = plan.optJSONObject(i) ?: continue
+            if (g.optString("key") !in want) continue
+            val files = g.optJSONArray("files") ?: continue
+            for (j in 0 until files.length()) {
+                val fp = files.optString(j)
+                val rel = fp.removePrefix(src.dir.absolutePath + File.separator)
+                val f = File(fp)
+                if (!f.isFile) continue
+                items.add(Copier.Item(f, File(dst.dir, rel), f.length()))
+                need += f.length()
+            }
+        }
+        if (items.isEmpty()) return err("нечего копировать", Response.Status.BAD_REQUEST)
+        // Запас 300 МБ: файловой системе нужно место и на служебные записи.
+        if (need + 300L * 1024 * 1024 > dst.freeBytes)
+            return err("на «${dst.label}» не хватит места: нужно ${need / 1048576} МБ, свободно ${dst.freeBytes / 1048576} МБ",
+                Response.Status.BAD_REQUEST)
+        Copier.start(scope, items) { onStorageChanged() }
+        return json(Copier.status())
     }
 
     // ---- static (assets/tv) ------------------------------------------------------------------

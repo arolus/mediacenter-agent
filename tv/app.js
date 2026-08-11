@@ -1210,9 +1210,9 @@ function askConfirm(text, onYes, labels) {
   wrap.innerHTML = `
     <div class="max-w-[70%] rounded-3xl border border-white/10 bg-zinc-900/95 px-10 py-8 text-center shadow-2xl shadow-black/60">
       <div class="mb-6 text-2xl font-bold">${esc(text)}</div>
-      <div class="flex justify-center space-x-4">
-        <button id="modal-yes" class="cursor-pointer rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-9 py-3 text-lg font-bold text-white outline-none ring-violet-400/60 transition">${esc(yesLabel)}</button>
-        <button id="modal-no" class="cursor-pointer rounded-2xl border border-white/15 bg-white/5 px-9 py-3 text-lg font-semibold text-zinc-300 outline-none ring-violet-500/50 transition">${esc(noLabel)}</button>
+      <div class="mx-auto flex w-[280px] flex-col space-y-3">
+        <button id="modal-yes" class="w-full cursor-pointer rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-9 py-3 text-lg font-bold text-white outline-none ring-violet-400/60 transition">${esc(yesLabel)}</button>
+        <button id="modal-no" class="w-full cursor-pointer rounded-2xl border border-white/15 bg-white/5 px-9 py-3 text-lg font-semibold text-zinc-300 outline-none ring-violet-500/50 transition">${esc(noLabel)}</button>
       </div>
     </div>`;
   document.getElementById("rot").appendChild(wrap);
@@ -1464,8 +1464,8 @@ document.addEventListener("keydown", (e) => {
   if (document.getElementById("mc-modal")) {
     e.preventDefault();
     if (["Escape", "Backspace", "GoBack", "BrowserBack"].includes(e.key)) return closeModal();
-    if (e.key === "ArrowLeft") { modalSel = "yes"; paintModalSel(); }
-    else if (e.key === "ArrowRight") { modalSel = "no"; paintModalSel(); }
+    if (e.key === "ArrowLeft" || e.key === "ArrowUp") { modalSel = "yes"; paintModalSel(); }
+    else if (e.key === "ArrowRight" || e.key === "ArrowDown") { modalSel = "no"; paintModalSel(); }
     else if (e.key === "Enter" || e.key === " ") document.getElementById(modalSel === "yes" ? "modal-yes" : "modal-no")?.click();
     return;
   }
@@ -1712,10 +1712,12 @@ let playBusy = false;
 // секунды, где остановились, или смотреть сначала.
 function play(id) {
   const it = items.find((x) => x.id === id);
-  // Секунду остановки помнит сам плеер, нам достаточно знать, что фильм уже начинали.
-  if (it && it.started && !it.watched) {
+  // Секунду остановки VLC отдаёт при выходе, агент её запоминает — показываем прямо на кнопке.
+  const pos = Number((it && it.position) || 0);
+  if (it && (pos > 5000 || it.started) && !it.watched) {
     return askConfirm("Фильм уже начат", () => startPlay(id, false),
-      { yes: "Продолжить", no: "Начать сначала", def: "yes", onNo: () => startPlay(id, true) });
+      { yes: pos > 5000 ? `Продолжить с ${fmtDur(Math.round(pos / 1000))}` : "Продолжить",
+        no: "Начать сначала", def: "yes", onNo: () => startPlay(id, true) });
   }
   return startPlay(id, false);
 }
@@ -1735,7 +1737,11 @@ async function startPlay(id, fromStart) {
   try {
     const r = await (await fetch("/api/play?id=" + encodeURIComponent(id) + (viaApp ? "&via=app" : "")
       + (fromStart ? "&fromStart=1" : ""))).json();
-    if (r.ok && viaApp) window.MCApp.playVideo(r.url, r.package || "", r.title || "", r.subtitles || "", id, !!fromStart);
+    if (r.ok && viaApp) {
+      const it = items.find((x) => x.id === id);
+      const pos = fromStart ? 0 : Number((it && it.position) || 0);
+      window.MCApp.playVideo(r.url, r.package || "", r.title || "", r.subtitles || "", id, !!fromStart, pos);
+    }
     showOverlay(r.ok ? "Играет в плеере" : "⚠️ " + (r.error || "ошибка"), r.ok);
   } catch (_) { showOverlay("⚠️ Не удалось запустить"); }
   setTimeout(hideOverlay, 2500);
