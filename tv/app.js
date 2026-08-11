@@ -1074,9 +1074,9 @@ function enterPerson(name, photo) { if (name) navigate({ screen: "person", name,
 // В корне (категории) — родительский код: выйти отсюда = покинуть медиатеку.
 function back() {
   if (state.screen !== "categories") { history.back(); return; }
-  // В приложении (приставка — наш домашний экран) уйти можно только по коду; в обычном
-  // браузере на телефоне-ноде запирать нечего — там прежний вопрос о выходе.
-  if (IN_APP && kidsMode) openPinPad(); else showExitConfirm();
+  // Детский режим выпускает только по коду. В обычном не спрашиваем ничего: «Назад» на
+  // первом экране — это и есть «выйти», лишний вопрос там только мешает.
+  if (IN_APP && kidsMode) openPinPad(); else exitApp();
 }
 
 /* ---------- Скачивание фильма-«призрака» с rutracker ---------- */
@@ -1264,8 +1264,8 @@ window.mcHandleBack = () => {
   if (document.getElementById("exit-confirm")) { hideExitConfirm(); return true; }
   if (state.screen !== "categories") { history.back(); return true; }
   // В детском режиме с первого экрана выпускает только код — иначе «Назад» была бы дырой
-  // шире замка: приставка и так наш домашний экран. В обычном — прежний вопрос о выходе.
-  if (kidsMode) openPinPad(); else showExitConfirm();
+  // шире замка: приставка и так наш домашний экран. В обычном — выходим сразу, без вопросов.
+  if (kidsMode) openPinPad(); else exitApp();
   return true;
 };
 // Брендовая кнопка пульта (Xiaomi TV+, YouTube, Netflix…) — всегда на первый экран медиатеки,
