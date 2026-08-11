@@ -2064,7 +2064,7 @@ function pollCopyStatus() {
   }, 2000);
 }
 
-async function saveStorage(patch) {async function saveStorage(patch) {
+async function saveStorage(patch) {
   try {
     storageState = await (await fetch("/api/storage", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch)
