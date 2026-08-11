@@ -64,10 +64,18 @@ class AgentService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // Provisioning: `--es cfg <base64 json>` writes the node config on first run.
+        var reconfigured = false
         intent?.getStringExtra("cfg")?.let { b64 ->
             val text = String(Base64.decode(b64, Base64.DEFAULT), Charsets.UTF_8)
-            if (Config.save(this, text)) Log.i("config: saved from intent")
+            val old = Config.load(this)?.json?.toString()
+            if (Config.save(this, text) && old != JSONObject(text).toString()) {
+                Log.i("config: обновлён — перезапускаю агента")
+                reconfigured = true
+            }
         }
+        // Смена конфига (например, медиатека переехала на флешку) должна применяться сразу,
+        // без переустановки приложения: гасим подписки и поднимаем агента заново.
+        if (reconfigured && running) { shutdownParts(); running = false }
         if (!running) { running = true; scope.launch { boot() } }
         return START_STICKY
     }
@@ -81,7 +89,7 @@ class AgentService : Service() {
             return
         }
         config = cfg
-        config.ensureDirs(this)
+        Storage.ensureDirs(this)
         try {
             db = Fire.init(this, config)
         } catch (e: Exception) {
@@ -111,7 +119,8 @@ class AgentService : Service() {
 
         http = HttpServer(this, db, config, scope,
             onPlay = { item, url, pkg, subtitles, fromStart -> launchPlayer(item, url, pkg, subtitles, fromStart) },
-            onOpenUrl = { url -> openUrl(url) }
+            onOpenUrl = { url -> openUrl(url) },
+            onStorageChanged = { rescan() }
         ).also { it.startAll() }
 
         // Страница в WebView стартует раньше сервера и в этот момент получает ответ из
@@ -167,7 +176,7 @@ class AgentService : Service() {
     // fs.watch equivalent + a periodic sweep, exactly like the Node agent's watcher.js:
     // FileObserver misses nested changes on Android, so the poll is the reliable baseline.
     private fun watchFolders() {
-        config.mediaDirs(this).values.forEach { dir ->
+        Storage.scanDirs(this).values.flatten().forEach { dir ->
             dir.mkdirs()
             val obs = object : FileObserver(dir.path, CREATE or DELETE or MOVED_TO or MOVED_FROM or CLOSE_WRITE) {
                 override fun onEvent(event: Int, path: String?) { debouncedRescan() }
@@ -176,7 +185,19 @@ class AgentService : Service() {
             observers.add(obs)
         }
         scope.launch {
-            while (true) { delay(60_000); rescan() }
+            // Тот же цикл сторожит и появление новой флешки: воткнули — папки создаются,
+            // медиатека на ней подхватывается сама, без единого нажатия.
+            var knownVolumes = Storage.volumes(this@AgentService).map { it.id }.toSet()
+            while (true) {
+                delay(60_000)
+                val now = Storage.volumes(this@AgentService).map { it.id }.toSet()
+                if (now != knownVolumes) {
+                    Log.i("storage: носители изменились (${knownVolumes.joinToString()} → ${now.joinToString()})")
+                    knownVolumes = now
+                    Storage.ensureDirs(this@AgentService)
+                }
+                rescan()
+            }
         }
     }
 
@@ -232,6 +253,16 @@ class AgentService : Service() {
 
     private fun notify(text: String) {
         (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).notify(NOTIF_ID, notification(text))
+    }
+
+    // Остановка рабочих частей без убийства сервиса — для перезапуска после смены конфига.
+    private fun shutdownParts() {
+        observers.forEach { it.stopWatching() }
+        observers.clear()
+        commandsSub?.remove(); commandsSub = null
+        relay?.stop(); relay = null
+        torrents?.stop(); torrents = null
+        http?.stopAll(); http = null
     }
 
     override fun onDestroy() {

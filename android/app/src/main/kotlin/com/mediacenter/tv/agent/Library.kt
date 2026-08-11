@@ -60,7 +60,10 @@ object Library {
         val seen = HashSet<String>()
         var changed = 0
 
-        for ((type, dir) in config.mediaDirs(ctx)) {
+        // Медиатека может лежать на нескольких носителях сразу (встроенная память + флешки):
+        // сканируем все выбранные, тип по-прежнему определяется папкой.
+        for ((type, dirs) in Storage.scanDirs(ctx)) {
+          for (dir in dirs) {
             val files = try { scan(dir) } catch (_: Exception) { emptyList() }
 
             val dirCounts = HashMap<String, Int>()
@@ -143,6 +146,7 @@ object Library {
                 changed++
                 Log.i("library: + $type | ${seriesDir?.plus("/") ?: ""}${f.file.name}")
             }
+          }
         }
 
         for (id in existing.keys) {

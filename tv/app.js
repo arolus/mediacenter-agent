@@ -32,6 +32,8 @@ const ICONS = {
   user: (cls) => icon(`<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>`, cls),
   eye: (cls) => icon(`<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>`, cls),
   eyeOff: (cls) => icon(`<path d="m3 3 18 18"/><path d="M6.6 6.7C3.4 8.6 2 12 2 12s3.5 7 10 7c1.9 0 3.6-.5 5-1.3"/><path d="M10.7 5.1c.4 0 .9-.1 1.3-.1 6.5 0 10 7 10 7s-.6 1.3-1.9 2.8"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/>`, cls),
+  gear: (cls) => icon(`<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.14.5.53.9 1.02 1.02H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/>`, cls),
+  drive: (cls) => icon(`<rect width="20" height="8" x="2" y="4" rx="2"/><rect width="20" height="8" x="2" y="12" rx="2"/><path d="M6 8h.01"/><path d="M6 16h.01"/>`, cls),
   star: (cls) => `<svg class="${cls}" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4 6.1 20.5l1.2-6.5L2.5 9.4l6.6-.9z"/></svg>`
 };
 const logo = (cls) =>
@@ -368,6 +370,9 @@ function renderCategories() {
         ${logo("h-[clamp(36px,calc(var(--uivh)*6),48px)] w-[clamp(36px,calc(var(--uivh)*6),48px)]")}
         <span class="text-[clamp(22px,calc(var(--uivh)*4),30px)] font-extrabold tracking-tight">MediaCenter</span>
         ${deviceName ? `<span class="rounded-full border border-zinc-800 bg-zinc-900/80 px-4 py-1.5 text-lg text-zinc-400">${esc(deviceName)}</span>` : ""}
+        <button id="cat-settings" tabindex="0" title="Настройки"
+          class="ml-auto mr-2 grid h-12 w-12 cursor-pointer place-items-center rounded-full border border-zinc-800 bg-zinc-900/80 text-zinc-400 outline-none transition focus:scale-110 focus:border-violet-500/60 focus:text-zinc-100 focus:ring-4 focus:ring-violet-500/25">
+          ${ICONS.gear("h-6 w-6")}</button>
       </div>
       ${playerMissing ? `
         <button id="cat-vlc" tabindex="0" class="mx-12 mt-4 flex cursor-pointer items-center self-start rounded-2xl border border-red-500/30 bg-red-500/10 px-6 py-3.5 text-lg font-semibold text-red-300 outline-none transition focus:scale-[1.02] focus:border-red-400 focus:ring-4 focus:ring-red-500/30">
@@ -393,6 +398,7 @@ function renderCategories() {
   if (vlc) vlc.addEventListener("click", installVLC);
   const appBtn = document.getElementById("cat-app");
   if (appBtn) appBtn.addEventListener("click", installApp);
+  document.getElementById("cat-settings")?.addEventListener("click", openSettings);
   // фокус: если VLC не установлен — сразу на кнопку установки, иначе на текущую категорию
   if (vlc) vlc.focus();
   else { const idx = CATS.findIndex((c) => c.type === state.type); app.querySelectorAll(".cat-tile")[idx >= 0 ? idx : 0].focus(); }
@@ -1257,6 +1263,7 @@ function exitApp() {
 window.mcHandleBack = () => {
   // Оверлеи — первыми, иначе Back уходил в историю ПОД ними: трейлер оставался играть
   // поверх уже сменившегося экрана, и выйти из него было нечем.
+  if (document.getElementById("settings-box")) { closeSettings(); return true; }
   if (closeTrailerInline()) return true;
   if (document.getElementById("pin-pad")) { closePinPad(); return true; }
   if (document.getElementById("mc-picker")) { closePicker(); return true; }
@@ -1286,6 +1293,32 @@ window.addEventListener("popstate", (e) => applyState(e.state || { screen: "cate
 document.addEventListener("keydown", (e) => {
   armOrientation(); // первая клавиша — момент для fullscreen + landscape-lock
   // Трейлер поверх всего: любая «назад» закрывает его и возвращает в медиатеку
+  // Экран настроек: ↑/↓ по носителям, OK — включить/выключить, ←/→ — лимит, Back — выход.
+  const st = document.getElementById("settings-box");
+  if (st) {
+    e.preventDefault();
+    if (["Escape", "Backspace", "GoBack", "BrowserBack"].includes(e.key)) return void closeSettings();
+    const items = [...st.querySelectorAll(".st-vol, #st-limit, #st-close")];
+    const i = items.indexOf(document.activeElement);
+    if (e.key === "ArrowDown") return void items[Math.min(items.length - 1, i + 1)]?.focus();
+    if (e.key === "ArrowUp") return void items[Math.max(0, i - 1)]?.focus();
+    if (document.activeElement?.id === "st-limit" && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+      const cur = storageState?.internalPercent ?? 60;
+      const next = Math.max(5, Math.min(100, cur + (e.key === "ArrowRight" ? 5 : -5)));
+      if (next !== cur) {
+        // рисуем сразу, сохраняем следом — ползунок не должен ждать сеть
+        document.getElementById("st-pct").textContent = next;
+        document.getElementById("st-limit-bar").style.width = next + "%";
+        storageState.internalPercent = next;
+        clearTimeout(saveStorage.t);
+        saveStorage.t = setTimeout(() => saveStorage({ internalPercent: next }), 500);
+      }
+      return;
+    }
+    if (e.key === "Enter" || e.key === " ") return void document.activeElement?.click();
+    return;
+  }
+
   if (document.getElementById("trailer-box")) {
     e.preventDefault();
     if (["Escape", "Backspace", "GoBack", "BrowserBack"].includes(e.key)) return void closeTrailerInline();
@@ -1352,10 +1385,17 @@ document.addEventListener("keydown", (e) => {
       else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); installVLC(); }
       return;
     }
+    if (cur === document.getElementById("cat-settings")) {
+      if (e.key === "ArrowDown") { e.preventDefault(); tiles[0]?.focus(); }
+      else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openSettings(); }
+      return;
+    }
     if (e.key === "ArrowRight") { e.preventDefault(); tiles[Math.min(tiles.length - 1, idx + 1)]?.focus(); }
     else if (e.key === "ArrowLeft") { e.preventDefault(); tiles[Math.max(0, idx - 1)]?.focus(); }
-    // вверх — к предложению установить VLC, если оно есть
-    else if (e.key === "ArrowUp" && vlc) { e.preventDefault(); vlc.focus(); }
+    // вверх — к предложению установить VLC, если оно есть, иначе к шестерёнке настроек
+    else if (e.key === "ArrowUp" && (vlc || document.getElementById("cat-settings"))) {
+      e.preventDefault(); (vlc || document.getElementById("cat-settings")).focus();
+    }
     else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); cur?.dataset?.type && enterGrid(cur.dataset.type); }
     return;
   }
@@ -1660,6 +1700,117 @@ async function pinKey(k) {
   }
   pinEntered = "";
   paintPin();
+}
+
+// ---------- Настройки: хранилища ----------
+// Показываем, где лежит медиатека, сколько занято, и даём выбрать носители. Флешку агент
+// находит сам; здесь только выбор «куда писать» и лимит для встроенной памяти (её на
+// телевизорах пара гигабайт, и занимать её целиком нельзя — системе тоже нужно место).
+const fmtBytes = (n) => {
+  const v = Number(n) || 0;
+  if (v >= 1e12) return (v / 1e12).toFixed(1).replace(".", ",") + " ТБ";
+  if (v >= 1e9) return (v / 1e9).toFixed(1).replace(".", ",") + " ГБ";
+  if (v >= 1e6) return Math.round(v / 1e6) + " МБ";
+  return Math.round(v / 1e3) + " КБ";
+};
+
+let storageState = null;
+
+async function openSettings() {
+  if (document.getElementById("settings-box")) return;
+  const box = document.createElement("div");
+  box.id = "settings-box";
+  box.className = "fixed top-0 right-0 bottom-0 left-0 z-50 overflow-y-auto bg-zinc-950/95 px-12 py-8 backdrop-blur";
+  box.innerHTML = `<div class="text-2xl font-bold">Настройки</div>
+    <div class="mt-6 text-zinc-400">Загружаю хранилища…</div>`;
+  document.body.appendChild(box);
+  try {
+    storageState = await (await fetch("/api/storage", { cache: "no-store" })).json();
+  } catch (_) {
+    storageState = { volumes: [], internalPercent: 60 };
+  }
+  paintSettings();
+}
+
+function paintSettings() {
+  const box = document.getElementById("settings-box");
+  if (!box || !storageState) return;
+  const vols = storageState.volumes || [];
+  box.innerHTML = `
+    <div class="flex items-center space-x-4">
+      <div class="text-[clamp(20px,calc(var(--uivh)*3.4),28px)] font-bold">Настройки · хранилище</div>
+      <div class="text-zinc-500">${esc(deviceName || "")}</div>
+    </div>
+    <div class="mt-2 text-zinc-400">Где хранить медиатеку. Отмеченные носители используются
+      для скачивания и переносов; фильмы с них показываются вместе.</div>
+    <div class="mt-6 space-y-4">
+      ${vols.length ? vols.map((v) => {
+        const usedPct = v.totalBytes ? Math.min(100, Math.round((v.totalBytes - v.freeBytes) / v.totalBytes * 100)) : 0;
+        const ourPct = v.totalBytes ? Math.min(100, Math.round(v.usedByUsBytes / v.totalBytes * 100)) : 0;
+        return `
+        <div class="st-vol flex cursor-pointer items-center space-x-5 rounded-2xl border ${v.selected ? "border-violet-500/60 bg-violet-500/10" : "border-zinc-800 bg-zinc-900/70"} px-6 py-4 outline-none transition focus:scale-[1.01] focus:border-violet-400 focus:ring-4 focus:ring-violet-500/25"
+             tabindex="0" data-id="${esc(v.id)}">
+          <div class="grid h-12 w-12 flex-none place-items-center rounded-xl ${v.selected ? "bg-violet-600 text-white" : "bg-zinc-800 text-zinc-400"}">
+            ${ICONS.drive("h-6 w-6")}
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="flex items-baseline space-x-3">
+              <span class="text-xl font-semibold">${esc(v.label)}</span>
+              ${v.removable ? '<span class="rounded-full bg-zinc-800 px-2.5 py-0.5 text-xs text-zinc-400">съёмный</span>' : ""}
+              ${v.selected ? '<span class="text-sm text-violet-300">используется</span>' : ""}
+            </div>
+            <div class="mt-2 h-2 w-full overflow-hidden rounded-full bg-zinc-800">
+              <div class="h-full bg-zinc-600" style="width:${usedPct}%"></div>
+            </div>
+            <div class="mt-2 text-sm text-zinc-400">
+              свободно ${fmtBytes(v.freeBytes)} из ${fmtBytes(v.totalBytes)}
+              · наша медиатека ${fmtBytes(v.usedByUsBytes)} (${ourPct}%)
+              · можно занять ещё ${fmtBytes(v.writableBytes)}
+            </div>
+          </div>
+        </div>`;
+      }).join("") : '<div class="text-zinc-500">Носителей не найдено</div>'}
+    </div>
+    ${vols.some((v) => !v.removable) ? `
+      <div class="mt-8">
+        <div class="text-lg font-semibold">Лимит встроенной памяти: <span id="st-pct">${storageState.internalPercent}</span>%</div>
+        <div class="mt-1 text-sm text-zinc-400">Сколько места на встроенной памяти можно занять медиатекой. ← / → меняют на 5%.</div>
+        <div id="st-limit" tabindex="0" class="mt-3 h-3 w-full max-w-xl overflow-hidden rounded-full bg-zinc-800 outline-none ring-violet-500/40 focus:ring-4">
+          <div id="st-limit-bar" class="h-full bg-violet-500" style="width:${storageState.internalPercent}%"></div>
+        </div>
+      </div>` : ""}
+    <div class="mt-10 flex space-x-4">
+      <button id="st-close" tabindex="0" class="flex cursor-pointer items-center rounded-2xl border border-white/15 bg-white/5 px-5 py-3 text-lg font-semibold text-zinc-200 outline-none transition focus:scale-[1.03] focus:border-violet-400 focus:ring-4 focus:ring-violet-500/40">${ICONS.back("mr-2 h-5 w-5")} Назад</button>
+    </div>`;
+
+  box.querySelectorAll(".st-vol").forEach((el) => el.addEventListener("click", () => toggleVolume(el.dataset.id)));
+  document.getElementById("st-close")?.addEventListener("click", closeSettings);
+  (box.querySelector(".st-vol") || document.getElementById("st-close"))?.focus();
+}
+
+async function saveStorage(patch) {
+  try {
+    storageState = await (await fetch("/api/storage", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch)
+    })).json();
+    paintSettings();
+    reloadLibrary().then((changed) => { if (changed) rerenderKeepingFocus(); });
+  } catch (_) {}
+}
+
+function toggleVolume(id) {
+  if (!storageState) return;
+  const vols = storageState.volumes || [];
+  const selected = vols.filter((v) => v.selected).map((v) => v.id);
+  const next = selected.includes(id) ? selected.filter((x) => x !== id) : selected.concat(id);
+  if (!next.length) return;   // хотя бы один носитель должен остаться
+  saveStorage({ selected: next });
+}
+
+function closeSettings() {
+  document.getElementById("settings-box")?.remove();
+  renderCategories();
+  return true;
 }
 
 function showOverlay(t, withPlay) {

@@ -28,7 +28,7 @@ object Commands {
                             "rescan" -> { Library.sync(ctx, db, config); onLibraryChanged() }
                             "delete" -> {
                                 val fp = cmd["filePath"] as? String ?: ""
-                                val allowed = config.mediaDirs(ctx).values.any {
+                                val allowed = Storage.scanDirs(ctx).values.flatten().any {
                                     fp == it.path || fp.startsWith(it.path + File.separator)
                                 }
                                 if (!allowed) throw Exception("путь вне медиапапок: $fp")
@@ -68,7 +68,9 @@ object Normalize {
         s.replace(Regex("[\\\\/:*?\"<>|]+"), " ").replace(Regex("\\s+"), " ").trim()
 
     suspend fun run(ctx: Context, db: FirebaseFirestore, config: Config): Int {
-        val dirs = config.mediaDirs(ctx)
+        // «Упорядочить» раскладывает по носителю, где файл уже лежит: перекладывать
+        // фильмы между флешками без спроса — не наше дело.
+        val dirs = Storage.scanDirs(ctx).mapValues { it.value.first() }
         val inMedia = { p: String -> dirs.values.any { p == it.path || p.startsWith(it.path + File.separator) } }
         val snap = db.collection("devices").document(config.deviceId).collection("library").get().await()
         val all = snap.documents.mapNotNull { it.data }

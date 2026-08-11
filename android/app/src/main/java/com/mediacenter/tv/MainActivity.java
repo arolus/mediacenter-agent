@@ -243,6 +243,9 @@ public class MainActivity extends Activity {
         super.onNewIntent(i);
         handlePlayIntent(i);
         handleAgentIntent(i);
+        // Перепровижен ноды на лету: `am start … --es cfg <base64>` на уже открытое приложение
+        String cfg2 = i != null ? i.getStringExtra("cfg") : null;
+        if (cfg2 != null) com.mediacenter.tv.agent.AgentService.start(this, cfg2);
         String next = resolveUrl(i);
         if (!next.equals(url)) { url = next; web.loadUrl(url); }
         // тот же URL — страницу не трогаем: SSE сам дотянет изменения, а reload сбил бы фокус

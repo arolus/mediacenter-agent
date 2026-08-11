@@ -34,7 +34,8 @@ class HttpServer(
     private val config: Config,
     private val scope: CoroutineScope,
     private val onPlay: (item: JSONObject, url: String, pkg: String, subtitles: String?, fromStart: Boolean) -> Unit,
-    private val onOpenUrl: (url: String) -> Unit
+    private val onOpenUrl: (url: String) -> Unit,
+    private val onStorageChanged: () -> Unit
 ) : NanoHTTPD(config.localPort) {
 
     // ---- state mirrored from Firestore -------------------------------------------------------
@@ -133,7 +134,7 @@ class HttpServer(
 
     private fun inMediaDirs(path: String?): Boolean {
         if (path.isNullOrEmpty()) return false
-        return config.mediaDirs(ctx).values.any { path == it.path || path.startsWith(it.path + File.separator) }
+        return Storage.scanDirs(ctx).values.flatten().any { path == it.path || path.startsWith(it.path + File.separator) }
     }
 
     private fun json(o: Any, status: Response.Status = Response.Status.OK): Response =
@@ -166,6 +167,8 @@ class HttpServer(
                 uri == "/api/trailer" -> trailer(q["id"])
                 uri == "/api/person" -> person(q["name"], q["refresh"] != null)
                 uri == "/api/home-screen" -> json(homeScreenView())
+                // Хранилища: что нашли, что выбрано, сколько занято. POST — сохранить выбор.
+                uri == "/api/storage" -> storage(session, q)
                 uri == "/api/downloads" -> json(downloadsView)
                 uri == "/api/search-torrents" -> searchTorrents(q)
                 uri == "/api/download" -> startDownload(q)
@@ -414,6 +417,25 @@ class HttpServer(
             "torrentFile" to null, "progress" to 0, "speed" to 0, "error" to null,
             "createdAt" to FieldValue.serverTimestamp(), "updatedAt" to FieldValue.serverTimestamp()))
         return json(JSONObject().put("ok", true))
+    }
+
+    // Экран настроек: список носителей и сохранение выбора (какие использовать, лимит для
+    // встроенной памяти). После смены — пересканировать: медиатека могла переехать.
+    private fun storage(session: IHTTPSession, q: Map<String, String>): Response {
+        if (session.method == Method.POST) {
+            val body = readBody(session)
+            return try {
+                val o = JSONObject(body)
+                val cur = Storage.settings(ctx)
+                o.optJSONArray("selected")?.let { cur.put("selected", it) }
+                if (o.has("internalPercent")) cur.put("internalPercent", o.optInt("internalPercent"))
+                Storage.saveSettings(ctx, cur)
+                Storage.ensureDirs(ctx)
+                onStorageChanged()
+                json(Storage.view(ctx))
+            } catch (e: Exception) { err(e.message ?: "bad json", Response.Status.BAD_REQUEST) }
+        }
+        return json(Storage.view(ctx))
     }
 
     // ---- media ------------------------------------------------------------------------------
