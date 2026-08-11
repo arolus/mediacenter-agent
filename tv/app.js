@@ -186,6 +186,22 @@ async function load() {
     else { connectEvents(); if (await reloadLibrary()) rerenderKeepingFocus(); } // догнать пропущенное
   });
   if (!document.hidden) connectEvents();
+  waitForLibrary();
+}
+
+// Страница вполне может открыться РАНЬШЕ, чем агент поднялся и досканировал медиатеку
+// (при старте устройства или после обновления приложения): тогда первый запрос вернул пусто,
+// а SSE ещё не подключился — и на экране навсегда оставались бы «0 шт.». Поэтому, пока
+// медиатека пуста, тихо переспрашиваем агента; как только данные появились — рисуем и
+// прекращаем. Опрос сам сходит на нет: 60 попыток по 3 секунды, дальше остаётся живой SSE.
+function waitForLibrary() {
+  if (items.length) return;
+  let tries = 0;
+  const timer = setInterval(async () => {
+    if (items.length || ++tries > 60) return clearInterval(timer);
+    if (document.hidden) return;
+    if (await reloadLibrary()) { clearInterval(timer); rerenderKeepingFocus(); }
+  }, 3000);
 }
 
 // Агент обновился — перезагружаем страницу. Иначе телевизор неделями крутит код, загруженный
