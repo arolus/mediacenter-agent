@@ -296,6 +296,32 @@ class Torrents(
         if (hashHex != null && jobs.containsKey(hashHex)) return
         val target = Storage.targetDir(ctx, t["type"] as? String ?: "movie")
         val size = (t["sizeBytes"] as? Number)?.toLong() ?: 0L
+        // Файл уже лежит на месте целиком (перенос повторили, или он приехал раньше другим
+        // путём) — закрываем задачу сразу, не трогая торрент. Мало того что это быстрее:
+        // на телефоне libtorrent ПАДАЕТ, когда проверяет готовый файл, и агент уходил в
+        // бесконечный перезапуск (поймано на Galaxy S10+, Android 11).
+        val name = (t["filePath"] as? String)?.substringAfterLast('/') ?: ""
+        if (size > 0 && name.isNotEmpty()) {
+            val exists = File(target, name)
+            if (exists.isFile && exists.length() == size) {
+                Log.i("transfer: ${t["title"]} уже на месте — задача закрыта без торрента")
+                scope.launch {
+                    try {
+                        Library.addFile(ctx, db, config, exists.path, mapOf(
+                            "type" to (t["type"] ?: "movie"),
+                            "title" to t["title"], "year" to t["year"],
+                            "tmdbId" to t["tmdbId"], "catalogId" to t["catalogId"],
+                            "poster" to t["poster"], "backdrop" to t["backdrop"],
+                            "overview" to t["overview"], "cast" to t["cast"], "rating" to t["rating"]
+                        ))
+                        db.collection("transfers").document(id).update(
+                            mapOf("progress" to 1, "speed" to 0, "status" to "done",
+                                "updatedAt" to FieldValue.serverTimestamp())).await()
+                    } catch (e: Exception) { Log.e("transfer skip: ${e.message}") }
+                }
+                return
+            }
+        }
         val stage = Storage.stagingFor(ctx, target, size)
         val dir = stage ?: target
         if (hashHex != null) jobs[hashHex] = Job("transfer", id, t, dir, if (stage != null) target else null)
