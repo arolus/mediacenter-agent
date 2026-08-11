@@ -191,6 +191,7 @@ class AgentService : Service() {
             while (true) {
                 delay(60_000)
                 val now = Storage.volumes(this@AgentService).map { it.id }.toSet()
+                if (torrents?.busy() == true) continue      // не мешаем активной передаче
                 if (now != knownVolumes) {
                     Log.i("storage: носители изменились (${knownVolumes.joinToString()} → ${now.joinToString()})")
                     knownVolumes = now
@@ -204,7 +205,13 @@ class AgentService : Service() {
     private var debounceJob: Job? = null
     private fun debouncedRescan() {
         debounceJob?.cancel()
-        debounceJob = scope.launch { delay(2000); rescan() }
+        debounceJob = scope.launch {
+            delay(2000)
+            // Во время закачки файл меняется постоянно: сканировать нечего, а Firestore-запросы
+            // и обход дерева отнимают у передачи и процессор, и сеть. Подождём завершения.
+            while (torrents?.busy() == true) delay(5000)
+            rescan()
+        }
     }
 
     // Player and links are launched through MainActivity: a service may not start activities

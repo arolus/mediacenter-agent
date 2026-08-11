@@ -50,6 +50,21 @@ class Torrents(
         // Privacy: no DHT (transfers must never be announced outside the LAN); local discovery on.
         sp.setEnableDht(false)
         sp.setEnableLsd(true)
+        // Скорость: качаем от ОДНОГО пира в своей же сети, поэтому важны не лимиты, а окно
+        // запросов; плюс снимаем шифрование протокола — на 32-битном ARM телевизора оно
+        // съедает больше, чем даёт (трафик и так не покидает домашнюю сеть).
+        val swig = sp.swig()
+        val enc = org.libtorrent4j.swig.settings_pack.enc_policy.pe_disabled.swigValue()
+        swig.set_int(org.libtorrent4j.swig.settings_pack.int_types.out_enc_policy.swigValue(), enc)
+        swig.set_int(org.libtorrent4j.swig.settings_pack.int_types.in_enc_policy.swigValue(), enc)
+        swig.set_int(org.libtorrent4j.swig.settings_pack.int_types.connections_limit.swigValue(), 200)
+        swig.set_int(org.libtorrent4j.swig.settings_pack.int_types.max_out_request_queue.swigValue(), 1500)
+        swig.set_int(org.libtorrent4j.swig.settings_pack.int_types.whole_pieces_threshold.swigValue(), 20)
+        swig.set_int(org.libtorrent4j.swig.settings_pack.int_types.request_queue_time.swigValue(), 10)
+        swig.set_int(org.libtorrent4j.swig.settings_pack.int_types.send_buffer_watermark.swigValue(), 6 * 1024 * 1024)
+        swig.set_int(org.libtorrent4j.swig.settings_pack.int_types.send_buffer_low_watermark.swigValue(), 1024 * 1024)
+        swig.set_int(org.libtorrent4j.swig.settings_pack.int_types.max_queued_disk_bytes.swigValue(), 16 * 1024 * 1024)
+
         session.addListener(object : AlertListener {
             override fun types(): IntArray = intArrayOf(
                 AlertType.TORRENT_FINISHED.swig(), AlertType.BLOCK_FINISHED.swig()
@@ -63,6 +78,10 @@ class Torrents(
         watchDownloads()
         Log.i("torrents: session on port ${config.torrentPort}")
     }
+
+    // Идёт ли сейчас приём/раздача: пока да, полный скан медиатеки только мешает
+    // (каждый записанный кусок будит FileObserver, а скан ходит в Firestore).
+    fun busy(): Boolean = jobs.isNotEmpty()
 
     fun stop() {
         subs.forEach { it.remove() }
@@ -181,8 +200,10 @@ class Torrents(
                 if (ch.type == DocumentChange.Type.REMOVED) { stopByDoc(id); return@forEach }
                 val status = t["status"] as? String
                 if (t["source"] == config.deviceId && status == "requested") startSeed(id, t)
-                if (t["target"] == config.deviceId && status == "seeding" && t["magnet"] != null)
-                    startTransferDownload(id, t)
+                // "downloading" — тоже наш случай: агент мог перезапуститься (обновление,
+                // перезагрузка), а перенос продолжается — иначе он навсегда завис бы на месте.
+                if (t["target"] == config.deviceId && (status == "seeding" || status == "downloading") &&
+                    t["magnet"] != null) startTransferDownload(id, t)
             }
         })
     }
