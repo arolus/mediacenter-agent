@@ -42,7 +42,8 @@ class HttpServer(
     @Volatile var library: JSONArray = JSONArray()
     @Volatile private var deviceName: String = config.deviceName
     @Volatile private var kioskPin: String = ""
-    @Volatile private var kioskMode: String = "normal"
+    @Volatile private var kioskMode: String = "normal"      // общий режим (config/tv)
+    @Volatile private var deviceMode: String? = null        // режим этого устройства, если задан
     @Volatile private var downloadsView: JSONArray = JSONArray()
     @Volatile var lastFirebaseOk: Long = 0
     @Volatile var firebaseOk: Boolean = false
@@ -77,8 +78,13 @@ class HttpServer(
             notifyClients()
         })
         subs.add(devRef.addSnapshotListener { snap, _ ->
-            val n = snap?.getString("name") ?: return@addSnapshotListener
-            if (n != deviceName) { deviceName = n; notifyClients() }
+            if (snap == null) return@addSnapshotListener
+            snap.getString("name")?.let { if (it != deviceName) { deviceName = it; notifyClients() } }
+            // Режим у каждого устройства свой: приставка у ребёнка может быть детской, а
+            // телевизор в гостиной — обычным. Пусто — берём общий из config/tv (совместимость).
+            val own = snap.getString("mode")
+            deviceMode = if (own == "kids" || own == "normal") own else null
+            notifyClients()
         })
         subs.add(db.collection("config").document("tv").addSnapshotListener { snap, _ ->
             if (snap == null || !snap.exists()) return@addSnapshotListener
@@ -157,7 +163,9 @@ class HttpServer(
                     .put("lastOkAgo", (System.currentTimeMillis() - lastFirebaseOk) / 1000)
                     .put("error", null as Any?))
                 uri == "/api/events" -> sse()
-                uri == "/api/kiosk" -> json(JSONObject().put("pinSet", kioskPin.isNotEmpty()).put("mode", kioskMode))
+                uri == "/api/kiosk" -> json(JSONObject()
+                    .put("pinSet", kioskPin.isNotEmpty())
+                    .put("mode", deviceMode ?: kioskMode))
                 uri == "/api/kiosk-pin" -> if (isLocal(session)) json(JSONObject().put("pin", kioskPin))
                     else err("только с localhost", Response.Status.FORBIDDEN)
                 uri == "/api/kiosk-exit" -> kioskExit(session)
