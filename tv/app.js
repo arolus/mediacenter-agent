@@ -1757,7 +1757,6 @@ function paintSettings() {
             <div class="flex items-baseline space-x-3">
               <span class="text-xl font-semibold">${esc(v.label)}</span>
               ${v.removable ? '<span class="rounded-full bg-zinc-800 px-2.5 py-0.5 text-xs text-zinc-400">съёмный</span>' : ""}
-              ${v.selected ? '<span class="text-sm text-violet-300">используется</span>' : ""}
             </div>
             <div class="mt-2 h-2 w-full overflow-hidden rounded-full bg-zinc-800">
               <div class="h-full bg-zinc-600" style="width:${usedPct}%"></div>
@@ -1767,6 +1766,9 @@ function paintSettings() {
               · наша медиатека ${fmtBytes(v.usedByUsBytes)} (${ourPct}%)
               · можно занять ещё ${fmtBytes(v.writableBytes)}
             </div>
+          </div>
+          <div class="ml-4 grid h-9 w-9 flex-none place-items-center rounded-full ${v.selected ? "bg-violet-600 text-white" : "border border-zinc-700 text-transparent"}">
+            ${ICONS.check("h-5 w-5")}
           </div>
         </div>`;
       }).join("") : '<div class="text-zinc-500">Носителей не найдено</div>'}
