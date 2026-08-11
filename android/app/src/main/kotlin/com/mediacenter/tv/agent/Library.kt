@@ -54,6 +54,13 @@ object Library {
         fields.mapNotNull { k -> src[k]?.let { k to it } }.toMap()
 
     suspend fun sync(ctx: Context, db: FirebaseFirestore, config: Config): Int {
+        // Медиатека ноды в общей памяти, а доступ «Все файлы» ещё не выдан: папки прочитаются
+        // как пустые, и синхронизация СТЁРЛА БЫ всю библиотеку из Firestore (сотни записей
+        // вместе с распознаванием). Молча ждём разрешения — приложение его запрашивает.
+        if (Storage.needsAllFilesAccess(ctx)) {
+            Log.e("library: нет доступа «Все файлы» — скан пропущен, чтобы не стереть медиатеку")
+            return 0
+        }
         val libCol = db.collection("devices").document(config.deviceId).collection("library")
         val existing = HashMap<String, Map<String, Any?>>()
         libCol.get().await().documents.forEach { existing[it.id] = it.data ?: emptyMap() }

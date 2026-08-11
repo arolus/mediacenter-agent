@@ -142,6 +142,21 @@ public class MainActivity extends Activity {
         String cfg = getIntent() != null ? getIntent().getStringExtra("cfg") : null;
         com.mediacenter.tv.agent.AgentService.start(this, cfg);
 
+        // Телефон-нода: медиатека лежит в общей памяти, а на Android 11+ читать чужие файлы
+        // можно только с доступом «Все файлы». Просим до тех пор, пока не выдан: без него
+        // агент честно не увидит ни одного фильма. Телевизора и приставки это не касается —
+        // у них mediaRoot не указывает на общую память, и запроса не будет.
+        if (Build.VERSION.SDK_INT >= 30 && com.mediacenter.tv.agent.Storage.INSTANCE.needsAllFilesAccess(this)) {
+            try {
+                Intent it = new Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                    android.net.Uri.parse("package:" + getPackageName()));
+                startActivity(it);
+            } catch (Exception e) {
+                try { startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)); }
+                catch (Exception ignored) {}
+            }
+        }
+
         url = resolveUrl(getIntent());
 
         web = new WebView(this);

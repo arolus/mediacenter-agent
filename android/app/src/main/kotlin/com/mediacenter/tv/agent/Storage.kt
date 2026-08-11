@@ -40,6 +40,25 @@ object Storage {
         try { file(ctx).writeText(o.toString()) } catch (e: Exception) { Log.e("storage: ${e.message}") }
     }
 
+    // Общая память устройства (телефон-нода): медиатека там уже лежит в
+    // /storage/emulated/0/{Movies,Series,Cartoons} и переносить её некуда — это сотни гигабайт.
+    // Путь берётся из конфига (`mediaRoot`), а доступ к чужим файлам на Android 11+ даёт только
+    // разрешение «Все файлы» — без него том не показываем вовсе, иначе сканирование молча
+    // возвращало бы пустоту.
+    fun hasAllFilesAccess(): Boolean =
+        android.os.Build.VERSION.SDK_INT < 30 || Environment.isExternalStorageManager()
+
+    fun sharedRoot(ctx: Context): File? {
+        val cfg = Config.load(ctx) ?: return null
+        val p = cfg.json.optString("mediaRoot", "")
+        if (p.isEmpty() || p == "usb" || p.contains("REPLACE_ME")) return null
+        val f = File(p)
+        return if (f.isDirectory) f else null
+    }
+
+    // Нужен ли ноде доступ «Все файлы»: конфиг указывает на общую память, а разрешения нет.
+    fun needsAllFilesAccess(ctx: Context): Boolean = sharedRoot(ctx) != null && !hasAllFilesAccess()
+
     // Все доступные носители: съёмные из getExternalFilesDirs плюс встроенная память.
     //
     // Внутреннее хранилище — ВСЕГДА собственный каталог приложения (filesDir), а не запись из
@@ -65,6 +84,11 @@ object Storage {
                 freeBytes = stat?.availableBytes ?: 0
             ))
         }
+        sharedRoot(ctx)?.takeIf { hasAllFilesAccess() }?.let { root ->
+            val st = try { StatFs(root.path) } catch (_: Exception) { null }
+            out.add(Volume("shared", "Общая память", false, root,
+                st?.totalBytes ?: 0, st?.availableBytes ?: 0))
+        }
         val f = File(ctx.filesDir, "media")
         val stat = try { StatFs(ctx.filesDir.path) } catch (_: Exception) { null }
         out.add(Volume("internal", "Встроенная память", false, f,
@@ -81,6 +105,7 @@ object Storage {
         val all = volumes(ctx)
         val sel = settings(ctx).optJSONArray("selected") ?: JSONArray()
         if (sel.length() == 0) {
+            all.firstOrNull { it.id == "shared" }?.let { return listOf(it) }
             val removable = all.filter { it.removable }
             return if (removable.isNotEmpty()) removable else all
         }
@@ -94,7 +119,7 @@ object Storage {
 
     // Сколько ещё можно занять на носителе: для встроенной памяти — с учётом лимита в процентах.
     fun writableBytes(ctx: Context, v: Volume): Long {
-        if (v.removable) return v.freeBytes
+        if (v.removable || v.id == "shared") return v.freeBytes
         val cap = v.totalBytes * internalPercent(ctx) / 100
         val used = dirSize(v.dir)
         return maxOf(0, minOf(v.freeBytes, cap - used))
