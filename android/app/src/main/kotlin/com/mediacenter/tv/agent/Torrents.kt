@@ -42,7 +42,9 @@ class Torrents(
         val kind: String,           // "seed" | "transfer" | "download"
         val docId: String,
         val meta: Map<String, Any?>,
-        val saveDir: File
+        val saveDir: File,
+        // Куда переложить по окончании, если качали в буфер (см. Storage.stagingFor).
+        val finalDir: File? = null
     )
 
     fun start() {
@@ -151,13 +153,35 @@ class Torrents(
             if (ti.files().fileSize(i) > ti.files().fileSize(best)) best = i
         }
         val rel = ti.files().filePath(best)
-        val dest = File(job.saveDir, rel)
+        val staged = File(job.saveDir, rel)
         val magnet = ti.makeMagnetUri()
         val infoHash = hash
+        val col = if (job.kind == "download") "downloads" else "transfers"
         jobs.remove(hash)
         // stop seeding IMMEDIATELY (public tracker already announced us)
         try { session.remove(h) } catch (_: Exception) {}
         scope.launch {
+            // Качали в буфер — перекладываем на носитель. Пока идёт копирование, задача
+            // остаётся видимой со своим прогрессом: на медленной флешке это минуты.
+            val dest = try {
+                job.finalDir?.let { target ->
+                    db.collection(col).document(job.docId).update(
+                        mapOf("status" to "moving", "progress" to 0.0, "speed" to 0,
+                            "updatedAt" to FieldValue.serverTimestamp()))
+                    Log.i("staging → ${target.path}: ${staged.name}")
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        Storage.moveToTarget(staged, target) { p ->
+                            db.collection(col).document(job.docId).update(
+                                mapOf("progress" to p, "updatedAt" to FieldValue.serverTimestamp()))
+                        }
+                    }
+                } ?: staged
+            } catch (e: Exception) {
+                Log.e("staging move: ${e.message}")
+                db.collection(col).document(job.docId).update(
+                    mapOf("status" to "error", "error" to (e.message ?: "не удалось переложить файл")))
+                return@launch
+            }
             try {
                 if (job.kind == "download") {
                     val t = job.meta
@@ -256,9 +280,14 @@ class Torrents(
         val magnet = t["magnet"] as? String ?: return
         val hashHex = Regex("btih:([0-9a-fA-F]{40})").find(magnet)?.groupValues?.get(1)?.lowercase()
         if (hashHex != null && jobs.containsKey(hashHex)) return
-        val dir = Storage.targetDir(ctx, t["type"] as? String ?: "movie")
-        if (hashHex != null) jobs[hashHex] = Job("transfer", id, t, dir)
-        session.download(magnet, dir, org.libtorrent4j.swig.torrent_flags_t())
+        val target = Storage.targetDir(ctx, t["type"] as? String ?: "movie")
+        val size = (t["sizeBytes"] as? Number)?.toLong() ?: 0L
+        val stage = Storage.stagingFor(ctx, target, size)
+        val dir = stage ?: target
+        if (hashHex != null) jobs[hashHex] = Job("transfer", id, t, dir, if (stage != null) target else null)
+        // Куски строго по порядку — запись на носитель становится последовательной. На USB
+        // телевизора это принципиально: вразнобой он пишет ~0,7 МБ/с, подряд — ~2,4 МБ/с.
+        session.download(magnet, dir, org.libtorrent4j.TorrentFlags.SEQUENTIAL_DOWNLOAD)
         // direct LAN peer — LSD may be slow, the address is authoritative
         (t["seederAddr"] as? String)?.let { addr ->
             scope.launch {
@@ -302,12 +331,17 @@ class Torrents(
             val ti = TorrentInfo(buf)
             val hash = ti.infoHash().toHex()
             if (jobs.containsKey(hash)) return
-            val dir = Storage.targetDir(ctx, t["type"] as? String ?: "movie")
+            val target = Storage.targetDir(ctx, t["type"] as? String ?: "movie")
+            val stage = Storage.stagingFor(ctx, target, ti.totalSize())
+            val dir = stage ?: target
             dir.mkdirs()
-            jobs[hash] = Job("download", id, t, dir)
+            jobs[hash] = Job("download", id, t, dir, if (stage != null) target else null)
             session.download(ti, dir)
-            // never become a meaningful seeder on a public tracker
-            session.find(ti.infoHash())?.setUploadLimit(64 * 1024)
+            session.find(ti.infoHash())?.let { h ->
+                // never become a meaningful seeder on a public tracker
+                h.setUploadLimit(64 * 1024)
+                h.setFlags(org.libtorrent4j.TorrentFlags.SEQUENTIAL_DOWNLOAD)
+            }
             db.collection("downloads").document(id).update("status", "downloading")
             Log.i("download: ${t["title"]} → $dir")
         } catch (e: Exception) {

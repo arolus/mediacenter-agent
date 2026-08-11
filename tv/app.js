@@ -510,7 +510,7 @@ function cardHtml(i) {
       ${badge ? `<div class="absolute top-1.5 right-1.5 rounded-md bg-black/75 px-1.5 py-0.5 text-[11px] font-semibold text-zinc-100">${badge}</div>` : ""}
       ${isWatched(i) ? `<div class="absolute bottom-1.5 right-1.5 grid h-6 w-6 place-items-center rounded-md bg-black/70 text-emerald-400">${ICONS.check("h-4 w-4")}</div>` : ""}
       ${dl ? `<div class="absolute right-0 bottom-0 left-0 bg-black/80 px-2 py-1.5">
-        <div class="mb-1 text-[10px] font-semibold text-violet-200">${dl.status === "downloading" ? "Скачивается " + Math.round((dl.progress || 0) * 100) + "%" : dl.error ? "Ошибка" : "Ожидает…"}</div>
+        <div class="mb-1 text-[10px] font-semibold text-violet-200">${dl.status === "downloading" ? "Скачивается " + Math.round((dl.progress || 0) * 100) + "%" : dl.status === "moving" ? "Переносим " + Math.round((dl.progress || 0) * 100) + "%" : dl.error ? "Ошибка" : "Ожидает…"}</div>
         <div class="h-1 overflow-hidden rounded bg-white/15"><div class="h-full bg-violet-500 transition-all" style="width:${Math.round((dl.progress || 0) * 100)}%"></div></div>
       </div>` : ""}
     </div>`;
@@ -1765,6 +1765,7 @@ function paintSettings() {
               свободно ${fmtBytes(v.freeBytes)} из ${fmtBytes(v.totalBytes)}
               · наша медиатека ${fmtBytes(v.usedByUsBytes)} (${ourPct}%)
               · можно занять ещё ${fmtBytes(v.writableBytes)}
+              ${v.writeMbS ? `· запись ${v.writeMbS.toFixed(1)} МБ/с` : ""}
             </div>
           </div>
           <div class="ml-4 grid h-9 w-9 flex-none place-items-center rounded-full ${v.selected ? "bg-violet-600 text-white" : "border border-zinc-700 text-transparent"}">
@@ -1781,11 +1782,24 @@ function paintSettings() {
           <div id="st-limit-bar" class="h-full bg-violet-500" style="width:${storageState.internalPercent}%"></div>
         </div>
       </div>` : ""}
+    <div class="mt-8">
+      <div class="text-lg font-semibold">Как скачивать на съёмный носитель</div>
+      <div class="mt-1 text-sm text-zinc-400">Торрент пишет куски вразнобой, и медленная флешка от этого
+        проседает втрое. Через буфер файл сначала целиком приезжает во встроенную память, а потом
+        одним потоком перекладывается на носитель.</div>
+      <div class="mt-3 flex space-x-3">
+        ${[["auto", "Автоматически"], ["on", "Всегда через буфер"], ["off", "Всегда напрямую"]].map(([id, label]) => `
+          <div class="st-mode cursor-pointer rounded-2xl border px-5 py-3 text-base font-semibold outline-none transition focus:scale-[1.03] focus:border-violet-400 focus:ring-4 focus:ring-violet-500/25
+               ${(storageState.bufferMode || "auto") === id ? "border-violet-500/60 bg-violet-500/10 text-white" : "border-zinc-800 bg-zinc-900/70 text-zinc-300"}"
+               tabindex="0" data-mode="${id}">${label}</div>`).join("")}
+      </div>
+    </div>
     <div class="mt-10 flex space-x-4">
       <button id="st-close" tabindex="0" class="flex cursor-pointer items-center rounded-2xl border border-white/15 bg-white/5 px-5 py-3 text-lg font-semibold text-zinc-200 outline-none transition focus:scale-[1.03] focus:border-violet-400 focus:ring-4 focus:ring-violet-500/40">${ICONS.back("mr-2 h-5 w-5")} Назад</button>
     </div>`;
 
   box.querySelectorAll(".st-vol").forEach((el) => el.addEventListener("click", () => toggleVolume(el.dataset.id)));
+  box.querySelectorAll(".st-mode").forEach((el) => el.addEventListener("click", () => saveStorage({ bufferMode: el.dataset.mode })));
   document.getElementById("st-close")?.addEventListener("click", closeSettings);
   (box.querySelector(".st-vol") || document.getElementById("st-close"))?.focus();
 }

@@ -437,6 +437,7 @@ class HttpServer(
                 val cur = Storage.settings(ctx)
                 o.optJSONArray("selected")?.let { cur.put("selected", it) }
                 if (o.has("internalPercent")) cur.put("internalPercent", o.optInt("internalPercent"))
+                if (o.has("bufferMode")) cur.put("bufferMode", o.optString("bufferMode"))
                 Storage.saveSettings(ctx, cur)
                 Storage.ensureDirs(ctx)
                 onStorageChanged()
