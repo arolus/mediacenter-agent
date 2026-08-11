@@ -1,0 +1,76 @@
+// Перехват брендовых кнопок пульта (Xiaomi TV+, YouTube, Netflix, Prime Video…).
+//
+// Эти кнопки — обычные клавиши: пульт Xiaomi шлёт их как BUTTON_1…BUTTON_16, а лаунчер Google TV,
+// не найдя удалённого приложения, уводит зрителя в Play Store. Служба специальных возможностей —
+// единственный способ без root получить нажатия ГЛОБАЛЬНО (в любом приложении) и съесть их:
+// обычное приложение видит клавиши только когда оно на экране.
+//
+// Всё, что мы делаем, — открываем медиатеку. Никакого чтения содержимого экрана: в описании
+// службы стоит только canRequestFilterKeyEvents.
+package com.mediacenter.tv;
+
+import android.accessibilityservice.AccessibilityService;
+import android.content.Intent;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.SystemClock;
+import android.util.Log;
+import android.view.KeyEvent;
+import android.view.accessibility.AccessibilityEvent;
+
+public class KeyService extends AccessibilityService {
+    private static final String TAG = "MCKeys";
+
+    // BUTTON_1…BUTTON_16 (188…203) — сюда попадают все брендовые кнопки этого пульта;
+    // ALL_APPS (284) — кнопка «Приложения»; ASSIST/SEARCH/VOICE_ASSIST — кнопка микрофона
+    // (голосовой помощник нам не нужен, а «поиск» в медиатеке и так на своём экране).
+    // Обычные DPAD/OK/Back/громкость не трогаем. HOME сюда не попадает в принципе: систему
+    // он не покидает — её перехватывает оболочка раньше любых служб (см. CLAUDE.md).
+    private static boolean ours(int code) {
+        if (code >= KeyEvent.KEYCODE_BUTTON_1 && code <= KeyEvent.KEYCODE_BUTTON_16) return true;
+        return code == 284                                   // KEYCODE_ALL_APPS
+            || code == KeyEvent.KEYCODE_ASSIST
+            || code == KeyEvent.KEYCODE_VOICE_ASSIST
+            || code == KeyEvent.KEYCODE_SEARCH;
+    }
+
+    @Override
+    protected boolean onKeyEvent(KeyEvent e) {
+        // Временная диагностика: какие коды реально доходят до службы (adb logcat -s MCKeys)
+        if (e.getAction() == KeyEvent.ACTION_DOWN) Log.d(TAG, "key " + e.getKeyCode());
+        if (!ours(e.getKeyCode())) return false;          // чужое — пропускаем дальше
+        if (e.getAction() == KeyEvent.ACTION_DOWN) open();
+        return true;                                      // и DOWN, и UP съедаем: иначе лаунчер
+    }                                                     // всё равно откроет магазин по UP
+
+    private void open() {
+        try {
+            Intent i = new Intent(this, MainActivity.class);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            // Кнопка означает «домой»: если приложение уже открыто на карточке фильма или
+            // в трейлере, activity просто вышла бы на передний план тем же экраном.
+            i.putExtra("goHome", true);
+            startActivity(i);
+        } catch (Exception ex) {
+            Log.d(TAG, "open: " + ex.getMessage());
+        }
+    }
+
+    // Автозапуск после включения приставки. Системе всё равно, кто просит открыть экран, если
+    // просящего связала она сама: активити из фона (Termux, BOOT_COMPLETED) Android 12+ блокирует
+    // как BAL, а вот отсюда — разрешает (тем же путём открывается медиатека по кнопке пульта).
+    // Службу система поднимает при каждой загрузке; чтобы не выскакивать при её перезапусках
+    // среди дня, открываемся только если приставка включилась только что.
+    private static final long JUST_BOOTED_MS = 3 * 60 * 1000;
+    private static final long LAUNCHER_HEADSTART_MS = 8000;   // даём лаунчеру подняться первым
+
+    @Override
+    protected void onServiceConnected() {
+        super.onServiceConnected();
+        if (SystemClock.elapsedRealtime() > JUST_BOOTED_MS) return;
+        new Handler(Looper.getMainLooper()).postDelayed(this::open, LAUNCHER_HEADSTART_MS);
+    }
+
+    @Override public void onAccessibilityEvent(AccessibilityEvent event) { /* не слушаем экран */ }
+    @Override public void onInterrupt() { }
+}

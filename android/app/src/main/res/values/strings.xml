@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Описание службы в списке специальных возможностей: пользователь должен понимать, зачем она -->
+    <string name="keyservice_desc">Кнопки стриминговых сервисов на пульте (Xiaomi TV+, YouTube, Netflix, Prime Video) открывают медиатеку MediaCenter вместо магазина приложений.</string>
+</resources>

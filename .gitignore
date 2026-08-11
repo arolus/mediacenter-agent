@@ -9,3 +9,9 @@ media-a/
 media-b/
 .DS_Store
 tvapp/build/
+
+# Android (Kotlin agent) build output
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties

@@ -1,0 +1,55 @@
+// Node config: same JSON shape as the Node.js agent's agent-config.json, stored in the app's
+// private files dir. Provisioned once via intent extra (adb/QR flow): `--es cfg <base64-json>`.
+package com.mediacenter.tv.agent
+
+import android.content.Context
+import org.json.JSONObject
+import java.io.File
+
+class Config(val json: JSONObject) {
+    val deviceId: String get() = json.optJSONObject("device")?.optString("id") ?: "node"
+    val deviceName: String get() = json.optJSONObject("device")?.optString("name") ?: deviceId
+    val authEmail: String get() = json.optJSONObject("auth")?.optString("email") ?: ""
+    val authPassword: String get() = json.optJSONObject("auth")?.optString("password") ?: ""
+    val firebase: JSONObject get() = json.optJSONObject("firebase") ?: JSONObject()
+    val localPort: Int get() = json.optInt("localPort", 8088)
+    val torrentPort: Int get() = json.optInt("torrentPort", 51413)
+    val playerPackage: String get() = json.optJSONObject("player")?.optString("package")?.ifEmpty { null } ?: "org.videolan.vlc"
+
+    // Media root: defaults to the app's own files dir — always writable, no permissions needed.
+    // The box overrides it to /storage/emulated/0 in its config.
+    fun mediaRoot(ctx: Context): File {
+        val v = json.optString("mediaRoot", "")
+        return if (v.isNotEmpty() && !v.contains("REPLACE_ME")) File(v) else File(ctx.filesDir, "media")
+    }
+
+    fun mediaDirs(ctx: Context): Map<String, File> {
+        val root = mediaRoot(ctx)
+        return mapOf(
+            "movie" to File(root, "Movies"),
+            "series" to File(root, "Series"),
+            "cartoon" to File(root, "Cartoons")
+        )
+    }
+
+    fun dirForType(ctx: Context, type: String): File =
+        mediaDirs(ctx)[type] ?: mediaDirs(ctx)["movie"]!!
+
+    fun ensureDirs(ctx: Context) {
+        mediaDirs(ctx).values.forEach { it.mkdirs() }
+    }
+
+    companion object {
+        private fun file(ctx: Context) = File(ctx.filesDir, "agent-config.json")
+
+        fun load(ctx: Context): Config? = try {
+            Config(JSONObject(file(ctx).readText()))
+        } catch (_: Exception) { null }
+
+        fun save(ctx: Context, jsonText: String): Boolean = try {
+            JSONObject(jsonText) // validate before writing
+            file(ctx).writeText(jsonText)
+            true
+        } catch (_: Exception) { false }
+    }
+}
