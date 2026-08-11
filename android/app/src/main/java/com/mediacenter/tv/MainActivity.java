@@ -115,7 +115,13 @@ public class MainActivity extends Activity {
         // просим один раз (пользователь подтверждает; на тесте — adb dpm set-active-admin).
         dpm = (DevicePolicyManager) getSystemService(Context.DEVICE_POLICY_SERVICE);
         admin = new ComponentName(this, AdminReceiver.class);
-        if (dpm != null && !dpm.isAdminActive(admin)) {
+        // Права администратора нужны ТОЛЬКО телефону-приставке: погасить AMOLED по таймеру
+        // простоя (lockNow). Телевизор и ТВ-бокс гасят экран сами, и системный диалог при
+        // каждом запуске выглядел как навязчивый запрос лишних прав. Поэтому спрашиваем
+        // ровно один раз за установку; отказ запоминаем и больше не возвращаемся к вопросу.
+        SharedPreferences prefs = getSharedPreferences("tv", MODE_PRIVATE);
+        if (dpm != null && !dpm.isAdminActive(admin) && !prefs.getBoolean("adminAsked", false)) {
+            prefs.edit().putBoolean("adminAsked", true).apply();
             try {
                 Intent it = new Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN);
                 it.putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, admin);
