@@ -54,6 +54,7 @@ class HttpServer(
     private val kioskCache = File(ctx.filesDir, "kiosk.json")
     private val imgDir = File(ctx.filesDir, "cache/img").apply { mkdirs() }
     private val personDir = File(ctx.filesDir, "cache/persons").apply { mkdirs() }
+    private val movieDir = File(ctx.filesDir, "cache/movies").apply { mkdirs() }
     private val thumbDir = File(ctx.filesDir, "cache/thumbs").apply { mkdirs() }
     private val miDir = File(ctx.filesDir, "cache/mediainfo").apply { mkdirs() }
 
@@ -174,6 +175,7 @@ class HttpServer(
                 uri == "/api/watched" -> setWatched(q["id"], q["set"] != "0")
                 uri == "/api/trailer" -> trailer(q["id"])
                 uri == "/api/person" -> person(q["name"], q["refresh"] != null)
+                uri == "/api/movie" -> movieInfo(q["tmdbId"], q["kind"])
                 uri == "/api/home-screen" -> json(homeScreenView())
                 // Хранилища: что нашли, что выбрано, сколько занято. POST — сохранить выбор.
                 uri == "/api/storage" -> storage(session, q)
@@ -574,6 +576,31 @@ class HttpServer(
         val pid = config.firebase.optString("projectId")
         val url = "https://us-central1-$pid.cloudfunctions.net/person?name=" +
             java.net.URLEncoder.encode(name, "UTF-8")
+        return try {
+            val r = httpFetch(url, timeoutMs = 40000)
+            val text = String(r.body, Charsets.UTF_8)
+            if (r.status < 400) cache.writeText(text)
+            newFixedLengthResponse(
+                Response.Status.lookup(r.status) ?: Response.Status.OK,
+                "application/json; charset=utf-8", text)
+        } catch (e: Exception) { err(e.message ?: "нет связи", Response.Status.SERVICE_UNAVAILABLE) }
+    }
+
+    // Карточка ещё не скачанного фильма (из фильмографии или коллекции): те же данные,
+    // что у своих фильмов, но с сервера — TMDb-ключа на ноде нет. Кэш на диске вечный:
+    // описание и актёры не меняются, а сеть на ноде может и отсутствовать.
+    private fun movieInfo(tmdbId: String?, kind: String?): Response {
+        if (tmdbId.isNullOrEmpty()) return err("нет tmdbId", Response.Status.BAD_REQUEST)
+        val k = if (kind == "tv") "tv" else "movie"
+        val cache = File(movieDir, "${k}_$tmdbId.json")
+        if (cache.exists()) {
+            val r = newFixedLengthResponse(Response.Status.OK, "application/json; charset=utf-8", cache.readText())
+            r.addHeader("Cache-Control", "no-cache")
+            return r
+        }
+        val pid = config.firebase.optString("projectId")
+        val url = "https://us-central1-$pid.cloudfunctions.net/movie?kind=$k&tmdbId=" +
+            java.net.URLEncoder.encode(tmdbId, "UTF-8")
         return try {
             val r = httpFetch(url, timeoutMs = 40000)
             val text = String(r.body, Charsets.UTF_8)

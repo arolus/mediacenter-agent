@@ -310,7 +310,7 @@ function render() {
   else if (state.screen === "grid") renderGrid();
   else if (state.screen === "collection") renderCollection();
   else if (state.screen === "person") renderPerson();
-  else if (state.screen === "detail") renderDetail();
+  else if (state.screen === "detail" || state.screen === "ghost") renderDetail();
 }
 
 // При live-обновлении перерисовываем текущий экран, сохраняя фокус по id
@@ -593,7 +593,7 @@ function renderCollection() {
     list: parts,
     empty: "",
     onOpen: (part) => {
-      if (part.isGhost) askDownload(part);
+      if (part.isGhost) enterGhost(part);
       else enterDetail(part);
     },
     fallbackInfo: col // на плитке «Назад» — описание самой коллекции
@@ -714,6 +714,8 @@ function actorCard(a) {
 function renderDetail() {
   const i = state.current;
   if (!i) { state.screen = "grid"; return render(); }
+  // Фильма у нас ещё нет: данные едут с сервера — показываем постер с плитки и крутилку.
+  if (i.isGhost && (i.loading || i.failed)) return renderGhostWaiting(i);
   const bg = backdrop(i.backdrop) || poster(i.poster);
   const p = poster(i.poster);
   const eps = i.episodes && i.episodes.length ? i.episodes : [i];
@@ -793,10 +795,10 @@ function renderDetail() {
           </div>
           ${multi ? "" : `<div id="detail-buttons" class="mt-2.5 flex flex-none items-center space-x-2.5">
             <button class="${BTN} bg-white/5 text-zinc-300 focus:ring-violet-500/40" id="detail-back">${ICONS.back("mr-1.5 h-[1.1em] w-[1.1em]")} Назад</button>
-            <button class="dfoc flex flex-none cursor-pointer items-center rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-[clamp(18px,calc(var(--uivw)*3),32px)] py-[clamp(7px,calc(var(--uivh)*1.8),12px)] text-[clamp(14px,calc(var(--uivh)*2.6),18px)] font-bold text-white shadow-xl shadow-violet-600/40 outline-none transition focus:scale-[1.04] focus:ring-4 focus:ring-violet-400/50" id="detail-play" data-id="${esc(i.id)}">${ICONS.play("mr-2 h-[1.2em] w-[1.2em]")} Смотреть</button>
+            <button class="dfoc flex flex-none cursor-pointer items-center rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-[clamp(18px,calc(var(--uivw)*3),32px)] py-[clamp(7px,calc(var(--uivh)*1.8),12px)] text-[clamp(14px,calc(var(--uivh)*2.6),18px)] font-bold text-white shadow-xl shadow-violet-600/40 outline-none transition focus:scale-[1.04] focus:ring-4 focus:ring-violet-400/50" id="detail-play" data-id="${esc(i.id)}">${(i.isGhost ? ICONS.download : ICONS.play)("mr-2 h-[1.2em] w-[1.2em]")} ${i.isGhost ? "Скачать" : "Смотреть"}</button>
             ${i.trailer ? `<button class="${BTN} bg-white/5 text-zinc-300 focus:ring-violet-500/40" id="detail-trailer">${ICONS.movie("mr-2 h-[1.1em] w-[1.1em]")} Трейлер</button>` : ""}
-            <button class="${BTN} epw ${i.watched ? "bg-emerald-500/15 text-emerald-300 focus:ring-emerald-500/40" : "bg-white/5 text-zinc-300 focus:ring-violet-500/40"}"
-              data-id="${esc(i.id)}" data-set="${i.watched ? 0 : 1}">${(i.watched ? ICONS.check : ICONS.eyeOff)("mr-2 h-[1.1em] w-[1.1em]")}${i.watched ? "Просмотрено" : "Не просмотрено"}</button>
+            ${i.isGhost ? "" : `<button class="${BTN} epw ${i.watched ? "bg-emerald-500/15 text-emerald-300 focus:ring-emerald-500/40" : "bg-white/5 text-zinc-300 focus:ring-violet-500/40"}"
+              data-id="${esc(i.id)}" data-set="${i.watched ? 0 : 1}">${(i.watched ? ICONS.check : ICONS.eyeOff)("mr-2 h-[1.1em] w-[1.1em]")}${i.watched ? "Просмотрено" : "Не просмотрено"}</button>`}
           </div>`}
         </div>
       </div>
@@ -816,7 +818,7 @@ function renderDetail() {
   app.querySelectorAll(".actor").forEach((b) => b.addEventListener("click", () => enterPerson(b.dataset.name, b.dataset.photo || null)));
   app.querySelectorAll(".plink").forEach((b) => b.addEventListener("click", () => enterPerson(b.dataset.name, null)));
   const playBtn = document.getElementById("detail-play");
-  if (playBtn) playBtn.addEventListener("click", () => play(i.id));
+  if (playBtn) playBtn.addEventListener("click", () => (i.isGhost ? askDownload(i) : play(i.id)));
   const trailerBtn = document.getElementById("detail-trailer");
   if (trailerBtn) trailerBtn.addEventListener("click", async () => {
     showOverlay("Открываю трейлер…", true);
@@ -829,9 +831,77 @@ function renderDetail() {
     } catch (_) { showOverlay("⚠️ Не удалось открыть трейлер"); }
     setTimeout(hideOverlay, 2500);
   });
-  if (!multi) loadTech(i);
+  if (!multi && !i.isGhost) loadTech(i);   // ffprobe только у своих файлов
   // preventScroll: фокус не должен дёргать раскладку
   (playBtn || app.querySelector(".ep") || document.getElementById("detail-back")).focus({ preventScroll: true });
+}
+
+// Кэш карточек нескачанных фильмов на время сессии (у агента есть ещё и дисковый).
+const ghostCache = new Map();
+
+function ghostKey(s) { return (s.kind || "movie") + "_" + s.tmdbId; }
+
+// Пока данные едут, показываем то немногое, что уже знаем с плитки, и крутилку.
+function ghostItem(s) {
+  const seed = {
+    isGhost: true, id: "ghost_" + s.tmdbId, tmdbId: s.tmdbId, kind: s.kind || "movie",
+    type: s.type || state.type, title: s.title || "", year: s.year || null, poster: s.poster || null
+  };
+  const got = ghostCache.get(ghostKey(s));
+  if (!got) return { ...seed, loading: true };
+  // Данные с сервера полнее того, что было на плитке, — они и главные; своё оставляем только
+  // там, где сервер молчит, плюс служебные поля (тип нужен для «Скачать»: он решает папку).
+  return { ...seed, ...got, isGhost: true, id: seed.id,
+    type: got.animation && seed.type !== "series" ? "cartoon" : seed.type };
+}
+
+async function loadGhost(s) {
+  const key = ghostKey(s);
+  try {
+    const r = await fetch(`/api/movie?tmdbId=${encodeURIComponent(s.tmdbId)}&kind=${encodeURIComponent(s.kind || "movie")}`);
+    const d = await r.json();
+    if (d && !d.error) ghostCache.set(key, d);
+    else if (d && d.error) return ghostFailed(s, d.error);
+  } catch (_) { return ghostFailed(s, "нет связи с сервером"); }
+  // Экран мог смениться, пока ходили на сервер
+  if (state.screen !== "ghost" || !state.current || state.current.tmdbId !== s.tmdbId) return;
+  state.current = ghostItem(s);
+  render();
+}
+
+function ghostFailed(s, msg) {
+  if (state.screen !== "ghost" || !state.current || state.current.tmdbId !== s.tmdbId) return;
+  state.current = { ...state.current, loading: false, failed: msg };
+  render();
+}
+
+// Пока карточка едет с сервера (и если не доехала): постер с плитки, название и крутилка.
+function renderGhostWaiting(i) {
+  const p = i.poster ? `${IMG}/w342${i.poster}` : null;
+  app.innerHTML = `
+    <div class="relative h-full overflow-hidden">
+      <div class="absolute top-0 right-0 bottom-0 left-0 bg-black bg-cover bg-center brightness-[.25]" style="${p ? `background-image:url('${p}')` : ""}"></div>
+      <div class="relative flex h-full items-center justify-center px-10">
+        <div class="flex items-center space-x-8">
+          ${p ? `<div class="h-0 w-[180px] flex-none rounded-xl bg-zinc-800 bg-cover bg-center pb-[270px] shadow-2xl shadow-black/60 ring-1 ring-white/15" style="background-image:url('${p}')"></div>` : ""}
+          <div class="min-w-0">
+            <div class="truncate text-[clamp(20px,calc(var(--uivh)*4),30px)] font-extrabold">${esc(i.title)}${i.year ? ` <span class="font-semibold text-zinc-400">(${i.year})</span>` : ""}</div>
+            <div class="mt-4 flex items-center text-zinc-300">
+              ${i.failed
+                ? `<span class="text-amber-300">⚠️ ${esc(i.failed)}</span>`
+                : `<span class="mr-3 inline-block h-6 w-6 animate-spin rounded-full border-2 border-violet-400 border-t-transparent"></span> Загружаю описание…`}
+            </div>
+            <div class="mt-6 flex space-x-3">
+              <button id="detail-back" class="dfoc flex cursor-pointer items-center rounded-2xl border border-white/15 bg-white/5 px-5 py-3 font-semibold text-zinc-200 outline-none transition focus:scale-[1.03] focus:ring-4 focus:ring-violet-500/40">${ICONS.back("mr-2 h-5 w-5")} Назад</button>
+              <button id="ghost-dl" class="dfoc flex cursor-pointer items-center rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-6 py-3 font-bold text-white shadow-xl shadow-violet-600/40 outline-none transition focus:scale-[1.04] focus:ring-4 focus:ring-violet-400/50">${ICONS.download("mr-2 h-5 w-5")} Скачать</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById("detail-back").addEventListener("click", back);
+  document.getElementById("ghost-dl").addEventListener("click", () => askDownload(i));
+  document.getElementById("ghost-dl").focus({ preventScroll: true });
 }
 
 /* ---------- Страница персоны: фото, чем известен, фильмография из медиатеки ---------- */
@@ -1012,8 +1082,12 @@ function renderPersonFilms(credits, lib, full) {
     card.addEventListener("focus", () => showFilm(card.dataset.key));
     card.addEventListener("click", () => {
       const it = lib.get(card.dataset.key);
-      if (it) { it.isCollection ? enterCollection(it) : enterDetail(it); }
-      else { showOverlay("Нет в медиатеке"); setTimeout(hideOverlay, 1400); }
+      if (it) { it.isCollection ? enterCollection(it) : enterDetail(it); return; }
+      // Нет в медиатеке — открываем ту же страницу с данными TMDb и кнопкой «Скачать»
+      const [kind, tmdbId] = String(card.dataset.key).split("_");
+      enterGhost({ tmdbId, kind, type: kind === "tv" ? "series" : (state.type || "movie"),
+        title: card.dataset.title || "", year: Number(card.dataset.year) || null,
+        poster: (byKey.get(card.dataset.key) || {}).poster || null });
     });
   });
   const bt = el.querySelector(".grid-back");
@@ -1057,7 +1131,9 @@ function applyState(s) {
     state.current = findEntry(state.type, s.id) || null;
   }
   if (state.screen === "person") state.person = { name: s.name || "", photo: s.photo || null };
+  if (state.screen === "ghost") state.current = ghostItem(s);
   render();
+  if (state.screen === "ghost" && state.current && state.current.loading) loadGhost(s);
   // Возврат «Назад»: встаём на ту же карточку, с которой уходили (и скроллим к ней).
   if (s.focusId) {
     const el = app.querySelector(`[data-id="${CSS.escape(s.focusId)}"]`);
@@ -1076,6 +1152,15 @@ function enterGrid(type) { navigate({ screen: "grid", type }); }
 function enterCollection(col) { navigate({ screen: "collection", type: col.type || state.type, id: col.id }); }
 function enterDetail(item) { navigate({ screen: "detail", type: item.type || state.type, id: item.id }); }
 function enterPerson(name, photo) { if (name) navigate({ screen: "person", name, photo: photo || null }); }
+// Фильм, которого у нас ещё нет (часть коллекции или строка фильмографии): открываем такую же
+// страницу, как у своих, только вместо «Смотреть» — «Скачать». Данные тянет агент с сервера.
+function enterGhost(g) {
+  const tmdbId = g.tmdbId || (g.catalogId || "").split("_")[1];
+  if (!tmdbId) return;
+  const kind = g.kind || (g.type === "series" ? "tv" : "movie");
+  navigate({ screen: "ghost", type: g.type || state.type, tmdbId, kind,
+    title: g.title || "", year: g.year || null, poster: g.poster || null });
+}
 // Назад: кнопка «Назад», Esc/Backspace пульта И браузерная «Назад» — всё через историю.
 // В корне (категории) — родительский код: выйти отсюда = покинуть медиатеку.
 function back() {
