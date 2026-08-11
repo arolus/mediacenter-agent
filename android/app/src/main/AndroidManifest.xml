@@ -15,6 +15,17 @@
     <uses-permission android:name="com.android.providers.tv.permission.READ_EPG_DATA" />
     <uses-permission android:name="com.android.providers.tv.permission.WRITE_EPG_DATA" />
 
+    <!-- Android 11+ прячет от приложения чужие пакеты, поэтому проверка «установлен ли VLC»
+         молча возвращала «нет», и кнопка установки появлялась при уже стоящем плеере.
+         Объявляем, что нам нужно видеть плеер и всё, что умеет открывать видео. -->
+    <queries>
+        <package android:name="org.videolan.vlc" />
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="video/*" />
+        </intent>
+    </queries>
+
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.software.leanback" android:required="false" />
 
