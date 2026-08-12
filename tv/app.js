@@ -309,6 +309,12 @@ const entriesForType = (t) => {
   }
   return arr;
 };
+// Счётчик на плитке категории: считаем ФИЛЬМЫ, а не плитки. Коллекция — одна плитка, но пять
+// скачанных «Шрэков» это пять мультфильмов, и «34» вместо «45» выглядит как пропажа. Сериал
+// остаётся единицей: серии считать незачем.
+const countForType = (t) =>
+  entriesForType(t).reduce((n, e) => n + (e.isCollection ? e.parts.length : 1), 0);
+
 // Поиск сущности по id: среди верхнеуровневых карточек И внутри коллекций.
 function findEntry(t, id) {
   for (const e of entriesForType(t)) {
@@ -405,7 +411,7 @@ function renderCategories() {
               ${c.icon("h-1/2 w-1/2")}
             </div>
             <div class="text-[clamp(20px,calc(var(--uivh)*3.6),30px)] font-bold tracking-tight">${c.label}</div>
-            <div class="rounded-full bg-zinc-800/80 px-4 py-1 text-[clamp(14px,calc(var(--uivh)*2.2),18px)] text-zinc-400">${loaded ? entriesForType(c.type).length + " шт." : "…"}</div>
+            <div class="rounded-full bg-zinc-800/80 px-4 py-1 text-[clamp(14px,calc(var(--uivh)*2.2),18px)] text-zinc-400">${loaded ? countForType(c.type) : "…"}</div>
           </div>`).join("")}
       </div>
     </div>`;
