@@ -149,6 +149,17 @@ object SafStore {
         }
     }
 
+    // Чтение уже лежащего на носителе файла — нужно, чтобы сверить записанное с исходником.
+    fun openForRead(ctx: Context, tree: Uri, relPath: String): java.io.InputStream? {
+        var dirId = DocumentsContract.getTreeDocumentId(tree)
+        val parts = relPath.split('/').filter { it.isNotEmpty() }
+        for (i in 0 until parts.size - 1) dirId = childId(ctx, tree, dirId, parts[i]) ?: return null
+        val id = childId(ctx, tree, dirId, parts.last()) ?: return null
+        return try {
+            ctx.contentResolver.openInputStream(DocumentsContract.buildDocumentUriUsingTree(tree, id))
+        } catch (_: Exception) { null }
+    }
+
     // Размер уже лежащего файла (0 — если его нет): по нему пропускаем то, что скопировано.
     fun sizeOf(ctx: Context, tree: Uri, relPath: String): Long {
         var dirId = DocumentsContract.getTreeDocumentId(tree)

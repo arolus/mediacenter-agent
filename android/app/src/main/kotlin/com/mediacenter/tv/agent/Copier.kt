@@ -94,6 +94,7 @@ object Copier {
                     if (already == it.size) { t.doneFiles++; t.doneBytes += it.size; continue }
                     try {
                         if (it.dst != null) copyToFile(t, it) else copyToSaf(ctx, t, it)
+                        verify(ctx, it)
                         t.doneFiles++
                     } catch (e: Exception) {
                         // Один сбойный файл не должен хоронить всю ночную заливку: отмечаем и
@@ -135,6 +136,57 @@ object Copier {
         val got = SafStore.sizeOf(ctx, it.tree, it.dstRel)
         if (isActive && got != it.size)
             throw java.io.IOException("скопировалось $got из ${it.size} байт")
+    }
+
+    // Сверка записанного с исходником: три куска по 256 КБ — начало, середина и конец файла.
+    //
+    // ЗАЧЕМ, хотя размер уже сверен. Размер берётся из записи каталога, а её накопитель может
+    // подтвердить, ничего не сохранив. Ровно так себя ведут флешки с поддельной ёмкостью: диск
+    // объявляет 1 ТБ при реальных ~8 ГБ, всё сверх этого молча уходит в никуда и читается как
+    // 0xFF. Проверено 2026-08-12 на «Media 1TB»: 347 файлов «скопировались» без единой ошибки,
+    // а данные уцелели только у первых пяти — остальные 376 ГиБ оказались пустотой. Чтение трёх
+    // кусков стоит копейки и ловит это на ПЕРВОМ же файле, а не через девять часов.
+    private fun verify(ctx: Context, it: Item) {
+        if (it.size <= 0) return
+        val len = minOf(SAMPLE, it.size).toInt()
+        val offsets = listOf(0L, maxOf(0L, it.size / 2 - len / 2), maxOf(0L, it.size - len))
+            .distinct()
+        val want = ByteArray(len)
+        val got = ByteArray(len)
+        java.io.RandomAccessFile(it.src, "r").use { src ->
+            for (off in offsets) {
+                src.seek(off); src.readFully(want)
+                readAt(ctx, it, off, got)
+                if (!want.contentEquals(got)) throw java.io.IOException(
+                    "носитель не сохранил данные (смещение $off) — проверьте накопитель, " +
+                    "у флешек с поддельной ёмкостью запись уходит в никуда")
+            }
+        }
+    }
+
+    private const val SAMPLE = 256L * 1024
+
+    private fun readAt(ctx: Context, it: Item, off: Long, buf: ByteArray) {
+        if (it.dst != null) {
+            java.io.RandomAccessFile(it.dst, "r").use { f -> f.seek(off); f.readFully(buf) }
+            return
+        }
+        val input = SafStore.openForRead(ctx, it.tree!!, it.dstRel!!)
+            ?: throw java.io.IOException("записанный файл не читается")
+        input.use { s ->
+            var left = off
+            while (left > 0) {
+                val n = s.skip(left)
+                if (n <= 0) throw java.io.IOException("записанный файл короче исходного")
+                left -= n
+            }
+            var read = 0
+            while (read < buf.size) {
+                val n = s.read(buf, read, buf.size - read)
+                if (n < 0) throw java.io.IOException("записанный файл короче исходного")
+                read += n
+            }
+        }
     }
 
     // Сброс на сам носитель, а не в кэш системы.
