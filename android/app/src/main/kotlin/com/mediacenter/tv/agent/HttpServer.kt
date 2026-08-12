@@ -668,17 +668,47 @@ class HttpServer(
         val o = try { JSONObject(readBody(session)) } catch (e: Exception) {
             return err("не разобрал запрос", Response.Status.BAD_REQUEST)
         }
+        val e = startCopy(o)
+        return if (e == null) json(Copier.status()) else err(e, Response.Status.BAD_REQUEST)
+    }
+
+    // Заливка сотен гигабайт идёт часами, а приложение за это время могут перезапустить
+    // (система выгрузила, обновили APK, перезагрузили телефон). Поэтому план задачи лежит на
+    // диске, и агент подхватывает его при старте — уже скопированные файлы пропускаются по
+    // размеру, так что продолжение обходится в один быстрый проход.
+    fun resumeCopyJobs() {
+        val f = File(ctx.filesDir, "copy-jobs.json")
+        val arr = try { JSONArray(f.readText()) } catch (_: Exception) { return }
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val err = startCopy(o)
+            if (err != null) Log.e("copy: не продолжить «${o.optString("to")}» — $err")
+            else Log.i("copy: продолжаю ${o.optString("to")} после перезапуска")
+        }
+    }
+
+    private fun saveCopyJob(o: JSONObject, done: Boolean) {
+        val f = File(ctx.filesDir, "copy-jobs.json")
+        val cur = try { JSONArray(f.readText()) } catch (_: Exception) { JSONArray() }
+        val out = JSONArray()
+        for (i in 0 until cur.length()) {
+            val x = cur.optJSONObject(i) ?: continue
+            if (x.optString("to") != o.optString("to")) out.put(x)
+        }
+        if (!done) out.put(o)
+        try { f.writeText(out.toString()) } catch (e: Exception) { Log.e("copy: план не сохранён: ${e.message}") }
+    }
+
+    // Возвращает текст ошибки или null, если задача принята.
+    private fun startCopy(o: JSONObject): String? {
         val vols = Storage.volumes(ctx)
-        val src = vols.firstOrNull { it.id == o.optString("from") }
-            ?: return err("нет носителя-источника", Response.Status.BAD_REQUEST)
+        val src = vols.firstOrNull { it.id == o.optString("from") } ?: return "нет носителя-источника"
         val toId = o.optString("to")
         val tree = if (toId.startsWith("usb-")) SafStore.uriById(ctx, toId) else null
         val toSaf = tree != null
-        if (toId.startsWith("usb-") && tree == null)
-            return err("накопитель не подключён — выдайте доступ заново", Response.Status.BAD_REQUEST)
-        val dst = if (toSaf) null else vols.firstOrNull { it.id == toId }
-            ?: return err("нет носителя-приёмника", Response.Status.BAD_REQUEST)
-        if (!toSaf && src.id == dst!!.id) return err("носители совпадают", Response.Status.BAD_REQUEST)
+        if (toId.startsWith("usb-") && tree == null) return "накопитель не подключён — выдайте доступ заново"
+        val dst = if (toSaf) null else vols.firstOrNull { it.id == toId } ?: return "нет носителя-приёмника"
+        if (!toSaf && src.id == dst!!.id) return "носители совпадают"
         val keys = o.optJSONArray("keys") ?: JSONArray()
         val want = (0 until keys.length()).map { keys.optString(it) }.toSet()
         val plan = Copier.plan(ctx, library, src.dir)
@@ -698,16 +728,20 @@ class HttpServer(
                 need += f.length()
             }
         }
-        if (items.isEmpty()) return err("нечего копировать", Response.Status.BAD_REQUEST)
+        if (items.isEmpty()) return "нечего копировать"
         // Запас 300 МБ: файловой системе нужно место и на служебные записи.
         val free = if (toSaf) SafStore.freeBytes(ctx, tree!!) else dst!!.freeBytes
         val where = if (toSaf) SafStore.labelById(ctx, toId) else dst!!.label
         if (free > 0 && need + 300L * 1024 * 1024 > free)
-            return err("на «$where» не хватит места: нужно ${need / 1048576} МБ, свободно ${free / 1048576} МБ",
-                Response.Status.BAD_REQUEST)
-        if (Copier.running(toId)) return err("на «$where» уже идёт копирование", Response.Status.CONFLICT)
-        Copier.start(ctx, scope, toId, where, items) { onStorageChanged() }
-        return json(Copier.status())
+            return "на «$where» не хватит места: нужно ${need / 1048576} МБ, свободно ${free / 1048576} МБ"
+        if (Copier.running(toId)) return "на «$where» уже идёт копирование"
+        saveCopyJob(o, done = false)
+        Copier.start(ctx, scope, toId, where, items) {
+            // Дошли до конца (или человек остановил) — план больше не нужен.
+            if (!Copier.running(toId)) saveCopyJob(o, done = true)
+            onStorageChanged()
+        }
+        return null
     }
 
     // ---- static (assets/tv) ------------------------------------------------------------------
