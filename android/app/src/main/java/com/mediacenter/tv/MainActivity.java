@@ -549,6 +549,30 @@ public class MainActivity extends Activity {
             });
         }
 
+        // Доступ «Все файлы»: без него нода не видит ни медиатеку в общей памяти, ни ту, что
+        // лежит в корне флешки. Своего диалога у этого разрешения нет — система открывает
+        // отдельный экран настроек, где владелец включает переключатель (так же, как он даётся
+        // файловым менеджерам). При первом запуске мы просим сами, а эта кнопка — для случая,
+        // когда флешку воткнули позже или в разрешении отказали.
+        @JavascriptInterface
+        public void requestAllFiles() {
+            runOnUiThread(() -> {
+                if (Build.VERSION.SDK_INT < 30) return;
+                try {
+                    startActivity(new Intent(
+                        android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                        Uri.parse("package:" + getPackageName())));
+                } catch (Exception e) {
+                    try { startActivity(new Intent(
+                        android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)); }
+                    catch (Exception ignored) {
+                        Toast.makeText(MainActivity.this,
+                            "Не удалось открыть настройки доступа", Toast.LENGTH_LONG).show();
+                    }
+                }
+            });
+        }
+
         // Сверка родительского кода без агента — по локальному кэшу (см. cacheKioskPin).
         // Пустой код означает, что родительский режим не настроен: тогда выход свободный.
         @JavascriptInterface

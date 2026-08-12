@@ -118,7 +118,7 @@ object Copier {
         it.dst!!.parentFile?.mkdirs()
         val tmp = File(it.dst.parentFile, it.dst.name + ".part")
         try {
-            it.src.inputStream().use { input -> tmp.outputStream().use { out -> pump(t, input, out) } }
+            it.src.inputStream().use { input -> tmp.outputStream().use { out -> pump(t, input, out); sync(out) } }
             if (!isActive) { tmp.delete(); return@coroutineScope }
             if (tmp.length() != it.size)
                 throw java.io.IOException("скопировалось ${tmp.length()} из ${it.size} байт")
@@ -131,10 +131,31 @@ object Copier {
     private suspend fun copyToSaf(ctx: Context, t: Task, it: Item) = kotlinx.coroutines.coroutineScope {
         val out = SafStore.openForWrite(ctx, it.tree!!, it.dstRel!!)
             ?: throw java.io.IOException("накопитель не принял файл (нет доступа?)")
-        it.src.inputStream().use { input -> out.use { o -> pump(t, input, o) } }
+        it.src.inputStream().use { input -> out.use { o -> pump(t, input, o); sync(o) } }
         val got = SafStore.sizeOf(ctx, it.tree, it.dstRel)
         if (isActive && got != it.size)
             throw java.io.IOException("скопировалось $got из ${it.size} байт")
+    }
+
+    // Сброс на сам носитель, а не в кэш системы.
+    //
+    // Дорогой опыт 2026-08-12: терабайтную флешку выдернули из телефона без «извлечения» — файлы
+    // были записаны и проверены по размеру, но exFAT держал записи каталога в памяти, и папки
+    // Movies и Series приехали в телевизор ПУСТЫМИ (место занято, имён нет). Уцелело только то,
+    // что копировалось на несколько часов раньше и успело осесть само.
+    // close() такой гарантии не даёт, fsync — даёт: файл на диске сразу после копирования.
+    private fun sync(out: java.io.OutputStream) {
+        try {
+            when (out) {
+                is java.io.FileOutputStream -> out.fd.sync()
+                // SAF отдаёт обёртку над файловым дескриптором — достаём его отражением,
+                // другого пути к fsync через ParcelFileDescriptor.AutoCloseOutputStream нет.
+                else -> {
+                    val m = out.javaClass.methods.firstOrNull { it.name == "getFD" && it.parameterTypes.isEmpty() }
+                    (m?.invoke(out) as? java.io.FileDescriptor)?.sync()
+                }
+            }
+        } catch (e: Exception) { Log.e("copy: fsync не удался: ${e.message}") }
     }
 
     private suspend fun pump(t: Task, input: java.io.InputStream, out: java.io.OutputStream) =

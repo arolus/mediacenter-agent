@@ -1404,10 +1404,25 @@ document.addEventListener("keydown", (e) => {
   if (st) {
     e.preventDefault();
     if (["Escape", "Backspace", "GoBack", "BrowserBack"].includes(e.key)) return void closeSettings();
-    const items = [...st.querySelectorAll(".st-vol, #st-limit, #st-close")];
-    const i = items.indexOf(document.activeElement);
-    if (e.key === "ArrowDown") return void items[Math.min(items.length - 1, i + 1)]?.focus();
-    if (e.key === "ArrowUp") return void items[Math.max(0, i - 1)]?.focus();
+    // Экран разбит на РЯДЫ: носители и ползунок — по одному элементу в ряду, режим буфера и
+    // кнопки копирования — по нескольку. ↑/↓ ходят между рядами, ←/→ внутри ряда. Раньше список
+    // был плоским и знал только про носители, ползунок и «Назад» — всё, что добавлялось на экран
+    // потом, пульт молча перепрыгивал.
+    const rows = [];
+    st.querySelectorAll(".st-vol").forEach((el) => rows.push([el]));
+    const single = (sel) => { const el = st.querySelector(sel); if (el) rows.push([el]); };
+    const group = (sel) => { const els = [...st.querySelectorAll(sel)]; if (els.length) rows.push(els); };
+    single("#st-limit");
+    group(".st-mode");
+    group("#st-files, #st-copy, #st-usb");
+    single("#st-close");
+    const ri = rows.findIndex((r) => r.includes(document.activeElement));
+    const ci = ri >= 0 ? rows[ri].indexOf(document.activeElement) : 0;
+    const go = (r, c) => rows[r]?.[Math.min(c, rows[r].length - 1)]?.focus();
+    if (e.key === "ArrowDown") return void go(Math.min(rows.length - 1, ri + 1), ci);
+    if (e.key === "ArrowUp") return void go(Math.max(0, ri - 1), ci);
+    if (ri >= 0 && rows[ri].length > 1 && (e.key === "ArrowLeft" || e.key === "ArrowRight"))
+      return void go(ri, Math.max(0, Math.min(rows[ri].length - 1, ci + (e.key === "ArrowRight" ? 1 : -1))));
     if (document.activeElement?.id === "st-limit" && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
       const cur = storageState?.internalPercent ?? 60;
       const next = Math.max(5, Math.min(100, cur + (e.key === "ArrowRight" ? 5 : -5)));
@@ -1913,6 +1928,7 @@ function paintSettings() {
         отметив галочками, что именно. Флешку, воткнутую в телефон, Android отдаёт приложениям
         только по разрешению: нажмите «Подключить USB» и выберите её в системном окне.</div>
       <div class="mt-3 flex space-x-3">
+        ${IN_APP && storageState.needsAllFiles ? `<div id="st-files" tabindex="0" class="cursor-pointer rounded-2xl border border-amber-500/60 bg-amber-500/10 px-5 py-3 text-base font-semibold text-amber-200 outline-none transition focus:scale-[1.03] focus:border-amber-300 focus:ring-4 focus:ring-amber-500/25">Дать доступ к файлам…</div>` : ""}
         <div id="st-copy" tabindex="0" class="cursor-pointer rounded-2xl border border-zinc-800 bg-zinc-900/70 px-5 py-3 text-base font-semibold text-zinc-200 outline-none transition focus:scale-[1.03] focus:border-violet-400 focus:ring-4 focus:ring-violet-500/25">Копировать фильмы…</div>
         ${IN_APP ? `<div id="st-usb" tabindex="0" class="cursor-pointer rounded-2xl border border-zinc-800 bg-zinc-900/70 px-5 py-3 text-base font-semibold text-zinc-200 outline-none transition focus:scale-[1.03] focus:border-violet-400 focus:ring-4 focus:ring-violet-500/25">Подключить USB…</div>` : ""}
       </div>
@@ -1923,6 +1939,10 @@ function paintSettings() {
 
   box.querySelectorAll(".st-vol").forEach((el) => el.addEventListener("click", () => toggleVolume(el.dataset.id)));
   box.querySelectorAll(".st-mode").forEach((el) => el.addEventListener("click", () => saveStorage({ bufferMode: el.dataset.mode })));
+  document.getElementById("st-files")?.addEventListener("click", () => {
+    if (window.MCApp && MCApp.requestAllFiles) MCApp.requestAllFiles();
+    else { showOverlay("Доступно только в приложении"); setTimeout(hideOverlay, 2000); }
+  });
   document.getElementById("st-copy")?.addEventListener("click", openCopy);
   document.getElementById("st-usb")?.addEventListener("click", () => {
     if (window.MCApp && MCApp.pickUsbFolder) MCApp.pickUsbFolder();

@@ -56,8 +56,18 @@ object Storage {
         return if (f.isDirectory) f else null
     }
 
-    // Нужен ли ноде доступ «Все файлы»: конфиг указывает на общую память, а разрешения нет.
-    fun needsAllFilesAccess(ctx: Context): Boolean = sharedRoot(ctx) != null && !hasAllFilesAccess()
+    // Нужен ли ноде доступ «Все файлы»: конфиг указывает на общую память ЛИБО воткнута флешка,
+    // а разрешения нет. Флешка тоже в списке: медиатеку на ней пишут в корень (см. mediaDirOn),
+    // и без разрешения нода увидит вместо неё пустую служебную папку.
+    fun needsAllFilesAccess(ctx: Context): Boolean =
+        !hasAllFilesAccess() && (sharedRoot(ctx) != null || hasRemovable(ctx))
+
+    private fun hasRemovable(ctx: Context): Boolean =
+        ctx.getExternalFilesDirs(null).filterNotNull().any { base ->
+            val p = base.absolutePath
+            p.startsWith("/storage/") && !p.contains("/emulated/") &&
+                Environment.getExternalStorageState(base) == Environment.MEDIA_MOUNTED
+        }
 
     // Все доступные носители: съёмные из getExternalFilesDirs плюс встроенная память.
     //
@@ -79,10 +89,29 @@ object Storage {
                 id = id,
                 label = "USB-накопитель${if (id.isNotEmpty()) " $id" else ""}",
                 removable = true,
-                dir = File(base, "media"),
+                dir = mediaDirOn(id, base),
                 totalBytes = stat?.totalBytes ?: 0,
                 freeBytes = stat?.availableBytes ?: 0
             ))
+        }
+        // Прошивки, которые вообще не отдают флешку приложениям (проверено на телевизоре Vestel и
+        // на Samsung): getExternalFilesDirs возвращает только встроенную память, хотя носитель
+        // смонтирован и лежит в /storage/<UUID>. С доступом «Все файлы» он читается и пишется
+        // напрямую — находим его сами, обходом каталога.
+        // Обойти /storage списком нельзя (каталог отдаёт только проход, не чтение) — спрашиваем
+        // у системы через StorageManager, а путь собираем по UUID тома.
+        if (hasAllFilesAccess()) {
+            val sm = ctx.getSystemService(Context.STORAGE_SERVICE) as? android.os.storage.StorageManager
+            sm?.storageVolumes?.forEach { sv ->
+                if (!sv.isRemovable || sv.state != Environment.MEDIA_MOUNTED) return@forEach
+                val id = sv.uuid ?: return@forEach
+                if (out.any { it.id == id }) return@forEach
+                val root = File("/storage/$id")
+                if (!root.isDirectory) return@forEach
+                val st = try { StatFs(root.path) } catch (_: Exception) { null } ?: return@forEach
+                out.add(Volume(id, sv.getDescription(ctx) ?: "USB-накопитель $id", true,
+                    root, st.totalBytes, st.availableBytes))
+            }
         }
         sharedRoot(ctx)?.takeIf { hasAllFilesAccess() }?.let { root ->
             val st = try { StatFs(root.path) } catch (_: Exception) { null }
@@ -99,6 +128,28 @@ object Storage {
     // "/storage/6A7A-DCD4/Android/data/..." → "6A7A-DCD4"
     private fun uuidOf(path: String): String =
         path.removePrefix("/storage/").substringBefore('/')
+
+    // Где на флешке лежит медиатека: в КОРНЕ (Movies/Series/Cartoons) или в служебной папке
+    // приложения на ней.
+    //
+    // Корень — то, что видит любой плеер и куда пишет флешку любое другое устройство: носитель,
+    // наполненный на телефоне и воткнутый в телевизор, должен заработать сам, без переноса
+    // файлов. Но писать в корень Android 11+ разрешает только с доступом «Все файлы», поэтому
+    // без него остаёмся в своей папке — туда пускают всегда.
+    //
+    // Уже накачанное не должно пропасть при выдаче разрешения: если медиатека лежит в служебной
+    // папке, а в корне пусто — остаёмся там, где файлы.
+    private fun mediaDirOn(id: String, base: File): File {
+        val own = File(base, "media")
+        val root = File("/storage/$id")
+        if (!hasAllFilesAccess() || !root.isDirectory) return own
+        return if (!hasMedia(root) && hasMedia(own)) own else root
+    }
+
+    private fun hasMedia(dir: File): Boolean =
+        listOf("Movies", "Series", "Cartoons").any { sub ->
+            (File(dir, sub).listFiles()?.any { it.isFile } ?: false)
+        }
 
     // Выбранные пользователем носители; пока не выбрал — все найденные (флешка предпочтительнее).
     fun activeVolumes(ctx: Context): List<Volume> {
@@ -261,5 +312,7 @@ object Storage {
             .put("volumes", arr)
             .put("internalPercent", internalPercent(ctx))
             .put("bufferMode", bufferMode(ctx))
+            // Экран настроек показывает кнопку запроса, когда медиатеку без разрешения не прочесть.
+            .put("needsAllFiles", needsAllFilesAccess(ctx))
     }
 }
