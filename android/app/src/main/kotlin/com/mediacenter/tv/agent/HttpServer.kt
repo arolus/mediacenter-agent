@@ -732,8 +732,20 @@ class HttpServer(
         // Запас 300 МБ: файловой системе нужно место и на служебные записи.
         val free = if (toSaf) SafStore.freeBytes(ctx, tree!!) else dst!!.freeBytes
         val where = if (toSaf) SafStore.labelById(ctx, toId) else dst!!.label
-        if (free > 0 && need + 300L * 1024 * 1024 > free)
-            return "на «$where» не хватит места: нужно ${need / 1048576} МБ, свободно ${free / 1048576} МБ"
+        if (free > 0 && need + 300L * 1024 * 1024 > free) {
+            // Продолжение прерванной заливки: то, что уже лежит на приёмнике, места не займёт —
+            // Copier такие файлы пропускает. Без этой поправки задачу нельзя было возобновить:
+            // объём всей медиатеки сравнивался со свободным местом уже наполовину полной флешки.
+            var rest = 0L
+            for (it in items) {
+                val done = if (it.dst != null) (if (it.dst.exists()) it.dst.length() else 0)
+                           else SafStore.sizeOf(ctx, it.tree!!, it.dstRel!!)
+                if (done != it.size) rest += it.size
+            }
+            if (rest + 300L * 1024 * 1024 > free)
+                return "на «$where» не хватит места: нужно ${rest / 1048576} МБ, свободно ${free / 1048576} МБ"
+            Log.i("copy: на «$where» уже лежит ${(need - rest) / 1048576} МБ — продолжаю")
+        }
         if (Copier.running(toId)) return "на «$where» уже идёт копирование"
         saveCopyJob(o, done = false)
         Copier.start(ctx, scope, toId, where, items) {
