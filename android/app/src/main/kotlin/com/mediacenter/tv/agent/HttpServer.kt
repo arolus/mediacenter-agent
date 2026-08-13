@@ -120,6 +120,17 @@ class HttpServer(
         stop()
     }
 
+    // Перезагрузить страницы на ноде — после обновления веб-части.
+    fun reloadClients() {
+        synchronized(sseClients) {
+            val dead = mutableListOf<PipedOutputStream>()
+            sseClients.forEach {
+                try { it.write("data: reload\n\n".toByteArray()); it.flush() } catch (_: Exception) { dead.add(it) }
+            }
+            sseClients.removeAll(dead)
+        }
+    }
+
     private fun notifyClients() {
         synchronized(sseClients) {
             val dead = mutableListOf<PipedOutputStream>()
@@ -184,6 +195,18 @@ class HttpServer(
                 uri == "/api/copy-stop" -> { Copier.stop(q["to"]); json(Copier.status()) }
                 uri == "/api/usb-forget" -> { SafStore.forget(ctx, q["id"] ?: ""); json(JSONObject().put("ok", true)) }
                 uri == "/api/copy" -> copyStart(session)
+                // Проверить обновление интерфейса прямо сейчас, не дожидаясь десятиминутного
+                // цикла — для кнопки в настройках и для проверки после выката.
+                uri == "/api/web-update" -> {
+                    val was = WebUpdater.localVersion(ctx)
+                    val res = runCatching { WebUpdater.check(ctx) }
+                    if (res.isSuccess) {
+                        if (res.getOrDefault(false)) reloadClients()
+                        json(JSONObject().put("updated", res.getOrDefault(false))
+                            .put("was", was.ifEmpty { "вшитая" })
+                            .put("now", WebUpdater.localVersion(ctx).ifEmpty { "вшитая" }))
+                    } else err("обновление не удалось: ${res.exceptionOrNull()?.message}")
+                }
                 uri == "/api/verify" -> verifyVolume(q["from"] ?: "shared", q["to"] ?: "")
                 uri == "/api/home-screen" -> json(homeScreenView())
                 // Хранилища: что нашли, что выбрано, сколько занято. POST — сохранить выбор.
@@ -802,7 +825,10 @@ class HttpServer(
     private fun static(uri: String): Response {
         val rel = if (uri == "/") "index.html" else uri.trimStart('/')
         return try {
-            val stream = ctx.assets.open("tv/$rel")
+            // Скачанная веб-часть важнее вшитой (см. WebUpdater); нет её или файла в ней —
+            // молча отдаём то, что приехало вместе с APK.
+            val downloaded = File(WebUpdater.dir(ctx), rel)
+            val stream = if (downloaded.isFile) downloaded.inputStream() else ctx.assets.open("tv/$rel")
             val mime = when (rel.substringAfterLast('.', "")) {
                 "html" -> "text/html; charset=utf-8"
                 "js" -> "application/javascript; charset=utf-8"

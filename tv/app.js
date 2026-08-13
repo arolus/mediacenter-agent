@@ -176,7 +176,9 @@ async function load() {
     if (es) return;
     try {
       es = new EventSource("/api/events");
-      es.onmessage = onChange;
+      // «reload» шлёт агент, когда сам скачал новую версию интерфейса (WebUpdater): страница
+      // должна взять свежие файлы, а не перерисовать себя старым кодом.
+      es.onmessage = (e) => (e.data === "reload" ? location.reload() : onChange(e));
       es.onopen = () => { setDot("st-live", "ok"); reloadIfAgentUpdated(); };
       es.onerror = () => setDot("st-live", "bad"); // EventSource сам переподключится (retry)
     } catch (_) { es = null; setDot("st-live", "bad"); }

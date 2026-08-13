@@ -124,6 +124,9 @@ class AgentService : Service() {
             onStorageChanged = { rescan() }
         ).also { it.startAll(); it.resumeCopyJobs() }
         AdbPort.start(this, scope)
+        // Интерфейс приезжает сам, без переустановки APK: скачали новую версию — перезагрузили
+        // страницы на ноде.
+        WebUpdater.start(this, scope) { http?.reloadClients() }
 
         // Страница в WebView стартует раньше сервера и в этот момент получает ответ из
         // офлайн-кэша (service worker). Сообщаем активности, что агент готов, — она перезагрузит
