@@ -196,6 +196,9 @@ async function load() {
   // и только если данные реально изменились (иначе окантовка фокуса «прыгает» на ровном месте).
   const onChange = () => {
     if (ssePending) return;
+    // При массовом дообогащении (воткнули флешку) обновления сыплются потоком — прореживаем
+    // перерисовки до раза в 5с, чтобы фокус не мигал; в обычной жизни держим отзывчивые 1.5с.
+    const busy = items.some((i) => !i.tmdbId && !i.tmdbTried);
     ssePending = setTimeout(async () => {
       ssePending = null;
       // Имя устройства правят в дашборде — плашка в шапке должна меняться без перезапуска.
@@ -205,9 +208,10 @@ async function load() {
       loadDownloads();   // процент в шапке — и для закачек, запущенных с дашборда
       try {
         const sc = await (await fetch("/api/scan-status", { cache: "no-store" })).json();
-        if (sc.running && sc.total > 0) watchScan();
+        const pending = items.filter((i) => !i.tmdbId && !i.tmdbTried).length;
+        if ((sc.running && sc.total > 0) || (pending > 0 && sc.finishedAgo >= 0 && sc.finishedAgo < 600)) watchScan();
       } catch (_) {}
-    }, 1500);
+    }, busy ? 5000 : 1500);
   };
   const connectEvents = () => {
     if (es) return;
