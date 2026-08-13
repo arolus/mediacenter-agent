@@ -1442,7 +1442,7 @@ document.addEventListener("keydown", (e) => {
     const group = (sel) => { const els = [...st.querySelectorAll(sel)]; if (els.length) rows.push(els); };
     single("#st-limit");
     group(".st-mode");
-    group("#st-files, #st-copy, #st-usb");
+    group("#st-files, #st-copy, #st-webupd, #st-usb");
     single("#st-close");
     const ri = rows.findIndex((r) => r.includes(document.activeElement));
     const ci = ri >= 0 ? rows[ri].indexOf(document.activeElement) : 0;
@@ -1958,6 +1958,7 @@ function paintSettings() {
       <div class="mt-3 flex space-x-3">
         ${IN_APP && storageState.needsAllFiles ? `<div id="st-files" tabindex="0" class="cursor-pointer rounded-2xl border border-amber-500/60 bg-amber-500/10 px-5 py-3 text-base font-semibold text-amber-200 outline-none transition focus:scale-[1.03] focus:border-amber-300 focus:ring-4 focus:ring-amber-500/25">Дать доступ к файлам…</div>` : ""}
         <div id="st-copy" tabindex="0" class="cursor-pointer rounded-2xl border border-zinc-800 bg-zinc-900/70 px-5 py-3 text-base font-semibold text-zinc-200 outline-none transition focus:scale-[1.03] focus:border-violet-400 focus:ring-4 focus:ring-violet-500/25">Копировать фильмы…</div>
+        <div id="st-webupd" tabindex="0" class="cursor-pointer rounded-2xl border border-zinc-800 bg-zinc-900/70 px-5 py-3 text-base font-semibold text-zinc-200 outline-none transition focus:scale-[1.03] focus:border-violet-400 focus:ring-4 focus:ring-violet-500/25">Обновить интерфейс</div>
         ${IN_APP ? `<div id="st-usb" tabindex="0" class="cursor-pointer rounded-2xl border border-zinc-800 bg-zinc-900/70 px-5 py-3 text-base font-semibold text-zinc-200 outline-none transition focus:scale-[1.03] focus:border-violet-400 focus:ring-4 focus:ring-violet-500/25">Подключить USB…</div>` : ""}
       </div>
     </div>
@@ -1972,6 +1973,15 @@ function paintSettings() {
     else { showOverlay("Доступно только в приложении"); setTimeout(hideOverlay, 2000); }
   });
   document.getElementById("st-copy")?.addEventListener("click", openCopy);
+  // Интерфейс агент обновляет сам раз в десять минут; кнопка — чтобы не ждать после выката.
+  document.getElementById("st-webupd")?.addEventListener("click", async () => {
+    showOverlay("Проверяю обновление…");
+    try {
+      const r = await (await fetch("/api/web-update", { cache: "no-store" })).json();
+      if (r.updated) showOverlay("Обновлено, перезагружаю…");   // страницу перезагрузит SSE
+      else { showOverlay("Уже последняя версия"); setTimeout(hideOverlay, 2000); }
+    } catch (_) { showOverlay("Не удалось проверить"); setTimeout(hideOverlay, 2500); }
+  });
   document.getElementById("st-usb")?.addEventListener("click", () => {
     if (window.MCApp && MCApp.pickUsbFolder) MCApp.pickUsbFolder();
     else { showOverlay("Доступно только в приложении"); setTimeout(hideOverlay, 2000); }
