@@ -771,7 +771,9 @@ function renderDetail() {
   const bg = backdrop(i.backdrop) || poster(i.poster);
   const p = poster(i.poster);
   const eps = i.episodes && i.episodes.length ? i.episodes : [i];
-  const multi = eps.length > 1;
+  // Сериал — всегда сериальная карточка (список серий, кнопки над ним), даже когда серия
+  // пока одна: «фильмовая» раскладка прятала бы номер серии и ломала привычный вид.
+  const multi = i.type === "series" ? eps.length >= 1 : eps.length > 1;
   const castX = i.castX && i.castX.length ? i.castX : [];
   // Режиссёры — первыми в ленте персон (с вертикальным разделителем перед актёрами);
   // из таблицы метаданных строка «Режиссёр» убрана. Фото — из castX, если он там есть.
