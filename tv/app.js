@@ -907,10 +907,21 @@ function updateInfo(i) {
     !i.isCollection ? fmtRuntime(i.runtime) : "",
     i.episodes && i.episodes.length > 1 ? `${i.episodes.length} серий` : ""
   ].filter(Boolean).join('<span class="mx-1.5 text-zinc-600">·</span>');
+  // Атрибуты фильма под описанием — те же строки, что на детальной (у коллекций нечего
+  // показывать: значения у каждой части свои).
+  const attrs = i.isCollection ? "" : [
+    metaRow("Жанр", esc((i.genres || []).join(", "))),
+    metaRow("Страна", esc(i.country)),
+    metaRow("Студия", esc(i.studio)),
+    metaRow("Премьера", fmtDate(i.premiered)),
+    metaRow("Бюджет", fmtMoney(i.budget)),
+    metaRow("Сборы", fmtMoney(i.revenue))
+  ].join("");
   el.innerHTML = `
     <div class="flex-none text-[clamp(18px,calc(var(--uivh)*3.8),28px)] font-bold leading-tight tracking-tight">${esc(i.title)}${i.isCollection ? ' <span class="font-normal text-zinc-500">(Коллекция)</span>' : ""}</div>
     ${meta ? `<div class="mt-1.5 flex-none text-[clamp(11px,calc(var(--uivh)*2),14px)] text-zinc-400">${meta}</div>` : ""}
-    <div class="mt-3 flex-1 overflow-y-auto pr-1 text-[clamp(12px,calc(var(--uivh)*2.2),15px)] leading-snug text-zinc-300">${esc(i.overview || "Нет описания")}</div>`;
+    <div class="mt-3 min-h-0 flex-1 overflow-y-auto pr-1 text-[clamp(12px,calc(var(--uivh)*2.2),15px)] leading-snug text-zinc-300">${esc(i.overview || "Нет описания")}</div>
+    ${attrs ? `<div class="mt-3 flex-none space-y-1 border-t border-white/10 pt-3">${attrs}</div>` : ""}`;
 }
 
 /* ---------- Деталь фильма ---------- */
