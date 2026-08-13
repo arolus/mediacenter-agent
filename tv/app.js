@@ -2484,21 +2484,23 @@ function watchScan() {
         return;
       }
       // Скан закончился — но сервер ещё распознаёт новые файлы (постеры доезжают по одному).
-      await reloadLibrary();
+      const libChanged = await reloadLibrary();
       const pending = items.filter((i) => !i.tmdbId && !i.tmdbTried).length;
       if (pending > 0 && sc.finishedAgo >= 0 && sc.finishedAgo < 600) {
         quiet = 0;
         const done = items.length - pending;
         paint(`<div class="font-semibold">Распознаю фильмы…</div>
           <div class="mt-1 text-sm text-zinc-400">${done} из ${items.length}</div>${bar(done, items.length)}`);
-        rerenderKeepingFocus();
+        // Перерисовка — ТОЛЬКО когда данные реально изменились: пара нераспознаваемых файлов
+        // держала это окошко живым, и экран мигал фокусом каждые две секунды на ровном месте.
+        if (libChanged) rerenderKeepingFocus();
         return;
       }
       // Всё готово: показываем итог пару тактов и убираем окошко.
       if (++quiet === 1 && document.getElementById("scan-box")) {
         paint(`<div class="font-semibold text-emerald-300">Готово</div>
           <div class="mt-1 text-sm text-zinc-400">В медиатеке ${items.length} файлов</div>`);
-        rerenderKeepingFocus();
+        if (libChanged) rerenderKeepingFocus();
       } else if (quiet > 2) {
         paint(null);
         clearInterval(scanPoll); scanPoll = null;
