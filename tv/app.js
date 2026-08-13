@@ -242,7 +242,27 @@ async function reloadLibrary() {
   } catch (_) { items = items || []; return false; }
 }
 
-const byType = (t) => items.filter((i) => i.type === t).sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+// Один и тот же фильм может лежать на ДВУХ флешках сразу (носители показываются одним
+// каталогом), и без этого он давал бы две одинаковые плитки. Держим первую копию — играть
+// можно любую, а «просмотрено» у них общее только по совпадению, так что предпочитаем ту,
+// что уже начали смотреть.
+const dedupe = (list) => {
+  const map = new Map();
+  for (const i of list) {
+    const key = i.tmdbId ? "t:" + i.tmdbId
+      : `n:${String(i.title || i.fileName || "").toLowerCase().trim()}:${i.year || ""}`;
+    const prev = map.get(key);
+    if (!prev || (!prev.started && !prev.watched && (i.started || i.watched))) map.set(key, i);
+  }
+  return [...map.values()];
+};
+
+const byType = (t) => {
+  const list = items.filter((i) => i.type === t);
+  // Серии одного сериала не схлопываем: у них общий tmdbId, но это разные файлы.
+  return (t === "series" ? list : dedupe(list))
+    .sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+};
 
 // Серии одного сериала (общий tmdbId или одинаковое название) — ОДНА карточка со списком серий.
 function groupTitles(list) {

@@ -184,6 +184,7 @@ class HttpServer(
                 uri == "/api/copy-stop" -> { Copier.stop(q["to"]); json(Copier.status()) }
                 uri == "/api/usb-forget" -> { SafStore.forget(ctx, q["id"] ?: ""); json(JSONObject().put("ok", true)) }
                 uri == "/api/copy" -> copyStart(session)
+                uri == "/api/verify" -> verifyVolume(q["from"] ?: "shared", q["to"] ?: "")
                 uri == "/api/home-screen" -> json(homeScreenView())
                 // Хранилища: что нашли, что выбрано, сколько занято. POST — сохранить выбор.
                 uri == "/api/storage" -> storage(session, q)
@@ -238,6 +239,9 @@ class HttpServer(
         val out = JSONArray()
         for (i in 0 until library.length()) {
             val it = library.optJSONObject(i) ?: continue
+            // Фильмы с вынутой флешки остаются в базе (см. Library.sync), но показывать их на
+            // телевизоре незачем — нажатие всё равно упрётся в отсутствующий файл.
+            if (it.optBoolean("offline")) continue
             out.put(JSONObject()
                 .put("id", it.opt("id"))
                 .put("type", it.optString("type", "movie"))
@@ -660,6 +664,38 @@ class HttpServer(
         val src = vols.firstOrNull { it.id == from } ?: vols.firstOrNull()
         val items = if (src != null) Copier.plan(ctx, library, src.dir) else JSONArray()
         return json(JSONObject().put("volumes", arr).put("from", src?.id ?: "").put("items", items))
+    }
+
+    // Проверка носителя: перечитывает ВСЁ, что уже лежит на приёмнике, и сверяет с исходником.
+    // Нужна отдельно от копирования: подделка ёмкости проявляется не там, где писали, а раньше —
+    // накопитель принимает новое, молча затирая старое. Поэтому проверять надо всё сразу.
+    private fun verifyVolume(fromId: String, toId: String): Response {
+        val vols = Storage.volumes(ctx)
+        val src = vols.firstOrNull { it.id == fromId } ?: return err("нет носителя-источника")
+        val tree = if (toId.startsWith("usb-")) SafStore.uriById(ctx, toId) else null
+        val dstVol = if (tree == null) vols.firstOrNull { it.id == toId } else null
+        if (tree == null && dstVol == null) return err("нет носителя-приёмника")
+        val plan = Copier.plan(ctx, library, src.dir)
+        val bad = JSONArray()
+        var checked = 0
+        var missing = 0
+        for (i in 0 until plan.length()) {
+            val files = plan.optJSONObject(i)?.optJSONArray("files") ?: continue
+            for (j in 0 until files.length()) {
+                val f = File(files.optString(j))
+                if (!f.isFile) continue
+                val rel = f.absolutePath.removePrefix(src.dir.absolutePath + File.separator)
+                val dst = if (dstVol != null) File(dstVol.dir, rel) else null
+                val e = Copier.check(ctx, f, dst, rel, tree)
+                if (e == "файла нет на носителе") { missing++; continue }
+                checked++
+                if (e != null) bad.put(JSONObject().put("file", rel).put("error", e))
+            }
+        }
+        Log.i("verify[$toId]: проверено $checked, сбойных ${bad.length()}")
+        return json(JSONObject()
+            .put("checked", checked).put("missing", missing)
+            .put("bad", bad).put("ok", bad.length() == 0))
     }
 
     // Запуск: {"from":"<vol>","to":"<vol>","keys":["f:/path", "s:Сериал", …]}

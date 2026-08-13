@@ -156,8 +156,25 @@ object Library {
           }
         }
 
-        for (id in existing.keys) {
-            if (id !in seen) { libCol.document(id).delete().await(); changed++ }
+        // Носителей может быть несколько, и вынутая флешка — это НЕ повод стирать её фильмы.
+        // Раньше пропавший файл означал «удалили», и после отключения второй флешки из
+        // Firestore улетала сотня записей вместе с распознаванием, отметками «просмотрено» и
+        // позицией просмотра, а по возвращении носителя всё обогащалось заново. Теперь смотрим
+        // на путь: лежит он на подключённом сейчас носителе или на отсутствующем.
+        val mounted = Storage.activeVolumes(ctx).map { it.dir.absolutePath + File.separator }
+        for ((id, prev) in existing) {
+            if (id in seen) {
+                if (prev["offline"] == true)
+                    libCol.document(id).set(mapOf("offline" to false), SetOptions.merge()).await()
+                continue
+            }
+            val path = prev["filePath"] as? String ?: ""
+            val here = mounted.any { path.startsWith(it) }
+            if (here) { libCol.document(id).delete().await(); changed++ }          // файла правда нет
+            else if (prev["offline"] != true) {                                    // носитель вынут
+                libCol.document(id).set(mapOf("offline" to true), SetOptions.merge()).await()
+                changed++
+            }
         }
         return changed
     }

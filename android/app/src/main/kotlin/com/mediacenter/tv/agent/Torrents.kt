@@ -294,8 +294,8 @@ class Torrents(
         val magnet = t["magnet"] as? String ?: return
         val hashHex = Regex("btih:([0-9a-fA-F]{40})").find(magnet)?.groupValues?.get(1)?.lowercase()
         if (hashHex != null && jobs.containsKey(hashHex)) return
-        val target = Storage.targetDir(ctx, t["type"] as? String ?: "movie")
         val size = (t["sizeBytes"] as? Number)?.toLong() ?: 0L
+        val target = Storage.targetDir(ctx, t["type"] as? String ?: "movie", size)
         // Файл уже лежит на месте целиком (перенос повторили, или он приехал раньше другим
         // путём) — закрываем задачу сразу, не трогая торрент. Мало того что это быстрее:
         // на телефоне libtorrent ПАДАЕТ, когда проверяет готовый файл, и агент уходил в
@@ -373,7 +373,7 @@ class Torrents(
             val ti = TorrentInfo(buf)
             val hash = ti.infoHash().toHex()
             if (jobs.containsKey(hash)) return
-            val target = Storage.targetDir(ctx, t["type"] as? String ?: "movie")
+            val target = Storage.targetDir(ctx, t["type"] as? String ?: "movie", ti.totalSize())
             val stage = Storage.stagingFor(ctx, target, ti.totalSize())
             val dir = stage ?: target
             dir.mkdirs()

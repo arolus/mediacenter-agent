@@ -270,8 +270,14 @@ object Storage {
     }
 
     // Куда класть новый файл: носитель с наибольшим доступным местом (лимит уже учтён).
-    fun targetDir(ctx: Context, type: String): File {
-        val v = activeVolumes(ctx).maxByOrNull { writableBytes(ctx, it) } ?: volumes(ctx).first()
+    // sizeBytes — размер того, что собираемся положить (0 = неизвестен). С двумя флешками мало
+    // взять «где свободнее»: если фильм не влезает, качать туда бессмысленно — берём носитель,
+    // на котором он поместится (с запасом 300 МБ), и лишь потом самый свободный.
+    fun targetDir(ctx: Context, type: String, sizeBytes: Long = 0): File {
+        val active = activeVolumes(ctx)
+        val fits = if (sizeBytes > 0)
+            active.filter { writableBytes(ctx, it) >= sizeBytes + 300L * 1024 * 1024 } else active
+        val v = (fits.ifEmpty { active }).maxByOrNull { writableBytes(ctx, it) } ?: volumes(ctx).first()
         val sub = when (type) { "series" -> "Series"; "cartoon" -> "Cartoons"; else -> "Movies" }
         return File(v.dir, sub).apply { mkdirs() }
     }

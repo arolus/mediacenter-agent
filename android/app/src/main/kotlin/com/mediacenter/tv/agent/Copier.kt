@@ -146,6 +146,18 @@ object Copier {
     // 0xFF. Проверено 2026-08-12 на «Media 1TB»: 347 файлов «скопировались» без единой ошибки,
     // а данные уцелели только у первых пяти — остальные 376 ГиБ оказались пустотой. Чтение трёх
     // кусков стоит копейки и ловит это на ПЕРВОМ же файле, а не через девять часов.
+    // Та же сверка, но по требованию: перепроверить уже лежащее на носителе, ничего не копируя.
+    // Возвращает текст ошибки или null, если файл на месте и совпадает с исходником.
+    fun check(ctx: Context, src: File, dst: File?, dstRel: String?, tree: android.net.Uri?): String? {
+        val size = src.length()
+        val there = if (dst != null) (if (dst.exists()) dst.length() else 0)
+                    else SafStore.sizeOf(ctx, tree!!, dstRel!!)
+        if (there == 0L) return "файла нет на носителе"
+        if (there != size) return "размер $there вместо $size"
+        return try { verify(ctx, Item(src, dst, dstRel, tree, size)); null }
+              catch (e: Exception) { e.message ?: "ошибка чтения" }
+    }
+
     private fun verify(ctx: Context, it: Item) {
         if (it.size <= 0) return
         val len = minOf(SAMPLE, it.size).toInt()
