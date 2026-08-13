@@ -803,7 +803,8 @@ function renderDetail() {
       <div class="absolute top-0 right-0 bottom-0 left-0 bg-gradient-to-r from-zinc-950/90 via-zinc-950/70 to-zinc-950/40"></div>
       <button id="detail-back" class="dfoc absolute left-5 top-4 z-10 flex cursor-pointer items-center rounded-2xl border border-white/15 bg-zinc-950/60 px-4 py-[clamp(6px,calc(var(--uivh)*1.5),10px)] text-[clamp(12px,calc(var(--uivh)*2.2),15px)] font-semibold text-zinc-300 outline-none backdrop-blur transition focus:ring-4 focus:ring-violet-500/40">${ICONS.back("mr-1.5 h-[1.1em] w-[1.1em]")} Назад</button>
       <div class="relative flex h-full min-h-0 flex-col justify-center px-7 py-[clamp(16px,calc(var(--uivh)*4),40px)]">
-      <div class="flex ${multi ? "h-full items-stretch" : "items-start"} min-h-0 space-x-6">
+      <div class="mb-3 flex-none truncate text-[clamp(24px,calc(var(--uivh)*5.4),44px)] font-extrabold leading-tight tracking-tight drop-shadow-lg">${esc(i.title)}${i.year ? ` <span class="font-semibold text-zinc-400">(${i.year})</span>` : ""}${multi ? ` <span class="text-[0.55em] font-semibold text-zinc-400">· ${eps.length} серий</span>` : ""}</div>
+      <div class="flex ${multi ? "flex-1 items-stretch" : "items-start"} min-h-0 space-x-6">
         ${p || !multi ? `<div class="flex w-[21%] max-w-[280px] flex-none flex-col pt-1">
           ${p ? `<div class="h-0 w-full flex-none rounded-xl bg-zinc-800 bg-cover bg-center pb-[150%] shadow-2xl shadow-black/60 ring-1 ring-white/15" style="background-image:url('${p}')"></div>` : ""}
           ${multi ? "" : `<div id="tech-strip" class="mt-2.5 flex flex-none flex-wrap">
@@ -819,7 +820,6 @@ function renderDetail() {
             ${castX.filter((a) => !dirCards.some((d) => d.n === a.n)).map(actorCard).join("")}
           </div>` : ""}
           <div class="flex min-h-0 ${multi ? "flex-1" : ""} flex-col">
-          <div class="mt-1 flex-none truncate text-[clamp(18px,calc(var(--uivh)*4),28px)] font-extrabold leading-tight tracking-tight drop-shadow-lg">${esc(i.title)}${i.year ? ` <span class="font-semibold text-zinc-400">(${i.year})</span>` : ""}${multi ? ` <span class="text-[0.6em] font-semibold text-zinc-400">· ${eps.length} серий</span>` : ""}</div>
           ${i.tagline ? `<div class="flex-none truncate text-[clamp(11px,calc(var(--uivh)*2.1),15px)] italic text-zinc-400">«${esc(i.tagline)}»</div>` : ""}
           <div class="mt-1 flex min-h-0 ${multi ? "flex-1" : ""} space-x-6">
             <div id="detail-desc" tabindex="0" class="thin-scroll h-[clamp(96px,calc(var(--uivh)*30),300px)] min-w-0 flex-1 overflow-y-auto rounded-md pr-1 text-[clamp(12px,calc(var(--uivh)*2.4),16px)] leading-snug text-zinc-200 outline-none drop-shadow focus:ring-2 focus:ring-violet-500/40">
