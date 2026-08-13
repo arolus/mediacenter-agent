@@ -816,9 +816,10 @@ function renderDetail() {
             ${dirCards.length && castX.length ? '<div class="mx-0.5 w-px flex-none self-stretch bg-white/20"></div>' : ""}
             ${castX.filter((a) => !dirCards.some((d) => d.n === a.n)).map(actorCard).join("")}
           </div>` : ""}
+          <div class="flex min-h-0 flex-1 flex-col ${multi ? "" : "justify-center"}">
           <div class="mt-1 flex-none truncate text-[clamp(18px,calc(var(--uivh)*4),28px)] font-extrabold leading-tight tracking-tight drop-shadow-lg">${esc(i.title)}${i.year ? ` <span class="font-semibold text-zinc-400">(${i.year})</span>` : ""}${multi ? ` <span class="text-[0.6em] font-semibold text-zinc-400">· ${eps.length} серий</span>` : ""}</div>
           ${i.tagline ? `<div class="flex-none truncate text-[clamp(11px,calc(var(--uivh)*2.1),15px)] italic text-zinc-400">«${esc(i.tagline)}»</div>` : ""}
-          <div class="mt-2 flex min-h-0 flex-1 items-center space-x-6">
+          <div class="mt-1 flex min-h-0 ${multi ? "flex-1" : ""} space-x-6">
             <div id="detail-desc" tabindex="0" class="thin-scroll h-[clamp(96px,calc(var(--uivh)*30),300px)] min-w-0 flex-1 overflow-y-auto rounded-md pr-1 text-[clamp(12px,calc(var(--uivh)*2.4),16px)] leading-snug text-zinc-200 outline-none drop-shadow focus:ring-2 focus:ring-violet-500/40">
               ${esc(i.overview || "Нет описания")}
               ${multi ? `<div class="mt-3 space-y-1">${metaTable}</div>` : ""}
@@ -839,13 +840,14 @@ function renderDetail() {
                 </div>`
               : `<div class="h-[clamp(96px,calc(var(--uivh)*30),300px)] w-[38%] max-w-[400px] flex-none space-y-1 overflow-y-auto">${metaTable}</div>`}
           </div>
-          ${multi ? "" : `<div id="detail-buttons" class="mt-2.5 flex flex-none items-center space-x-2.5">
+          ${multi ? "" : `<div id="detail-buttons" class="mt-3 flex flex-none items-center space-x-2.5">
             <button class="${BTN} bg-white/5 text-zinc-300 focus:ring-violet-500/40" id="detail-back">${ICONS.back("mr-1.5 h-[1.1em] w-[1.1em]")} Назад</button>
             <button class="dfoc flex flex-none cursor-pointer items-center rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-[clamp(18px,calc(var(--uivw)*3),32px)] py-[clamp(7px,calc(var(--uivh)*1.8),12px)] text-[clamp(14px,calc(var(--uivh)*2.6),18px)] font-bold text-white shadow-xl shadow-violet-600/40 outline-none transition focus:scale-[1.04] focus:ring-4 focus:ring-violet-400/50" id="detail-play" data-id="${esc(i.id)}">${(i.isGhost ? ICONS.download : ICONS.play)("mr-2 h-[1.2em] w-[1.2em]")} ${i.isGhost ? "Скачать" : "Смотреть"}</button>
             ${i.trailer ? `<button class="${BTN} bg-white/5 text-zinc-300 focus:ring-violet-500/40" id="detail-trailer">${ICONS.movie("mr-2 h-[1.1em] w-[1.1em]")} Трейлер</button>` : ""}
             ${i.isGhost ? "" : `<button class="${BTN} epw ${i.watched ? "bg-emerald-500/15 text-emerald-300 focus:ring-emerald-500/40" : "bg-white/5 text-zinc-300 focus:ring-violet-500/40"}"
               data-id="${esc(i.id)}" data-set="${i.watched ? 0 : 1}">${(i.watched ? ICONS.check : ICONS.eyeOff)("mr-2 h-[1.1em] w-[1.1em]")}${i.watched ? "Просмотрено" : "Не просмотрено"}</button>`}
           </div>`}
+          </div>
         </div>
       </div>
     </div>`;
