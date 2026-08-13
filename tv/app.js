@@ -208,6 +208,10 @@ async function load() {
     } catch (_) { es = null; setDot("st-live", "bad"); }
   };
   document.addEventListener("visibilitychange", async () => {
+    // Страница ушла в фон = плеер открылся: плашка «Запускаю плеер…» своё отработала.
+    // Иначе таймеры WebView замирали вместе со страницей, и по возвращении из VLC плашка
+    // висела ещё пару секунд.
+    if (document.hidden) hideOverlay();
     if (document.hidden) { if (es) { es.close(); es = null; setDot("st-live", "off"); } }
     else { connectEvents(); if (await reloadLibrary()) rerenderKeepingFocus(); } // догнать пропущенное
   });
