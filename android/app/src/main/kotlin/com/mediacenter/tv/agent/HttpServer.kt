@@ -201,7 +201,11 @@ class HttpServer(
                     val was = WebUpdater.localVersion(ctx)
                     val res = runCatching { WebUpdater.check(ctx) }
                     if (res.isSuccess) {
-                        if (res.getOrDefault(false)) reloadClients()
+                        if (res.getOrDefault(false)) {
+                            reloadClients()
+                            ctx.sendBroadcast(android.content.Intent("com.mediacenter.tv.UI_UPDATED")
+                                .setPackage(ctx.packageName))
+                        }
                         json(JSONObject().put("updated", res.getOrDefault(false))
                             .put("was", was.ifEmpty { "вшитая" })
                             .put("now", WebUpdater.localVersion(ctx).ifEmpty { "вшитая" }))

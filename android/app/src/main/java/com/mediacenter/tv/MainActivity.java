@@ -44,6 +44,7 @@ public class MainActivity extends Activity {
 
     private WebView web;
     private BroadcastReceiver agentReady;
+    private BroadcastReceiver uiUpdated;
     private boolean reloadedOnAgentReady;
     private String url;
     private Thread waiter; // фоновая проба агента, пока он не поднялся
@@ -223,6 +224,17 @@ public class MainActivity extends Activity {
             }
         };
         registerReceiver(agentReady, new IntentFilter("com.mediacenter.tv.AGENT_READY"),
+                Build.VERSION.SDK_INT >= 33 ? Context.RECEIVER_NOT_EXPORTED : 0);
+        // Интерфейс обновился (WebUpdater скачал новую версию) — перезагружаем страницу.
+        // Через SSE это делать НЕЛЬЗЯ: команду понимает только страница, которая уже содержит
+        // обработчик, а обновляем мы как раз тех, у кого его ещё нет. Плюс SSE отключается,
+        // когда вкладка уходит в фон, — и обновление до неё просто не доезжало.
+        uiUpdated = new BroadcastReceiver() {
+            @Override public void onReceive(Context c, Intent i) {
+                web.post(new Runnable() { @Override public void run() { web.reload(); } });
+            }
+        };
+        registerReceiver(uiUpdated, new IntentFilter("com.mediacenter.tv.UI_UPDATED"),
                 Build.VERSION.SDK_INT >= 33 ? Context.RECEIVER_NOT_EXPORTED : 0);
         syncHomeScreen();
         cacheKioskPin();
@@ -645,6 +657,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         if (agentReady != null) { try { unregisterReceiver(agentReady); } catch (Exception ignored) {} }
+        if (uiUpdated != null) { try { unregisterReceiver(uiUpdated); } catch (Exception ignored) {} }
         web.destroy();
         super.onDestroy();
     }

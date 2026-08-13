@@ -126,7 +126,12 @@ class AgentService : Service() {
         AdbPort.start(this, scope)
         // Интерфейс приезжает сам, без переустановки APK: скачали новую версию — перезагрузили
         // страницы на ноде.
-        WebUpdater.start(this, scope) { http?.reloadClients() }
+        WebUpdater.start(this, scope) {
+            http?.reloadClients()
+            // Плюс широковещательный сигнал активности: SSE спит, когда вкладка в фоне, и
+            // старые страницы про команду «reload» ещё не знают.
+            sendBroadcast(Intent("com.mediacenter.tv.UI_UPDATED").setPackage(packageName))
+        }
 
         // Страница в WebView стартует раньше сервера и в этот момент получает ответ из
         // офлайн-кэша (service worker). Сообщаем активности, что агент готов, — она перезагрузит
