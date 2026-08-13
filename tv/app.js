@@ -801,6 +801,7 @@ function renderDetail() {
     <div class="relative h-full overflow-hidden">
       <div class="absolute top-0 right-0 bottom-0 left-0 bg-black bg-cover bg-center brightness-[.3] saturate-[1.1]" style="${bg ? `background-image:url('${bg}')` : ""}"></div>
       <div class="absolute top-0 right-0 bottom-0 left-0 bg-gradient-to-r from-zinc-950/90 via-zinc-950/70 to-zinc-950/40"></div>
+      <button id="detail-back" class="dfoc absolute left-5 top-4 z-10 flex cursor-pointer items-center rounded-2xl border border-white/15 bg-zinc-950/60 px-4 py-[clamp(6px,calc(var(--uivh)*1.5),10px)] text-[clamp(12px,calc(var(--uivh)*2.2),15px)] font-semibold text-zinc-300 outline-none backdrop-blur transition focus:ring-4 focus:ring-violet-500/40">${ICONS.back("mr-1.5 h-[1.1em] w-[1.1em]")} Назад</button>
       <div class="relative flex h-full min-h-0 flex-col justify-center px-7 py-[clamp(16px,calc(var(--uivh)*4),40px)]">
       <div class="flex ${multi ? "h-full items-stretch" : "items-start"} min-h-0 space-x-6">
         ${p || !multi ? `<div class="flex w-[21%] max-w-[280px] flex-none flex-col pt-1">
@@ -829,7 +830,6 @@ function renderDetail() {
               ? `<div class="flex h-full min-h-0 w-[46%] max-w-[560px] flex-none flex-col">
                   <!-- Кнопки над сериями: зона прокрутки серий выше, дотягиваться ближе -->
                   <div id="detail-buttons" data-top="1" class="flex flex-none items-center space-x-2 pb-2">
-                    <button class="${BTN} bg-white/5 text-zinc-300 focus:ring-violet-500/40" id="detail-back">${ICONS.back("mr-1.5 h-[1.1em] w-[1.1em]")} Назад</button>
                     ${i.trailer ? `<button class="${BTN} bg-white/5 text-zinc-300 focus:ring-violet-500/40" id="detail-trailer">${ICONS.movie("mr-2 h-[1.1em] w-[1.1em]")} Трейлер</button>` : ""}
                     <button class="${BTN} ${epFilter === "watched" ? "bg-emerald-500/15 text-emerald-300 focus:ring-emerald-500/40" : epFilter === "unwatched" ? "bg-violet-500/15 text-violet-300 focus:ring-violet-500/40" : "bg-white/5 text-zinc-300 focus:ring-violet-500/40"}" id="ep-eye" aria-label="Фильтр серий">
                       ${(epFilter === "unwatched" ? ICONS.eyeOff : ICONS.eye)("mr-2 h-[1.1em] w-[1.1em]")}${epFilter === "all" ? "Все" : epFilter === "watched" ? "Просмотренные" : "Непросмотренные"}
@@ -842,7 +842,6 @@ function renderDetail() {
               : `<div class="h-[clamp(96px,calc(var(--uivh)*30),300px)] w-[38%] max-w-[400px] flex-none space-y-1 overflow-y-auto">${metaTable}</div>`}
           </div>
           ${multi ? "" : `<div id="detail-buttons" class="mt-[clamp(20px,calc(var(--uivh)*6),56px)] flex flex-none items-center space-x-2.5">
-            <button class="${BTN} bg-white/5 text-zinc-300 focus:ring-violet-500/40" id="detail-back">${ICONS.back("mr-1.5 h-[1.1em] w-[1.1em]")} Назад</button>
             <button class="dfoc flex flex-none cursor-pointer items-center rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-[clamp(18px,calc(var(--uivw)*3),32px)] py-[clamp(7px,calc(var(--uivh)*1.8),12px)] text-[clamp(14px,calc(var(--uivh)*2.6),18px)] font-bold text-white shadow-xl shadow-violet-600/40 outline-none transition focus:scale-[1.04] focus:ring-4 focus:ring-violet-400/50" id="detail-play" data-id="${esc(i.id)}">${(i.isGhost ? ICONS.download : ICONS.play)("mr-2 h-[1.2em] w-[1.2em]")} ${i.isGhost ? "Скачать" : "Смотреть"}</button>
             ${i.trailer ? `<button class="${BTN} bg-white/5 text-zinc-300 focus:ring-violet-500/40" id="detail-trailer">${ICONS.movie("mr-2 h-[1.1em] w-[1.1em]")} Трейлер</button>` : ""}
             ${i.isGhost ? "" : `<button class="${BTN} epw ${i.watched ? "bg-emerald-500/15 text-emerald-300 focus:ring-emerald-500/40" : "bg-white/5 text-zinc-300 focus:ring-violet-500/40"}"
@@ -1589,6 +1588,7 @@ document.addEventListener("keydown", (e) => {
       return w ? [ep, w] : [ep];
     });
     const buttons = [...app.querySelectorAll("#detail-buttons .dfoc")];
+    const backBtn = document.getElementById("detail-back");
     const desc = document.getElementById("detail-desc");
     const descScrolls = desc && desc.scrollHeight > desc.clientHeight + 2; // зона, только если есть что листать
     const focusEl = (el) => { if (el) { el.focus({ preventScroll: true }); el.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" }); } };
@@ -1596,6 +1596,11 @@ document.addEventListener("keydown", (e) => {
     const rowIdx = epRows.findIndex((r) => r.includes(cur));
     const bIdx = buttons.indexOf(cur);
     const inDesc = cur === desc;
+    if (cur === backBtn) {
+      if (e.key === "ArrowDown" || e.key === "ArrowRight")
+        focusEl(actors[0] || (descScrolls ? desc : null) || buttons[0] || epRows[0]?.[0]);
+      return;
+    }
     if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
       const d = e.key === "ArrowRight" ? 1 : -1;
       if (aIdx >= 0) focusEl(actors[Math.max(0, Math.min(actors.length - 1, aIdx + d))]);
@@ -1626,7 +1631,7 @@ document.addEventListener("keydown", (e) => {
       else focusEl(actors[0]);
     }
     else if (rowIdx >= 0) focusEl(rowIdx > 0 ? epRows[rowIdx - 1][0] : (btnTop ? buttons[0] : (descScrolls ? desc : actors[0])));
-    // из актёров вверх — некуда
+    else if (aIdx >= 0) focusEl(backBtn);
   }
 });
 
