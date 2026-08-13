@@ -56,7 +56,8 @@ let epFilter = "all"; // фильтр списка серий (кнопка-гл
 // Сортировка сеток и фильмографии + фильтр по жанру. Хранится в localStorage: настройка
 // вкусовая и должна переживать перезапуск.
 const SORTS = [["new", "Новые"], ["year", "Год"], ["rating", "Рейтинг"], ["votes", "Голоса"], ["abc", "А-Я"]];
-let gridSort = localStorage.getItem("mc-sort") || "new";
+const gridSortFor = (t) => localStorage.getItem("mc-sort:" + t) || "new";
+const setGridSort = (t, v) => localStorage.setItem("mc-sort:" + t, v);
 let gridGenre = localStorage.getItem("mc-genre") || "";
 let personSort = localStorage.getItem("mc-psort") || "year";
 // Активные загрузки этого устройства (для прогресса на «призраках»). Ключ: norm(title)|year.
@@ -415,9 +416,10 @@ const entriesForType = (t) => {
       type: t, title: d.title, year: d.year || meta.year || null, poster: meta.poster || null });
   }
   if (t === "movie" || t === "cartoon") {
-    if (gridSort === "abc") arr.sort((a, b) => (a.title || "").localeCompare(b.title || ""));
-    else if (gridSort === "new") arr.sort((a, b) => newestOf(b) - newestOf(a) || (a.title || "").localeCompare(b.title || ""));
-    else arr.sort((a, b) => sortVal(b, gridSort) - sortVal(a, gridSort) || (a.title || "").localeCompare(b.title || ""));
+    const srt = gridSortFor(t);
+    if (srt === "abc") arr.sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+    else if (srt === "new") arr.sort((a, b) => newestOf(b) - newestOf(a) || (a.title || "").localeCompare(b.title || ""));
+    else arr.sort((a, b) => sortVal(b, srt) - sortVal(a, srt) || (a.title || "").localeCompare(b.title || ""));
   }
   return arr;
 };
@@ -628,7 +630,7 @@ function computeCardWidth() {
 function cardHtml(i) {
   // у коллекции — «скачано/всего частей франшизы» (включая недостающие «призраки»)
   // При сортировке по году бейдж плитки — сам год: иначе порядок выглядит загадкой.
-  const yearSorted = state.screen === "grid" && gridSort === "year" && (i.type === "movie" || i.type === "cartoon");
+  const yearSorted = state.screen === "grid" && (i.type === "movie" || i.type === "cartoon") && gridSortFor(i.type) === "year";
   const badge = yearSorted
     ? String((i.isCollection ? sortVal(i, "year") : i.year) || "")
     : i.isCollection
@@ -683,7 +685,7 @@ function renderGridPage({ heading, count, list, empty, onOpen, fallbackInfo, fil
   // p-1 внутри скролла — чтобы фокус-кольцо чипов не резалось краем.
   const filterBar = filters ? `
         <div id="grid-filters" class="mb-3 flex items-center" style="width:0;min-width:100%">
-          <div class="flex-none p-1"><div id="flt-sort" tabindex="0" class="${CHIP}">Сортировка: ${(SORTS.find(([k]) => k === gridSort) || SORTS[0])[1]}</div></div>
+          <div class="flex-none p-1"><div id="flt-sort" tabindex="0" class="${CHIP}">Сортировка: ${(SORTS.find(([k]) => k === gridSortFor(state.type)) || SORTS[0])[1]}</div></div>
           ${genreChips ? `<div class="mx-1.5 h-5 w-px flex-none bg-white/15"></div>
           <div class="thin-scroll flex min-w-0 flex-1 items-center space-x-2 overflow-x-auto p-1">
             ${genreChips.map(([g, label]) => `
@@ -768,9 +770,8 @@ function openOptionPicker(title, options, current, onPick) {
 function closeOptionPicker() { document.getElementById("opt-picker")?.remove(); }
 
 function openSortPicker() {
-  openOptionPicker("Сортировка", SORTS, gridSort, (v) => {
-    gridSort = v;
-    localStorage.setItem("mc-sort", gridSort);
+  openOptionPicker("Сортировка", SORTS, gridSortFor(state.type), (v) => {
+    setGridSort(state.type, v);
     render();
     document.getElementById("flt-sort")?.focus({ preventScroll: true });
   });
