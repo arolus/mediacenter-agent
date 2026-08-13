@@ -38,6 +38,37 @@ object Commands {
                                     .collection("library").document(libId).delete().await()
                                 onLibraryChanged()
                             }
+                            "rename" -> {
+                                // Переименование ОДНОГО файла (дашборд → «Исправить файл…»).
+                                // Док переносится на новый путь с сохранением всех полей —
+                                // иначе новый SHA1-id стирал бы отметки и распознавание.
+                                val fp = cmd["filePath"] as? String ?: ""
+                                val newName = (cmd["newName"] as? String ?: "").trim()
+                                if (newName.isEmpty() || newName.contains('/'))
+                                    throw Exception("некорректное имя: «$newName»")
+                                val allowed = Storage.scanDirs(ctx).values.flatten().any {
+                                    fp.startsWith(it.path + File.separator)
+                                }
+                                if (!allowed) throw Exception("путь вне медиапапок: $fp")
+                                val src = File(fp)
+                                if (!src.isFile) throw Exception("файла нет: $fp")
+                                val dst = File(src.parentFile, newName)
+                                if (dst.exists()) throw Exception("уже есть файл с именем «$newName»")
+                                if (!src.renameTo(dst)) throw Exception("не удалось переименовать")
+                                val libCol = db.collection("devices").document(config.deviceId).collection("library")
+                                val oldId = cmd["libId"] as? String ?: Library.libIdFor(fp)
+                                val old = libCol.document(oldId).get().await()
+                                if (old.exists()) {
+                                    val data = HashMap(old.data ?: emptyMap())
+                                    data["filePath"] = dst.path
+                                    data["fileName"] = dst.name
+                                    // originalName не трогаем: истинное имя раздачи остаётся историей
+                                    libCol.document(Library.libIdFor(dst.path)).set(data).await()
+                                    libCol.document(oldId).delete().await()
+                                }
+                                ref.update("result", "«${src.name}» → «${dst.name}»").await()
+                                onLibraryChanged()
+                            }
                             "normalize" -> {
                                 val n = Normalize.run(ctx, db, config)
                                 ref.update("result", "переименовано $n").await()
