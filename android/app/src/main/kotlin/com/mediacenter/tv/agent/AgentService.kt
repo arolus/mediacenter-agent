@@ -181,10 +181,20 @@ class AgentService : Service() {
     private fun rescan() {
         scanJob?.cancel()
         scanJob = scope.launch {
+            // Не сканируем, пока идёт закачка — ВКЛЮЧАЯ первые секунды после рестарта, когда
+            // торренты ещё не подняты и busy() честно врёт «свободен». Иначе частично
+            // скачанный файл попадал в медиатеку голой плиткой с кнопкой «Смотреть».
+            // Правду о незавершённых закачках знает Firestore — сверяемся с ним.
+            while (torrents?.busy() == true || hasActiveDownloads()) delay(5000)
             try { Library.sync(this@AgentService, db, config) }
             catch (e: Exception) { Log.e("scan: ${e.message}") }
         }
     }
+
+    private suspend fun hasActiveDownloads(): Boolean = runCatching {
+        db.collection("downloads").whereEqualTo("target", config.deviceId).get().await()
+            .documents.any { it.getString("status") !in setOf("done", "error") }
+    }.getOrDefault(false)
 
     // fs.watch equivalent + a periodic sweep, exactly like the Node agent's watcher.js:
     // FileObserver misses nested changes on Android, so the poll is the reliable baseline.
