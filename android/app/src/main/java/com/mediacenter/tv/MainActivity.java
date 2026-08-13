@@ -643,6 +643,10 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onPause() {
+        // Плеер (или другое окно) выходит на передний план — плашка «Запускаю плеер…» своё
+        // отработала. Гасим ДО заморозки WebView: его таймеры и visibilitychange замирают
+        // вместе со страницей, и плашка иначе доживала до возвращения.
+        web.evaluateJavascript("window.hideOverlay && hideOverlay()", null);
         // Мы не на экране (VLC, лончер…) — таймер не наш: чужие окна сами держат экран.
         handler.removeCallbacks(idleOff);
         web.onPause();

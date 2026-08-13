@@ -905,9 +905,16 @@ const fmtRuntime = (min) => {
 };
 
 // Левая панель сетки — как у Kodi: название, мета-строка (рейтинг/год/длительность) и описание.
+let infoScrollT = null, infoScrollRaf = null;
+function stopInfoScroll() {
+  clearTimeout(infoScrollT); infoScrollT = null;
+  cancelAnimationFrame(infoScrollRaf); infoScrollRaf = null;
+}
+
 function updateInfo(i) {
   const el = document.getElementById("grid-info");
   if (!el) return;
+  stopInfoScroll();
   if (!i) { el.innerHTML = ""; return; }
   const rating = Number(i.imdbRating || i.rating || 0);
   const meta = [
@@ -929,8 +936,18 @@ function updateInfo(i) {
   el.innerHTML = `
     <div class="flex-none text-[clamp(18px,calc(var(--uivh)*3.8),28px)] font-bold leading-tight tracking-tight">${esc(i.title)}${i.isCollection ? ' <span class="font-normal text-zinc-500">(Коллекция)</span>' : ""}</div>
     ${meta ? `<div class="mt-1.5 flex-none text-[clamp(11px,calc(var(--uivh)*2),14px)] text-zinc-400">${meta}</div>` : ""}
-    <div class="mt-3 min-h-0 flex-1 overflow-y-auto pr-1 text-[clamp(12px,calc(var(--uivh)*2.2),15px)] leading-snug text-zinc-300">${esc(i.overview || "Нет описания")}</div>
+    <div id="ginfo-desc" class="mt-3 min-h-0 flex-1 overflow-y-auto pr-1 text-[clamp(12px,calc(var(--uivh)*2.2),15px)] leading-snug text-zinc-300">${esc(i.overview || "Нет описания")}</div>
     ${attrs ? `<div class="mt-3 flex-none space-y-1 border-t border-white/10 pt-3">${attrs}</div>` : ""}`;
+  const d = document.getElementById("ginfo-desc");
+  if (d && d.scrollHeight > d.clientHeight + 4) {
+    infoScrollT = setTimeout(() => {
+      const step = () => {
+        d.scrollTop += 0.35;   // ~20 пикселей в секунду — читается, не мельтешит
+        if (d.scrollTop + d.clientHeight < d.scrollHeight - 1) infoScrollRaf = requestAnimationFrame(step);
+      };
+      infoScrollRaf = requestAnimationFrame(step);
+    }, 2500);
+  }
 }
 
 /* ---------- Деталь фильма ---------- */
@@ -1012,7 +1029,7 @@ function renderDetail() {
       <button class="dfoc ep flex min-w-0 flex-1 cursor-pointer items-center rounded-xl border border-white/10 bg-white/5 px-2.5 py-1.5 text-left text-[14px] outline-none backdrop-blur transition focus:border-violet-400 focus:bg-violet-500/15 focus:ring-2 focus:ring-violet-500/40 ${ep.watched ? "opacity-60" : ""}" data-id="${esc(ep.id)}">
         <img src="/thumb?id=${esc(ep.id)}" loading="lazy" alt=""
           class="mr-2.5 h-10 w-[72px] flex-none rounded-lg bg-zinc-800 object-cover"
-          onerror="this.style.display='none'" />
+          onerror="this.removeAttribute('src')" />
         <span class="mr-2.5 flex-none ${ep.watched ? "text-emerald-400" : "text-violet-300"}">${ep.watched ? ICONS.check("h-4 w-4") : ICONS.play("h-4 w-4")}</span>
         <span class="truncate">${esc(epLabel(ep))}</span>
       </button>
@@ -2094,8 +2111,7 @@ async function startPlay(id, fromStart) {
       const it = items.find((x) => x.id === id);
       const pos = fromStart ? 0 : Number((it && it.position) || 0);
       window.MCApp.playVideo(r.url, r.package || "", r.title || "", r.subtitles || "", id, !!fromStart, pos);
-      hideOverlay();   // плеер открывается поверх — плашке тут больше нечего делать
-      return;
+      return;   // плашку погасит приложение в момент открытия плеера (onPause → hideOverlay)
     }
     showOverlay(r.ok ? "Играет в плеере" : "⚠️ " + (r.error || "ошибка"), r.ok);
   } catch (_) { showOverlay("⚠️ Не удалось запустить"); }
