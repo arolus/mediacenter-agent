@@ -659,12 +659,17 @@ function renderGridPage({ heading, count, list, empty, onOpen, fallbackInfo, fil
   // Чипы НЕ приклеены: полоса лежит внутри скролл-зоны и уезжает вместе со списком.
   // Жанры — сразу строкой (без меню): «все» + жанры библиотеки по убыванию частоты.
   const genreChips = filters && filters.genres ? [["", "все"], ...genreCounts(state.type).map(([g]) => [g, g])] : null;
+  // width:0 + min-width:100% — ширина полосы не зависит от контента (иначе строка чипов
+  // распирала страницу вширь); жанры скроллятся в СВОЁМ контейнере, сортировка стоит слева.
+  // p-1 внутри скролла — чтобы фокус-кольцо чипов не резалось краем.
   const filterBar = filters ? `
-        <div id="grid-filters" class="thin-scroll mb-4 flex items-center space-x-2 overflow-x-auto pb-1 pr-2">
-          <div id="flt-sort" tabindex="0" class="${CHIP} flex-none">Сортировка: ${(SORTS.find(([k]) => k === gridSort) || SORTS[0])[1]}</div>
-          ${genreChips ? `<div class="mx-1 h-5 w-px flex-none bg-white/15"></div>` +
-            genreChips.map(([g, label]) => `
-              <div tabindex="0" data-genre="${esc(g)}" class="flt-genre ${CHIP} flex-none ${g === gridGenre ? "border-violet-500/60 bg-violet-500/15 text-violet-200" : ""}">${esc(label)}</div>`).join("") : ""}
+        <div id="grid-filters" class="mb-3 flex items-center" style="width:0;min-width:100%">
+          <div class="flex-none p-1"><div id="flt-sort" tabindex="0" class="${CHIP}">Сортировка: ${(SORTS.find(([k]) => k === gridSort) || SORTS[0])[1]}</div></div>
+          ${genreChips ? `<div class="mx-1.5 h-5 w-px flex-none bg-white/15"></div>
+          <div class="thin-scroll flex min-w-0 flex-1 items-center space-x-2 overflow-x-auto p-1">
+            ${genreChips.map(([g, label]) => `
+              <div tabindex="0" data-genre="${esc(g)}" class="flt-genre ${CHIP} flex-none ${g === gridGenre ? "border-violet-500/60 bg-violet-500/15 text-violet-200" : ""}">${esc(label)}</div>`).join("")}
+          </div>` : ""}
         </div>` : "";
   app.innerHTML = `
     <div class="flex h-full">
