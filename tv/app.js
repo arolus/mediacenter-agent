@@ -656,10 +656,15 @@ function renderGridPage({ heading, count, list, empty, onOpen, fallbackInfo, fil
   computeCardWidth();
   // Чипы сортировки/жанра: класс tv-card включает их в пространственную навигацию пультом
   // (nearest ходит по геометрии), но data-id нет — обработчики плиток их не трогают.
+  // Чипы НЕ приклеены: полоса лежит внутри скролл-зоны и уезжает вместе со списком.
+  // Жанры — сразу строкой (без меню): «все» + жанры библиотеки по убыванию частоты.
+  const genreChips = filters && filters.genres ? [["", "все"], ...genreCounts(state.type).map(([g]) => [g, g])] : null;
   const filterBar = filters ? `
-        <div class="flex flex-none items-center space-x-2 px-2.5 pt-2 pb-1">
-          <div id="flt-sort" tabindex="0" class="${CHIP}">${ICONS.sort ? "" : ""}Сортировка: ${(SORTS.find(([k]) => k === gridSort) || SORTS[0])[1]}</div>
-          <div id="flt-genre" tabindex="0" class="${CHIP} ${gridGenre ? "border-violet-500/60 text-violet-200" : ""}">Жанр: ${gridGenre || "все"}</div>
+        <div id="grid-filters" class="thin-scroll mb-4 flex items-center space-x-2 overflow-x-auto pb-1 pr-2">
+          <div id="flt-sort" tabindex="0" class="${CHIP} flex-none">Сортировка: ${(SORTS.find(([k]) => k === gridSort) || SORTS[0])[1]}</div>
+          ${genreChips ? `<div class="mx-1 h-5 w-px flex-none bg-white/15"></div>` +
+            genreChips.map(([g, label]) => `
+              <div tabindex="0" data-genre="${esc(g)}" class="flt-genre ${CHIP} flex-none ${g === gridGenre ? "border-violet-500/60 bg-violet-500/15 text-violet-200" : ""}">${esc(label)}</div>`).join("") : ""}
         </div>` : "";
   app.innerHTML = `
     <div class="flex h-full">
@@ -670,9 +675,9 @@ function renderGridPage({ heading, count, list, empty, onOpen, fallbackInfo, fil
         </div>
         <div class="mt-4 flex min-h-0 flex-1 flex-col" id="grid-info"></div>
       </div>
-      <div class="flex flex-1 flex-col px-3 pt-2">${filterBar}
+      <div class="flex flex-1 flex-col px-3 pt-2">
         <!-- pt/pl: чтобы фокус-кольцо и scale карточек не обрезались краем скролл-зоны -->
-        <div class="flex-1 overflow-y-auto pb-4 pl-2.5 pt-2.5">
+        <div class="flex-1 overflow-y-auto pb-4 pl-2.5 pt-2.5">${filterBar}
           <div class="grid grid-cols-[repeat(var(--cols),var(--card-w))] justify-start gap-7">
             ${backTile()}${list.map(cardHtml).join("") || empty}
           </div>
@@ -680,7 +685,12 @@ function renderGridPage({ heading, count, list, empty, onOpen, fallbackInfo, fil
       </div>
     </div>`;
   document.getElementById("flt-sort")?.addEventListener("click", () => openSortPicker());
-  document.getElementById("flt-genre")?.addEventListener("click", () => openGenrePicker());
+  app.querySelectorAll(".flt-genre").forEach((c) => c.addEventListener("click", () => {
+    gridGenre = c.dataset.genre;
+    localStorage.setItem("mc-genre", gridGenre);
+    render();
+    app.querySelector(`.flt-genre[data-genre="${CSS.escape(gridGenre)}"]`)?.focus({ preventScroll: true });
+  }));
   app.querySelectorAll(".tv-card").forEach((card) => {
     if (!card.dataset.id) return; // плитка «Назад»
     const item = list.find((i) => i.id === card.dataset.id);
@@ -691,7 +701,8 @@ function renderGridPage({ heading, count, list, empty, onOpen, fallbackInfo, fil
   const bt = app.querySelector(".grid-back");
   bt.addEventListener("click", back);
   bt.addEventListener("focus", () => updateInfo(fallbackInfo || null));
-  const first = app.querySelector(".tv-card[data-id]") || bt;
+  const first = app.querySelector(`.flt-genre[data-genre="${CSS.escape(gridGenre)}"]`)
+    || app.querySelector(".tv-card[data-id]") || bt;
   if (first) first.focus();
 }
 
@@ -706,6 +717,7 @@ function renderGrid() {
     empty: loaded ? '<p class="tv-empty col-span-3 p-14 text-2xl text-zinc-400">Пусто</p>' : spinner("Загружаю медиатеку…"),
     onOpen: (item) => item.isCollection ? enterCollection(item) : enterDetail(item),
     filters: state.type === "movie" || state.type === "cartoon"
+      ? { genres: state.type === "movie" } : null
   });
 }
 
@@ -874,6 +886,9 @@ async function markWatched(btn) {
   }
 }
 
+// Некоторые tagline в TMDb уже в кавычках — свои поверх давали «двойные».
+const stripQuotes = (t) => String(t).trim().replace(/^[«"„'‘“]+/, "").replace(/[»"”'’]+$/, "");
+
 const fmtRuntime = (min) => {
   if (!min) return "";
   const h = Math.floor(min / 60), m = Math.round(min % 60);
@@ -990,7 +1005,8 @@ function renderDetail() {
       <div class="absolute top-0 right-0 bottom-0 left-0 bg-gradient-to-r from-zinc-950/90 via-zinc-950/70 to-zinc-950/40"></div>
       <button id="detail-back" class="dfoc absolute left-5 top-4 z-10 flex cursor-pointer items-center rounded-2xl border border-white/15 bg-zinc-950/60 px-4 py-[clamp(6px,calc(var(--uivh)*1.5),10px)] text-[clamp(12px,calc(var(--uivh)*2.2),15px)] font-semibold text-zinc-300 outline-none backdrop-blur transition focus:ring-4 focus:ring-violet-500/40">${ICONS.back("mr-1.5 h-[1.1em] w-[1.1em]")} Назад</button>
       <div class="relative flex h-full min-h-0 flex-col justify-center px-7 py-[clamp(16px,calc(var(--uivh)*4),40px)]">
-      <div class="${multi ? "mt-[clamp(20px,calc(var(--uivh)*6),56px)]" : ""} mb-[clamp(16px,calc(var(--uivh)*4),36px)] flex-none truncate text-center text-[clamp(24px,calc(var(--uivh)*5.4),44px)] font-extrabold leading-tight tracking-tight drop-shadow-lg">${esc(i.title)}${i.year ? ` <span class="font-semibold text-zinc-400">(${i.year})</span>` : ""}${multi ? ` <span class="text-[0.55em] font-semibold text-zinc-400">· ${eps.length} ${plural(eps.length, "серия", "серии", "серий")}</span>` : ""}</div>
+      <div class="${multi ? "mt-[clamp(20px,calc(var(--uivh)*6),56px)]" : ""} ${i.tagline ? "mb-1" : "mb-[clamp(16px,calc(var(--uivh)*4),36px)]"} flex-none truncate text-center text-[clamp(24px,calc(var(--uivh)*5.4),44px)] font-extrabold leading-tight tracking-tight drop-shadow-lg">${esc(i.title)}${i.year ? ` <span class="font-semibold text-zinc-400">(${i.year})</span>` : ""}${multi ? ` <span class="text-[0.55em] font-semibold text-zinc-400">· ${eps.length} ${plural(eps.length, "серия", "серии", "серий")}</span>` : ""}</div>
+      ${i.tagline ? `<div class="mb-[clamp(12px,calc(var(--uivh)*3),28px)] flex-none truncate text-center text-[clamp(12px,calc(var(--uivh)*2.2),16px)] italic text-zinc-400">«${esc(stripQuotes(i.tagline))}»</div>` : ""}
       <div class="flex ${multi ? "flex-1 items-stretch" : "items-start"} min-h-0 space-x-6">
         ${p || !multi ? `<div class="flex w-[21%] max-w-[280px] flex-none flex-col pt-1">
           ${p ? `<div class="h-0 w-full flex-none rounded-xl bg-zinc-800 bg-cover bg-center pb-[150%] shadow-2xl shadow-black/60 ring-1 ring-white/15" style="background-image:url('${p}')"></div>` : ""}
@@ -1007,7 +1023,6 @@ function renderDetail() {
             ${castX.filter((a) => !dirCards.some((d) => d.n === a.n)).map(actorCard).join("")}
           </div>` : ""}
           <div class="flex min-h-0 ${multi ? "flex-1" : ""} flex-col">
-          ${i.tagline ? `<div class="flex-none truncate text-[clamp(11px,calc(var(--uivh)*2.1),15px)] italic text-zinc-400">«${esc(i.tagline)}»</div>` : ""}
           <div class="mt-1 flex min-h-0 ${multi ? "flex-1" : ""} space-x-6">
             <div id="detail-desc" tabindex="0" class="thin-scroll h-[clamp(96px,calc(var(--uivh)*30),300px)] min-w-0 flex-1 overflow-y-auto rounded-md pr-1 text-[clamp(12px,calc(var(--uivh)*2.4),16px)] leading-snug text-zinc-200 outline-none drop-shadow focus:ring-2 focus:ring-violet-500/40">
               ${esc(i.overview || "Нет описания")}
