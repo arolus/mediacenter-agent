@@ -61,10 +61,15 @@ async function loadDownloads() {
     const list = await (await fetch("/api/downloads")).json();
     const m = new Map();
     for (const d of list) if (d.status !== "done" && d.status !== "error") m.set(dlKey(d.title, d.year), d);
-    const changed = m.size !== downloads.size || [...m.keys()].some((k) => !downloads.has(k) || downloads.get(k).progress !== m.get(k).progress);
+    const setChanged = m.size !== downloads.size || [...m.keys()].some((k) => !downloads.has(k));
     downloads = m;
     paintHeaderDownloads();
-    return changed;
+    // Прогресс — на месте: от полной перерисовки каждые 3 секунды мигала окантовка фокуса.
+    document.querySelectorAll(".dl-badge").forEach((el) => {
+      const dl = downloads.get(el.dataset.dlkey);
+      if (dl) el.innerHTML = dlBadgeHtml(dl);
+    });
+    return setChanged;
   } catch (_) { return false; }
 }
 // Пока есть активные загрузки — опрашиваем прогресс и перерисовываем плашки.
@@ -566,10 +571,7 @@ function cardHtml(i) {
         votes ? `<div class="text-[9px] font-normal text-zinc-400">${fmtVotes(votes)}</div>` : ""}</div>` : ""}
       ${badge ? `<div class="absolute top-1.5 right-1.5 rounded-md bg-black/75 px-1.5 py-0.5 text-[11px] font-semibold text-zinc-100">${badge}</div>` : ""}
       ${isWatched(i) ? `<div class="absolute bottom-1.5 right-1.5 grid h-6 w-6 place-items-center rounded-md bg-black/70 text-emerald-400">${ICONS.check("h-4 w-4")}</div>` : ""}
-      ${dl ? `<div class="absolute right-0 bottom-0 left-0 bg-black/80 px-2 py-1.5">
-        <div class="mb-1 text-[10px] font-semibold text-violet-200">${dl.status === "downloading" ? Math.round((dl.progress || 0) * 100) + "%" + fmtSpeed(dl.speed) : dl.status === "moving" ? "Переносим " + Math.round((dl.progress || 0) * 100) + "%" : dl.error ? "Ошибка" : "Ожидает…"}</div>
-        <div class="h-1 overflow-hidden rounded bg-white/15"><div class="h-full bg-violet-500 transition-all" style="width:${Math.round((dl.progress || 0) * 100)}%"></div></div>
-      </div>` : ""}
+      ${dl ? `<div class="dl-badge absolute right-0 bottom-0 left-0 bg-black/80 px-2 py-1.5" data-dlkey="${esc(dlKey(i.title, i.year))}">${dlBadgeHtml(dl)}</div>` : ""}
     </div>`;
 }
 
@@ -2288,6 +2290,11 @@ function showOverlay(t, withPlay) {
   document.getElementById("tv-overlay").classList.remove("hidden");
 }
 function hideOverlay() { document.getElementById("tv-overlay").classList.add("hidden"); }
+
+// Содержимое плашки закачки на плитке — отдельно, чтобы обновлять его без перерисовки сетки.
+const dlBadgeHtml = (dl) => `
+  <div class="mb-1 text-[10px] font-semibold text-violet-200">${dl.status === "downloading" ? Math.round((dl.progress || 0) * 100) + "%" + fmtSpeed(dl.speed) : dl.status === "moving" ? "Переносим " + Math.round((dl.progress || 0) * 100) + "%" : dl.error ? "Ошибка" : "Ожидает…"}</div>
+  <div class="h-1 overflow-hidden rounded bg-white/15"><div class="h-full bg-violet-500 transition-all" style="width:${Math.round((dl.progress || 0) * 100)}%"></div></div>`;
 
 const fmtSpeed = (bps) => bps > 50000 ? ` · ${(bps / 1048576).toFixed(1).replace(".", ",")} МБ/с` : "";
 
