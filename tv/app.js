@@ -357,9 +357,17 @@ function groupCollections(entries) {
     return (col.tmdbParts || []).filter((g) => g.tmdbId && !owned.has(g.tmdbId)).length;
   };
   return out
-    // Схлопываем в обычный фильм ТОЛЬКО если скачаны все части (нет «призраков»): иначе
-    // даже одна скачанная часть остаётся коллекцией — видны продолжения, их можно докачать.
-    .map((e) => (e.isCollection && e.parts.length === 1 && ghostCount(e) === 0 ? e.parts[0] : e))
+    // Одна часть в наличии — в сетке показываем сам ФИЛЬМ: коллекция-обёртка ради одного
+    // файла путала. Ссылку на коллекцию оставляем на части — карточка рисует кнопку
+    // «Коллекция (N)», через которую видны призраки-продолжения. Две+ части — коллекция.
+    .map((e) => {
+      if (e.isCollection && e.parts.length === 1) {
+        const p = e.parts[0];
+        if (ghostCount(e) > 0) p.colRef = e;   // есть что докачивать — кнопке есть куда вести
+        return p;
+      }
+      return e;
+    })
     .map((e) => { if (e.isCollection) e.parts.sort((a, b) => (a.year || 0) - (b.year || 0)); return e; })
     .sort((a, b) => (a.title || "").localeCompare(b.title || ""));
 }
@@ -422,6 +430,7 @@ function findEntry(t, id) {
   for (const e of entriesForType(t)) {
     if (e.id === id) return e;
     if (e.isCollection) { const p = e.parts.find((x) => x.id === id); if (p) return p; }
+    if (e.colRef && e.colRef.id === id) return e.colRef;   // коллекция, схлопнутая до фильма
   }
   return null;
 }
@@ -1091,6 +1100,7 @@ function renderDetail() {
               if (dl) return `<div class="dl-btn flex flex-none items-center rounded-2xl bg-zinc-700/60 px-[clamp(18px,calc(var(--uivw)*3),32px)] py-[clamp(7px,calc(var(--uivh)*1.8),12px)] text-[clamp(14px,calc(var(--uivh)*2.6),18px)] font-bold text-zinc-300 opacity-80" data-dlkey="${esc(dlKey(i.title, i.year))}">${dlBtnHtml(dl)}</div>`;
               return `<button class="dfoc flex flex-none cursor-pointer items-center rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-[clamp(18px,calc(var(--uivw)*3),32px)] py-[clamp(7px,calc(var(--uivh)*1.8),12px)] text-[clamp(14px,calc(var(--uivh)*2.6),18px)] font-bold text-white shadow-xl shadow-violet-600/40 outline-none transition focus:scale-[1.04] focus:ring-4 focus:ring-violet-400/50" id="detail-play" data-id="${esc(i.id)}">${(i.isGhost ? ICONS.download : ICONS.play)("mr-2 h-[1.2em] w-[1.2em]")} ${i.isGhost ? "Скачать" : "Смотреть"}</button>`;
             })()}
+            ${i.colRef ? `<button class="${BTN} bg-white/5 text-zinc-300 focus:ring-violet-500/40" id="detail-collection">${ICONS.folderBack ? "" : ""}Коллекция (${Math.max(i.colRef.parts.length, (i.colRef.tmdbParts || []).length)})</button>` : ""}
             ${i.trailer ? `<button class="${BTN} bg-white/5 text-zinc-300 focus:ring-violet-500/40" id="detail-trailer">${ICONS.movie("mr-2 h-[1.1em] w-[1.1em]")} Трейлер</button>` : ""}
             ${i.isGhost ? "" : `<button class="${BTN} epw ${i.watched ? "bg-emerald-500/15 text-emerald-300 focus:ring-emerald-500/40" : "bg-white/5 text-zinc-300 focus:ring-violet-500/40"}"
               data-id="${esc(i.id)}" data-set="${i.watched ? 0 : 1}">${(i.watched ? ICONS.check : ICONS.eyeOff)("mr-2 h-[1.1em] w-[1.1em]")}${i.watched ? "Просмотрено" : "Не просмотрено"}</button>`}
@@ -1116,6 +1126,7 @@ function renderDetail() {
   app.querySelectorAll(".plink").forEach((b) => b.addEventListener("click", () => enterPerson(b.dataset.name, null)));
   const playBtn = document.getElementById("detail-play");
   if (playBtn) playBtn.addEventListener("click", () => (i.isGhost ? askDownload(i) : play(i.id)));
+  document.getElementById("detail-collection")?.addEventListener("click", () => enterCollection(i.colRef));
   const trailerBtn = document.getElementById("detail-trailer");
   if (trailerBtn) trailerBtn.addEventListener("click", async () => {
     showOverlay("Открываю трейлер…", true);
