@@ -714,10 +714,9 @@ function renderGridPage({ heading, count, list, empty, onOpen, fallbackInfo, fil
   const bt = app.querySelector(".grid-back");
   bt.addEventListener("click", back);
   bt.addEventListener("focus", () => updateInfo(fallbackInfo || null));
-  // Вход в сетку: у фильмов фокус на чипе жанра; у мультфильмов (чипов нет) — на плитке
-  // «Назад»: она первая в сетке, и фокус на ней гарантирует прокрутку в самый верх.
-  const first = app.querySelector(`.flt-genre[data-genre="${CSS.escape(gridGenre)}"]`)
-    || (filters ? bt : app.querySelector(".tv-card[data-id]") || bt);
+  // Вход в любую сетку — фокус на плитке «Назад»: она первая, прокрутка гарантированно
+  // с верха, а до чипов и плиток — одно нажатие стрелки.
+  const first = bt;
   if (first) first.focus();
 }
 
