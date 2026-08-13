@@ -683,6 +683,37 @@ const ratingCell = (i) => {
     `</div>`;
 };
 
+// Перекрасить кнопку и строку серии НА МЕСТЕ — без полной перерисовки страницы: от rerender
+// перезагружались миниатюры и весь список вздрагивал.
+function paintWatched(btn, want) {
+  const compact = btn.classList.contains("w-8");   // у серий кнопка — квадратная иконка
+  if (compact) {
+    btn.classList.toggle("bg-emerald-500/20", want);
+    btn.classList.toggle("text-emerald-400", want);
+    btn.classList.toggle("bg-white/5", !want);
+    btn.classList.toggle("text-zinc-500", !want);
+    btn.innerHTML = ICONS.check("h-4 w-4");
+  } else {
+    btn.classList.toggle("bg-emerald-500/15", want);
+    btn.classList.toggle("text-emerald-300", want);
+    btn.classList.toggle("focus:ring-emerald-500/40", want);
+    btn.classList.toggle("bg-white/5", !want);
+    btn.classList.toggle("text-zinc-300", !want);
+    btn.classList.toggle("focus:ring-violet-500/40", !want);
+    btn.innerHTML = `${(want ? ICONS.check : ICONS.eyeOff)("mr-2 h-[1.1em] w-[1.1em]")}${want ? "Просмотрено" : "Не просмотрено"}`;
+  }
+  btn.dataset.set = want ? 0 : 1;
+  const row = app.querySelector(`.ep[data-id="${CSS.escape(btn.dataset.id)}"]`);
+  if (row) {
+    row.classList.toggle("opacity-60", want);
+    const ic = row.querySelector("span.flex-none");
+    if (ic) {
+      ic.className = `mr-2.5 flex-none ${want ? "text-emerald-400" : "text-violet-300"}`;
+      ic.innerHTML = (want ? ICONS.check : ICONS.play)("h-4 w-4");
+    }
+  }
+}
+
 // Отметка «Просмотрено» идёт в Firestore и возвращается по SSE — на ТВ это ощутимая пауза.
 // Показываем, что нажатие принято: кнопка гаснет и крутит спиннер до ответа агента.
 async function markWatched(btn) {
@@ -707,9 +738,9 @@ async function markWatched(btn) {
       if (it && !!it.watched === want) break;
       await new Promise((r) => setTimeout(r, 300));
     }
-    // Именно rerenderKeepingFocus, а не render(): он подтягивает свежий state.current, иначе
-    // страница рисовалась по старым данным и кнопка оставалась в прежнем состоянии.
-    rerenderKeepingFocus();
+    paintWatched(btn, want);
+    btn.classList.remove("pointer-events-none", "opacity-60");
+    btn.dataset.busy = "";
   } catch (_) {
     btn.innerHTML = label;         // не вышло — возвращаем кнопку как была
     btn.classList.remove("pointer-events-none", "opacity-60");
