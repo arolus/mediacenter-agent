@@ -190,6 +190,12 @@ class HttpServer(
                 uri == "/api/position" ->
                     if (!isLocal(session)) err("только локально", Response.Status.FORBIDDEN)
                     else savePosition(q["id"], q["pos"]?.toLongOrNull(), q["dur"]?.toLongOrNull())
+                uri == "/api/scan-status" -> json(JSONObject()
+                    .put("running", Library.Progress.running)
+                    .put("done", Library.Progress.done)
+                    .put("total", Library.Progress.total)
+                    .put("finishedAgo", if (Library.Progress.finishedAt > 0)
+                        (System.currentTimeMillis() - Library.Progress.finishedAt) / 1000 else -1))
                 uri == "/api/copy-plan" -> copyPlan(q["from"])
                 uri == "/api/copy-status" -> json(Copier.status())
                 uri == "/api/copy-stop" -> { Copier.stop(q["to"]); json(Copier.status()) }

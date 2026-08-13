@@ -53,6 +53,15 @@ object Library {
     private fun pick(src: Map<String, Any?>, fields: List<String>): Map<String, Any?> =
         fields.mapNotNull { k -> src[k]?.let { k to it } }.toMap()
 
+    // Прогресс текущего сканирования — для окошка на TV-странице (см. /api/scan-status):
+    // воткнули флешку → на экране видно, что нода перебирает файлы, а не зависла.
+    object Progress {
+        @Volatile var running = false
+        @Volatile var done = 0
+        @Volatile var total = 0
+        @Volatile var finishedAt = 0L
+    }
+
     suspend fun sync(ctx: Context, db: FirebaseFirestore, config: Config): Int {
         // Медиатека ноды в общей памяти, а доступ «Все файлы» ещё не выдан: папки прочитаются
         // как пустые, и синхронизация СТЁРЛА БЫ всю библиотеку из Firestore (сотни записей
@@ -69,9 +78,16 @@ object Library {
 
         // Медиатека может лежать на нескольких носителях сразу (встроенная память + флешки):
         // сканируем все выбранные, тип по-прежнему определяется папкой.
-        for ((type, dirs) in Storage.scanDirs(ctx)) {
-          for (dir in dirs) {
-            val files = try { scan(dir) } catch (_: Exception) { emptyList() }
+        // Сначала собираем списки файлов целиком — прогресс должен знать общий объём работы.
+        val batches = Storage.scanDirs(ctx).map { (type, dirs) ->
+            type to dirs.map { dir -> dir to (try { scan(dir) } catch (_: Exception) { emptyList() }) }
+        }
+        Progress.total = batches.sumOf { (_, ds) -> ds.sumOf { it.second.size } }
+        Progress.done = 0
+        Progress.running = true
+        try {
+        for ((type, dirsFiles) in batches) {
+          for ((dir, files) in dirsFiles) {
 
             val dirCounts = HashMap<String, Int>()
             val baseCounts = HashMap<String, Int>()
@@ -87,6 +103,7 @@ object Library {
             }
 
             for (f in files) {
+                Progress.done++
                 val id = libIdFor(f.file.path)
                 seen.add(id)
                 val prev = existing[id]
@@ -154,6 +171,10 @@ object Library {
                 Log.i("library: + $type | ${seriesDir?.plus("/") ?: ""}${f.file.name}")
             }
           }
+        }
+        } finally {
+            Progress.running = false
+            Progress.finishedAt = System.currentTimeMillis()
         }
 
         // Носителей может быть несколько, и вынутая флешка — это НЕ повод стирать её фильмы.

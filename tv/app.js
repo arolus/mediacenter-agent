@@ -176,6 +176,10 @@ async function load() {
       const renamed = await refreshDeviceName();
       const modeChanged = await refreshKiosk();   // режим правят в дашборде
       if ((await reloadLibrary()) || renamed || modeChanged) rerenderKeepingFocus();
+      try {
+        const sc = await (await fetch("/api/scan-status", { cache: "no-store" })).json();
+        if (sc.running && sc.total > 0) watchScan();
+      } catch (_) {}
     }, 1500);
   };
   const connectEvents = () => {
@@ -2214,6 +2218,61 @@ function toggleVolume(id) {
   const next = selected.includes(id) ? selected.filter((x) => x !== id) : selected.concat(id);
   if (!next.length) return;   // хотя бы один носитель должен остаться
   saveStorage({ selected: next });
+  watchScan();   // включили носитель — покажем ход сканирования
+}
+
+/* ---------- Окошко прогресса сканирования ---------- */
+// Воткнули флешку или включили носитель — нода перебирает файлы, а сервер распознаёт их по
+// TMDb. Без окошка это выглядело как «файлы не подгрузились»: каталог пустой, тишина.
+let scanPoll = null;
+function watchScan() {
+  if (scanPoll) return;
+  const paint = (html) => {
+    let box = document.getElementById("scan-box");
+    if (!html) { box?.remove(); return; }
+    if (!box) {
+      box = document.createElement("div");
+      box.id = "scan-box";
+      box.className = "fixed bottom-6 right-6 z-40 min-w-[320px] rounded-2xl border border-zinc-700 " +
+        "bg-zinc-900/95 px-5 py-4 text-base text-zinc-200 shadow-2xl shadow-black/60 backdrop-blur";
+      document.body.appendChild(box);
+    }
+    box.innerHTML = html;
+  };
+  const bar = (d, t) => `<div class="mt-2 h-2 w-full overflow-hidden rounded-full bg-zinc-800">
+      <div class="h-full bg-violet-500 transition-all" style="width:${t ? Math.round(100 * d / t) : 0}%"></div></div>`;
+  let quiet = 0;
+  scanPoll = setInterval(async () => {
+    try {
+      const sc = await (await fetch("/api/scan-status", { cache: "no-store" })).json();
+      if (sc.running && sc.total > 0) {
+        quiet = 0;
+        paint(`<div class="font-semibold">Сканирую хранилище…</div>
+          <div class="mt-1 text-sm text-zinc-400">${sc.done} из ${sc.total} файлов</div>${bar(sc.done, sc.total)}`);
+        return;
+      }
+      // Скан закончился — но сервер ещё распознаёт новые файлы (постеры доезжают по одному).
+      await reloadLibrary();
+      const pending = items.filter((i) => !i.tmdbId && !i.tmdbTried).length;
+      if (pending > 0 && sc.finishedAgo >= 0 && sc.finishedAgo < 600) {
+        quiet = 0;
+        const done = items.length - pending;
+        paint(`<div class="font-semibold">Распознаю фильмы…</div>
+          <div class="mt-1 text-sm text-zinc-400">${done} из ${items.length}</div>${bar(done, items.length)}`);
+        rerenderKeepingFocus();
+        return;
+      }
+      // Всё готово: показываем итог пару тактов и убираем окошко.
+      if (++quiet === 1 && document.getElementById("scan-box")) {
+        paint(`<div class="font-semibold text-emerald-300">Готово</div>
+          <div class="mt-1 text-sm text-zinc-400">В медиатеке ${items.length} файлов</div>`);
+        rerenderKeepingFocus();
+      } else if (quiet > 2) {
+        paint(null);
+        clearInterval(scanPoll); scanPoll = null;
+      }
+    } catch (_) {}
+  }, 2000);
 }
 
 function closeSettings() {
