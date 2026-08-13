@@ -147,6 +147,12 @@ async function load() {
   await loadDownloads(); // активные загрузки — для прогресса на «призраках»
   history.replaceState({ screen: "categories" }, ""); // корневая запись истории
   render();
+  // Страница перезагружалась (обновление интерфейса) — возвращаемся на тот же экран.
+  try {
+    const saved = JSON.parse(sessionStorage.getItem("mc-restore") || "null");
+    if (saved && saved.screen && saved.screen !== "categories" &&
+        !new URLSearchParams(location.search).get("play")) navigate(saved);
+  } catch (_) {}
   // Пришли из ленты «Продолжить просмотр» на домашнем экране (?play=<id>) — открываем фильм
   // сразу: карточка там показывает прогресс, и ждать от зрителя ещё пары нажатий незачем.
   const playId = new URLSearchParams(location.search).get("play");
@@ -1176,6 +1182,11 @@ async function loadTech(i) {
 /* ---------- Переходы (через History API: браузерная «Назад» тоже работает) ---------- */
 function applyState(s) {
   state = { screen: s.screen || "categories", type: s.type || state.type, current: null, person: null };
+  // Запоминаем, где находимся: после перезагрузки страницы (обновление интерфейса приехало)
+  // экран восстановится тем же. sessionStorage живёт ровно столько же, сколько сама страница
+  // WebView: reload его сохраняет, перезапуск приложения — чистит, то есть после включения
+  // телевизор честно начнёт с категорий.
+  try { sessionStorage.setItem("mc-restore", JSON.stringify({ ...s, type: state.type })); } catch (_) {}
   if (state.screen === "detail" || state.screen === "collection") {
     state.current = findEntry(state.type, s.id) || null;
   }
