@@ -1892,6 +1892,29 @@ async function startPlay(id, fromStart) {
   if (playBusy) return;
   playBusy = true;
   setTimeout(() => { playBusy = false; }, 4000);
+  // Кнопка гаснет и крутит спиннер, пока VLC поднимается: между нажатием и появлением плеера
+  // проходит пара секунд, и без отклика казалось, что нажатие не сработало.
+  const playBtn = document.getElementById("detail-play");
+  let btnLabel = null;
+  if (playBtn) {
+    btnLabel = playBtn.innerHTML;
+    playBtn.classList.add("pointer-events-none", "opacity-60");
+    playBtn.innerHTML = `<svg class="mr-2 h-[1.2em] w-[1.2em] animate-spin" viewBox="0 0 24 24" fill="none">
+        <circle class="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+        <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+      </svg>Запускаю…`;
+    // VLC открылся — страница ушла в фон; вернулись — вернуть кнопку. Плюс страховка по
+    // таймеру на случай, если плеер не открылся вовсе.
+    const restore = () => {
+      if (!playBtn.isConnected) return;
+      playBtn.innerHTML = btnLabel;
+      playBtn.classList.remove("pointer-events-none", "opacity-60");
+    };
+    document.addEventListener("visibilitychange", function onVis() {
+      if (!document.hidden) { document.removeEventListener("visibilitychange", onVis); restore(); }
+    });
+    setTimeout(restore, 8000);
+  }
   showOverlay("Запускаю плеер…", true);
   // В приложении плеер запускаем САМИ через мост: агент сидит в фоне Termux, и с Android 12+
   // система рубит его `am start` как background activity launch. Агент в этом режиме только
