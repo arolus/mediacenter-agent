@@ -53,6 +53,12 @@ let state = { screen: "categories", type: "movie" };
 
 let playerMissing = false;
 let epFilter = "all"; // фильтр списка серий (кнопка-глаз): all → unwatched → watched → all
+// Сортировка сеток и фильмографии + фильтр по жанру. Хранится в localStorage: настройка
+// вкусовая и должна переживать перезапуск.
+const SORTS = [["new", "Новые"], ["year", "Год"], ["rating", "Рейтинг"], ["votes", "Голоса"], ["abc", "А-Я"]];
+let gridSort = localStorage.getItem("mc-sort") || "new";
+let gridGenre = localStorage.getItem("mc-genre") || "";
+let personSort = localStorage.getItem("mc-psort") || "year";
 // Активные загрузки этого устройства (для прогресса на «призраках»). Ключ: norm(title)|year.
 let downloads = new Map();
 const dlKey = (title, year) => String(title || "").toLowerCase().replace(/[^a-zа-я0-9]+/gi, " ").trim() + "|" + (year || "");
@@ -356,8 +362,30 @@ const newestOf = (e) => e.isCollection
   ? Math.max(0, ...e.parts.map(newestOf))
   : Math.max(0, ...(e.episodes && e.episodes.length ? e.episodes : [e]).map((x) => x.addedAt || 0));
 // Фильмы и мультфильмы — новые сверху (по дате добавления файла); сериалы — по алфавиту.
+// Значения для сортировки: у коллекции берём лучшие из частей.
+const sortVal = (e, f) => {
+  const parts = e.isCollection ? e.parts : [e];
+  if (f === "year") return Math.max(0, ...parts.map((p) => p.year || 0));
+  if (f === "rating") return Math.max(0, ...parts.map((p) => Number(p.imdbRating || p.rating || 0)));
+  if (f === "votes") return Math.max(0, ...parts.map((p) => Number(p.imdbRating ? p.imdbVotes : p.votes) || 0));
+  return 0;
+};
+const genresOf = (e) => {
+  const set = new Set();
+  (e.isCollection ? e.parts : [e]).forEach((p) => (p.genres || []).forEach((g) => set.add(g)));
+  return set;
+};
+// Жанры библиотеки по убыванию частоты — для списка фильтра.
+function genreCounts(t) {
+  const m = new Map();
+  for (const i of byType(t)) (i.genres || []).forEach((g) => m.set(g, (m.get(g) || 0) + 1));
+  return [...m.entries()].sort((a, b) => b[1] - a[1]);
+}
+
 const entriesForType = (t) => {
-  const arr = groupCollections(groupTitles(byType(t)));
+  let arr = groupCollections(groupTitles(byType(t)));
+  if ((t === "movie" || t === "cartoon") && gridGenre)
+    arr = arr.filter((e) => genresOf(e).has(gridGenre));
   for (const d of downloads.values()) {
     if ((d.type || "movie") !== t) continue;
     const key = dlKey(d.title, d.year);
@@ -370,7 +398,9 @@ const entriesForType = (t) => {
       type: t, title: d.title, year: d.year || meta.year || null, poster: meta.poster || null });
   }
   if (t === "movie" || t === "cartoon") {
-    arr.sort((a, b) => newestOf(b) - newestOf(a) || (a.title || "").localeCompare(b.title || ""));
+    if (gridSort === "abc") arr.sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+    else if (gridSort === "new") arr.sort((a, b) => newestOf(b) - newestOf(a) || (a.title || "").localeCompare(b.title || ""));
+    else arr.sort((a, b) => sortVal(b, gridSort) - sortVal(a, gridSort) || (a.title || "").localeCompare(b.title || ""));
   }
   return arr;
 };
@@ -416,14 +446,20 @@ function rerenderKeepingFocus() {
     else state.screen = "grid";        // элемент исчез — назад в сетку
   }
   render();
+  let restored = false;
   if (focusedId) {
     const el = app.querySelector(`${focusedSel}[data-id="${CSS.escape(focusedId)}"]`)
       || app.querySelector(`[data-id="${CSS.escape(focusedId)}"]`);
-    if (el) el.focus({ preventScroll: true });
+    if (el) { el.focus({ preventScroll: true }); restored = true; }
   }
-  for (const s of scrolls) {
-    const n = [...app.querySelectorAll("div")].find((d) => d.className === s.cls && d.scrollHeight > d.clientHeight);
-    if (n) n.scrollTop = s.top;
+  // Прежний скролл имеет смысл только вместе с прежним фокусом: если карточка исчезла
+  // (или фокуса не было), render() уже сфокусировал первую плитку — и возвращать скролл
+  // значило бы показать середину списка с фокусом за кадром.
+  if (restored) {
+    for (const s of scrolls) {
+      const n = [...app.querySelectorAll("div")].find((d) => d.className === s.cls && d.scrollHeight > d.clientHeight);
+      if (n) n.scrollTop = s.top;
+    }
   }
 }
 
@@ -611,8 +647,17 @@ const backTile = () => `
 
 // Единая страница-сетка: и список типа, и страница коллекции (Kodi: они одинаковые).
 // Заголовок (категория/коллекция) живёт в ЛЕВОЙ колонке, над описанием сфокусированного.
-function renderGridPage({ heading, count, list, empty, onOpen, fallbackInfo }) {
+const CHIP = "tv-card flex cursor-pointer items-center rounded-xl border border-zinc-700/70 bg-zinc-900/80 px-3.5 py-1.5 text-[13px] font-semibold text-zinc-300 outline-none transition focus:scale-105 focus:border-violet-400 focus:text-white focus:ring-2 focus:ring-violet-500/40";
+
+function renderGridPage({ heading, count, list, empty, onOpen, fallbackInfo, filters }) {
   computeCardWidth();
+  // Чипы сортировки/жанра: класс tv-card включает их в пространственную навигацию пультом
+  // (nearest ходит по геометрии), но data-id нет — обработчики плиток их не трогают.
+  const filterBar = filters ? `
+        <div class="flex flex-none items-center space-x-2 px-2.5 pt-2 pb-1">
+          <div id="flt-sort" tabindex="0" class="${CHIP}">${ICONS.sort ? "" : ""}Сортировка: ${(SORTS.find(([k]) => k === gridSort) || SORTS[0])[1]}</div>
+          <div id="flt-genre" tabindex="0" class="${CHIP} ${gridGenre ? "border-violet-500/60 text-violet-200" : ""}">Жанр: ${gridGenre || "все"}</div>
+        </div>` : "";
   app.innerHTML = `
     <div class="flex h-full">
       <div class="flex w-[30%] min-w-[250px] max-w-[460px] flex-col overflow-hidden border-r border-white/5 bg-zinc-900/60 px-6 py-6 backdrop-blur-xl">
@@ -622,7 +667,7 @@ function renderGridPage({ heading, count, list, empty, onOpen, fallbackInfo }) {
         </div>
         <div class="mt-4 flex min-h-0 flex-1 flex-col" id="grid-info"></div>
       </div>
-      <div class="flex flex-1 flex-col px-3 pt-2">
+      <div class="flex flex-1 flex-col px-3 pt-2">${filterBar}
         <!-- pt/pl: чтобы фокус-кольцо и scale карточек не обрезались краем скролл-зоны -->
         <div class="flex-1 overflow-y-auto pb-4 pl-2.5 pt-2.5">
           <div class="grid grid-cols-[repeat(var(--cols),var(--card-w))] justify-start gap-7">
@@ -631,6 +676,14 @@ function renderGridPage({ heading, count, list, empty, onOpen, fallbackInfo }) {
         </div>
       </div>
     </div>`;
+  document.getElementById("flt-sort")?.addEventListener("click", () => {
+    const i = SORTS.findIndex(([k]) => k === gridSort);
+    gridSort = SORTS[(i + 1) % SORTS.length][0];
+    localStorage.setItem("mc-sort", gridSort);
+    render();
+    document.getElementById("flt-sort")?.focus({ preventScroll: true });
+  });
+  document.getElementById("flt-genre")?.addEventListener("click", () => openGenrePicker());
   app.querySelectorAll(".tv-card").forEach((card) => {
     if (!card.dataset.id) return; // плитка «Назад»
     const item = list.find((i) => i.id === card.dataset.id);
@@ -651,11 +704,35 @@ function renderGrid() {
   renderGridPage({
     heading: `<span class="text-violet-400">${cat.icon("h-5 w-5")}</span>
       <h2 class="m-0 text-[clamp(15px,calc(var(--uivh)*2.8),20px)] font-bold tracking-tight">${cat.label}</h2>`,
-    count: list.length,
+    count: countForType(state.type),
     list,
     empty: loaded ? '<p class="tv-empty col-span-3 p-14 text-2xl text-zinc-400">Пусто</p>' : spinner("Загружаю медиатеку…"),
-    onOpen: (item) => item.isCollection ? enterCollection(item) : enterDetail(item)
+    onOpen: (item) => item.isCollection ? enterCollection(item) : enterDetail(item),
+    filters: state.type === "movie" || state.type === "cartoon"
   });
+}
+
+// Выбор жанра: вертикальный список по убыванию частоты, ↑↓ + Enter, Back — закрыть.
+function openGenrePicker() {
+  const counts = genreCounts(state.type);
+  const wrap = document.createElement("div");
+  wrap.id = "genre-picker";
+  wrap.className = "fixed top-0 right-0 bottom-0 left-0 z-40 flex items-center justify-center bg-black/70 backdrop-blur-sm";
+  wrap.innerHTML = `
+    <div class="thin-scroll max-h-[80vh] w-[380px] overflow-y-auto rounded-2xl border border-zinc-700 bg-zinc-900 p-3 shadow-2xl">
+      <div class="px-3 pb-2 text-lg font-bold">Жанр</div>
+      ${[["", `Все жанры`], ...counts.map(([g, n]) => [g, `${g} <span class="text-zinc-500">· ${n}</span>`])].map(([g, label]) => `
+        <div tabindex="0" data-genre="${esc(g)}" class="genre-row cursor-pointer rounded-xl px-3 py-2 text-[15px] outline-none transition focus:bg-violet-500/20 focus:ring-2 focus:ring-violet-500/40 ${g === gridGenre ? "text-violet-300 font-semibold" : "text-zinc-200"}">${label}</div>`).join("")}
+    </div>`;
+  document.body.appendChild(wrap);
+  wrap.querySelectorAll(".genre-row").forEach((r) => r.addEventListener("click", () => {
+    gridGenre = r.dataset.genre;
+    localStorage.setItem("mc-genre", gridGenre);
+    wrap.remove();
+    render();
+    document.getElementById("flt-genre")?.focus({ preventScroll: true });
+  }));
+  (wrap.querySelector(`[data-genre="${CSS.escape(gridGenre)}"]`) || wrap.querySelector(".genre-row"))?.focus();
 }
 
 /* ---------- Коллекция (франшиза): та же сетка, что и список фильмов ---------- */
@@ -1177,11 +1254,24 @@ function renderPerson() {
 
 // Правая зона страницы персоны: фильмография ПЛИТКАМИ (строки × колонки), свежие первыми,
 // вертикальный скролл. full=true — пришла полная фильмография TMDb (прячем индикатор).
+const PSORTS = [["year", "Год"], ["rating", "Рейтинг"], ["votes", "Голоса"]];
+
 function renderPersonFilms(credits, lib, full) {
   const el = document.getElementById("person-films");
   if (!el) return;
-  const sorted = [...credits].sort((a, b) => (b.year || 0) - (a.year || 0) || String(a.title).localeCompare(String(b.title)));
+  // Значение для сортировки — от того же источника, что и на карточке (IMDb из медиатеки
+  // важнее TMDb из фильмографии).
+  const val = (c) => {
+    const li = lib.get(c.kind + "_" + c.tmdbId);
+    if (personSort === "rating") return Number((li && li.imdbRating) || c.rating || 0);
+    if (personSort === "votes") return Number(li && li.imdbRating ? li.imdbVotes : c.votes) || 0;
+    return c.year || 0;
+  };
+  const sorted = [...credits].sort((a, b) => val(b) - val(a) || String(a.title).localeCompare(String(b.title)));
   el.innerHTML = `
+    <div class="mb-2 flex items-center space-x-2">
+      <div id="pflt-sort" tabindex="0" class="${CHIP}">Сортировка: ${(PSORTS.find(([k]) => k === personSort) || PSORTS[0])[1]}</div>
+    </div>
     <div class="flex flex-wrap">
       <div class="mb-3 mr-3">${backTile().replace('w-[var(--card-w)]', 'w-[calc(var(--card-w)*0.7)]')}</div>
       ${sorted.map((c) => {
@@ -1194,6 +1284,13 @@ function renderPersonFilms(credits, lib, full) {
         return `<div class="mb-3 mr-3">${pcardHtml(c, lib.has(key), imdb || c.rating || 0, votes)}</div>`;
       }).join("")}
     </div>`;
+  document.getElementById("pflt-sort")?.addEventListener("click", () => {
+    const i = PSORTS.findIndex(([k]) => k === personSort);
+    personSort = PSORTS[(i + 1) % PSORTS.length][0];
+    localStorage.setItem("mc-psort", personSort);
+    renderPersonFilms(credits, lib, full);
+    document.getElementById("pflt-sort")?.focus({ preventScroll: true });
+  });
   const progress = document.getElementById("person-progress");
   if (progress && full) progress.remove(); // полная пришла — индикатор больше не нужен
   // Левая панель контекстная: фокус на карточке — инфо фильма (как в списке фильмов:
@@ -1596,6 +1693,18 @@ document.addEventListener("keydown", (e) => {
     return;
   }
   // Окно выбора торрента: ↑/↓ по списку, Enter — скачать, Esc/Back — отмена.
+  // Пикер жанра: ↑↓ по строкам, Enter — выбрать, Back — закрыть без изменений.
+  const gp = document.getElementById("genre-picker");
+  if (gp) {
+    e.preventDefault();
+    if (["Escape", "Backspace", "GoBack", "BrowserBack"].includes(e.key)) return void gp.remove();
+    const rows = [...gp.querySelectorAll(".genre-row")];
+    const i = rows.indexOf(document.activeElement);
+    if (e.key === "ArrowDown") { const el = rows[Math.min(rows.length - 1, i + 1)]; el?.focus(); el?.scrollIntoView({ block: "nearest" }); return; }
+    if (e.key === "ArrowUp") { const el = rows[Math.max(0, i - 1)]; el?.focus(); el?.scrollIntoView({ block: "nearest" }); return; }
+    if (e.key === "Enter" || e.key === " ") return void document.activeElement?.click();
+    return;
+  }
   const picker = document.getElementById("mc-picker");
   if (picker) {
     e.preventDefault();
