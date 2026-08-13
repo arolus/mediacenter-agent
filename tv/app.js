@@ -678,8 +678,9 @@ const ratingCell = (i) => {
   if (!value) return "";
   const votes = imdb ? Number(i.imdbVotes || 0) : Number(i.votes || 0);
   return `<div><span class="font-semibold text-yellow-300">★ ${value.toFixed(1)}</span>` +
-    ` <span class="text-zinc-600">${imdb ? "IMDb" : "TMDb"}</span></div>` +
-    (votes ? `<div class="text-[clamp(9px,calc(var(--uivh)*1.5),11px)] leading-tight text-zinc-500">${fmtVotes(votes)} голосов</div>` : "");
+    ` <span class="text-zinc-600">${imdb ? "IMDb" : "TMDb"}</span>` +
+    (votes ? ` <span class="text-[0.85em] text-zinc-500">· ${fmtVotes(votes)} голосов</span>` : "") +
+    `</div>`;
 };
 
 // Отметка «Просмотрено» идёт в Firestore и возвращается по SSE — на ТВ это ощутимая пауза.
