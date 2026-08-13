@@ -413,7 +413,7 @@ function renderCategories() {
       <div class="flex items-center space-x-5 px-12 pt-[clamp(12px,calc(var(--uivh)*3),32px)]">
         ${logo("h-[clamp(36px,calc(var(--uivh)*6),48px)] w-[clamp(36px,calc(var(--uivh)*6),48px)]")}
         <span class="text-[clamp(22px,calc(var(--uivh)*4),30px)] font-extrabold tracking-tight">MediaCenter</span>
-        ${deviceName ? `<span class="rounded-full border border-zinc-800 bg-zinc-900/80 px-4 py-1.5 text-lg text-zinc-400">${esc(deviceName)}</span>` : ""}
+        ${deviceName ? `<span class="text-[clamp(18px,calc(var(--uivh)*3.2),24px)] font-bold text-zinc-500">${esc(deviceName)}</span>` : ""}
         <div class="flex-1"></div>
         <button id="cat-settings" tabindex="0" title="Настройки"
           class="grid h-12 w-12 cursor-pointer place-items-center rounded-full border border-zinc-800 bg-zinc-900/80 text-zinc-400 outline-none transition focus:scale-110 focus:border-violet-500/60 focus:text-zinc-100 focus:ring-4 focus:ring-violet-500/25">
@@ -801,8 +801,8 @@ function renderDetail() {
     <div class="relative h-full overflow-hidden">
       <div class="absolute top-0 right-0 bottom-0 left-0 bg-black bg-cover bg-center brightness-[.3] saturate-[1.1]" style="${bg ? `background-image:url('${bg}')` : ""}"></div>
       <div class="absolute top-0 right-0 bottom-0 left-0 bg-gradient-to-r from-zinc-950/90 via-zinc-950/70 to-zinc-950/40"></div>
-      <div class="relative flex h-full min-h-0 space-x-6 px-7 py-[clamp(10px,calc(var(--uivh)*2.4),22px)]">
-        ${p || !multi ? `<div class="flex w-[21%] max-w-[280px] flex-none flex-col">
+      <div class="relative flex h-full min-h-0 space-x-6 px-7 py-[clamp(16px,calc(var(--uivh)*4),40px)]">
+        ${p || !multi ? `<div class="flex w-[21%] max-w-[280px] flex-none flex-col justify-center">
           ${p ? `<div class="h-0 w-full flex-none rounded-xl bg-zinc-800 bg-cover bg-center pb-[150%] shadow-2xl shadow-black/60 ring-1 ring-white/15" style="background-image:url('${p}')"></div>` : ""}
           ${multi ? "" : `<div id="tech-strip" class="mt-2.5 flex flex-none flex-wrap">
             ${i.premiered ? techChip("📅 " + fmtDate(i.premiered)) : ""}
@@ -818,13 +818,13 @@ function renderDetail() {
           </div>` : ""}
           <div class="mt-1 flex-none truncate text-[clamp(18px,calc(var(--uivh)*4),28px)] font-extrabold leading-tight tracking-tight drop-shadow-lg">${esc(i.title)}${i.year ? ` <span class="font-semibold text-zinc-400">(${i.year})</span>` : ""}${multi ? ` <span class="text-[0.6em] font-semibold text-zinc-400">· ${eps.length} серий</span>` : ""}</div>
           ${i.tagline ? `<div class="flex-none truncate text-[clamp(11px,calc(var(--uivh)*2.1),15px)] italic text-zinc-400">«${esc(i.tagline)}»</div>` : ""}
-          <div class="mt-2 flex min-h-0 flex-1 space-x-6">
-            <div id="detail-desc" tabindex="0" class="thin-scroll min-w-0 flex-1 overflow-y-auto rounded-md pr-1 text-[clamp(12px,calc(var(--uivh)*2.4),16px)] leading-snug text-zinc-200 outline-none drop-shadow focus:ring-2 focus:ring-violet-500/40">
+          <div class="mt-2 flex min-h-0 flex-1 items-center space-x-6">
+            <div id="detail-desc" tabindex="0" class="thin-scroll max-h-full min-w-0 flex-1 overflow-y-auto rounded-md pr-1 text-[clamp(12px,calc(var(--uivh)*2.4),16px)] leading-snug text-zinc-200 outline-none drop-shadow focus:ring-2 focus:ring-violet-500/40">
               ${esc(i.overview || "Нет описания")}
               ${multi ? `<div class="mt-3 space-y-1">${metaTable}</div>` : ""}
             </div>
             ${multi
-              ? `<div class="flex min-h-0 w-[46%] max-w-[560px] flex-none flex-col">
+              ? `<div class="flex h-full min-h-0 w-[46%] max-w-[560px] flex-none flex-col">
                   <!-- Кнопки над сериями: зона прокрутки серий выше, дотягиваться ближе -->
                   <div id="detail-buttons" data-top="1" class="flex flex-none items-center space-x-2 pb-2">
                     <button class="${BTN} bg-white/5 text-zinc-300 focus:ring-violet-500/40" id="detail-back">${ICONS.back("mr-1.5 h-[1.1em] w-[1.1em]")} Назад</button>
@@ -837,7 +837,7 @@ function renderDetail() {
                     ${episodesHtml || `<div class="p-3 text-[13px] text-zinc-500">${epFilter === "watched" ? "Нет просмотренных серий" : "Все серии просмотрены"}</div>`}
                   </div>
                 </div>`
-              : `<div class="w-[38%] max-w-[400px] flex-none space-y-1 overflow-y-auto">${metaTable}</div>`}
+              : `<div class="max-h-full w-[38%] max-w-[400px] flex-none space-y-1 overflow-y-auto">${metaTable}</div>`}
           </div>
           ${multi ? "" : `<div id="detail-buttons" class="mt-2.5 flex flex-none items-center space-x-2.5">
             <button class="${BTN} bg-white/5 text-zinc-300 focus:ring-violet-500/40" id="detail-back">${ICONS.back("mr-1.5 h-[1.1em] w-[1.1em]")} Назад</button>
