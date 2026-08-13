@@ -2103,6 +2103,9 @@ async function startPlay(id, fromStart) {
       if (!document.hidden) { document.removeEventListener("visibilitychange", onVis); restore(); }
     });
     setTimeout(restore, 8000);
+    // Дать телевизору ДОРИСОВАТЬ кнопку до запуска: старт VLC — тяжёлый, слабый процессор
+    // замирает, и без этой паузы «Запускаю…» так и не успевало появиться на экране.
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 80))));
   }
   // В приложении плеер запускаем САМИ через мост: агент сидит в фоне, и с Android 12+
   // система рубит его `am start` как background activity launch. Агент в этом режиме только
