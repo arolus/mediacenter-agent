@@ -84,7 +84,7 @@ class HttpServer(
             // Режим у каждого устройства свой: приставка у ребёнка может быть детской, а
             // телевизор в гостиной — обычным. Пусто — берём общий из config/tv (совместимость).
             val own = snap.getString("mode")
-            deviceMode = if (own == "kids" || own == "normal") own else null
+            deviceMode = if (own == "kids" || own == "normal" || own == "admin") own else null
             notifyClients()
         })
         subs.add(db.collection("config").document("tv").addSnapshotListener { snap, _ ->
@@ -219,6 +219,7 @@ class HttpServer(
                     } else err("обновление не удалось: ${res.exceptionOrNull()?.message}")
                 }
                 uri == "/api/verify" -> verifyVolume(q["from"] ?: "shared", q["to"] ?: "")
+                uri == "/api/delete-item" -> deleteItem(q["id"], q["everywhere"] == "1")
                 uri == "/api/home-screen" -> json(homeScreenView())
                 // Хранилища: что нашли, что выбрано, сколько занято. POST — сохранить выбор.
                 uri == "/api/storage" -> storage(session, q)
@@ -706,6 +707,43 @@ class HttpServer(
         val src = vols.firstOrNull { it.id == from } ?: vols.firstOrNull()
         val items = if (src != null) Copier.plan(ctx, library, src.dir) else JSONArray()
         return json(JSONObject().put("volumes", arr).put("from", src?.id ?: "").put("items", items))
+    }
+
+    // Удаление фильма с ТВ-страницы (меню ⋯ на карточке): своё — сразу файлом, «везде» —
+    // командами delete остальным устройствам (их агенты удалят сами; поиск по tmdbId).
+    private fun deleteItem(id: String?, everywhere: Boolean): Response {
+        val item = findItem(id) ?: return err("не найдено", Response.Status.NOT_FOUND)
+        val fp = item.optString("filePath")
+        if (fp.isNotEmpty()) {
+            if (!inMediaDirs(fp)) return err("путь вне медиапапок")
+            java.io.File(fp).delete()
+        }
+        db.collection("devices").document(config.deviceId)
+            .collection("library").document(item.optString("id")).delete()
+        if (everywhere) {
+            val tmdbId = item.opt("tmdbId")
+            if (tmdbId != null && tmdbId != org.json.JSONObject.NULL) {
+                scope.launch {
+                    try {
+                        val devs = db.collection("devices").get().await()
+                        for (dev in devs.documents) {
+                            if (dev.id == config.deviceId) continue
+                            val hits = dev.reference.collection("library")
+                                .whereEqualTo("tmdbId", tmdbId).get().await()
+                            for (h in hits.documents) {
+                                dev.reference.collection("commands").add(mapOf(
+                                    "type" to "delete", "libId" to h.id,
+                                    "filePath" to (h.getString("filePath") ?: ""),
+                                    "status" to "pending",
+                                    "createdAt" to FieldValue.serverTimestamp()))
+                            }
+                        }
+                    } catch (e: Exception) { Log.e("delete everywhere: ${e.message}") }
+                }
+            }
+        }
+        onStorageChanged()
+        return json(JSONObject().put("ok", true))
     }
 
     // Проверка носителя: перечитывает ВСЁ, что уже лежит на приёмнике, и сверяет с исходником.

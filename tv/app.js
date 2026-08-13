@@ -102,13 +102,15 @@ let kioskPinSet = false;
 // Системная часть (наше приложение как домашний экран, перехват кнопок пульта) от режима
 // не зависит — она живёт на уровне Android; режим решает, спрашивать ли код.
 let kidsMode = false;
+let adminMode = false;   // режим Админа (из дашборда): открывает «Удалить со всех устройств»
 async function refreshKiosk() {
   try {
     const k = await (await fetch("/api/kiosk", { cache: "no-store" })).json();
-    const before = kidsMode;
+    const before = kidsMode + ":" + adminMode;
     kioskPinSet = !!k.pinSet;
     kidsMode = k.mode === "kids" && kioskPinSet;   // без кода запирать нельзя: ключа не будет
-    return before !== kidsMode;
+    adminMode = k.mode === "admin";
+    return before !== kidsMode + ":" + adminMode;
   } catch (_) { return false; }
 }
 
@@ -1102,6 +1104,7 @@ function renderDetail() {
             })()}
             ${i.colRef ? `<button class="${BTN} bg-white/5 text-zinc-300 focus:ring-violet-500/40" id="detail-collection">${ICONS.folderBack ? "" : ""}Коллекция (${Math.max(i.colRef.parts.length, (i.colRef.tmdbParts || []).length)})</button>` : ""}
             ${i.trailer ? `<button class="${BTN} bg-white/5 text-zinc-300 focus:ring-violet-500/40" id="detail-trailer">${ICONS.movie("mr-2 h-[1.1em] w-[1.1em]")} Трейлер</button>` : ""}
+            ${i.isGhost ? "" : `<button class="${BTN} bg-white/5 px-3.5 text-zinc-300 focus:ring-violet-500/40" id="detail-more" aria-label="Действия">⋯</button>`}
             ${i.isGhost ? "" : `<button class="${BTN} epw ${i.watched ? "bg-emerald-500/15 text-emerald-300 focus:ring-emerald-500/40" : "bg-white/5 text-zinc-300 focus:ring-violet-500/40"}"
               data-id="${esc(i.id)}" data-set="${i.watched ? 0 : 1}">${(i.watched ? ICONS.check : ICONS.eyeOff)("mr-2 h-[1.1em] w-[1.1em]")}${i.watched ? "Просмотрено" : "Не просмотрено"}</button>`}
           </div>`}
@@ -1127,6 +1130,22 @@ function renderDetail() {
   const playBtn = document.getElementById("detail-play");
   if (playBtn) playBtn.addEventListener("click", () => (i.isGhost ? askDownload(i) : play(i.id)));
   document.getElementById("detail-collection")?.addEventListener("click", () => enterCollection(i.colRef));
+  document.getElementById("detail-more")?.addEventListener("click", () => {
+    const opts = [["del", "Удалить с этого устройства"]];
+    if (adminMode) opts.push(["delall", "Удалить со всех устройств"]);
+    openOptionPicker("Действия", opts, "", (v) => {
+      const everywhere = v === "delall";
+      askConfirm(everywhere ? `Удалить «${i.title}» СО ВСЕХ устройств?` : `Удалить «${i.title}» с этого устройства?`,
+        async () => {
+          showOverlay("Удаляю…", false);
+          try {
+            const r = await (await fetch(`/api/delete-item?id=${encodeURIComponent(i.id)}${everywhere ? "&everywhere=1" : ""}`)).json();
+            showOverlay(r.ok ? "Удалено" : "⚠️ " + (r.error || "ошибка"));
+          } catch (_) { showOverlay("⚠️ Не удалось удалить"); }
+          setTimeout(() => { hideOverlay(); back(); }, 1200);
+        }, { yes: "Удалить", no: "Отмена", def: "no" });
+    });
+  });
   const trailerBtn = document.getElementById("detail-trailer");
   if (trailerBtn) trailerBtn.addEventListener("click", async () => {
     showOverlay("Открываю трейлер…", true);
