@@ -2295,8 +2295,10 @@ function paintHeaderDownloads() {
   const el = document.getElementById("st-dl");
   if (!el) return;
   const act = [...downloads.values()];
-  if (!act.length) { el.classList.add("hidden"); el.textContent = ""; return; }
-  el.textContent = act.map((d) => `${Math.round((d.progress || 0) * 100)}%`).join(" · ");
+  if (!act.length) { el.classList.add("hidden"); el.innerHTML = ""; return; }
+  el.innerHTML =
+    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="mr-0.5 h-[11px] w-[11px]"><path d="M12 4v12"/><path d="m6 11 6 6 6-6"/><path d="M5 21h14"/></svg>` +
+    esc(act.map((d) => `${Math.round((d.progress || 0) * 100)}%`).join(" · "));
   el.classList.remove("hidden");
 }
 
