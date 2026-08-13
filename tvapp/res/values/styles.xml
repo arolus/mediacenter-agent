@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <!-- Чёрный fullscreen без заголовка; фон в цвет страницы — нет белой вспышки при старте -->
-    <style name="TvTheme" parent="@android:style/Theme.Black.NoTitleBar.Fullscreen">
-        <item name="android:windowBackground">@android:color/black</item>
-    </style>
-</resources>

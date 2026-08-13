@@ -616,9 +616,13 @@ function computeCardWidth() {
 // Карточка сетки — постер 2:3 (Kodi-стиль): без подписи, название — в левой панели.
 function cardHtml(i) {
   // у коллекции — «скачано/всего частей франшизы» (включая недостающие «призраки»)
-  const badge = i.isCollection
-    ? `${i.parts.length}/${Math.max(i.parts.length, (i.tmdbParts || []).length || i.parts.length)}`
-    : (i.episodes && i.episodes.length > 1 ? `${i.episodes.length} серий` : (i.isCollectionPart && i.year ? String(i.year) : ""));
+  // При сортировке по году бейдж плитки — сам год: иначе порядок выглядит загадкой.
+  const yearSorted = state.screen === "grid" && gridSort === "year" && (i.type === "movie" || i.type === "cartoon");
+  const badge = yearSorted
+    ? String((i.isCollection ? sortVal(i, "year") : i.year) || "")
+    : i.isCollection
+      ? `${i.parts.length}/${Math.max(i.parts.length, (i.tmdbParts || []).length || i.parts.length)}`
+      : (i.episodes && i.episodes.length > 1 ? `${i.episodes.length} серий` : (i.isCollectionPart && i.year ? String(i.year) : ""));
   const p = poster(i.poster) || backdrop(i.backdrop);
   // идёт ли загрузка этого фильма (по названию+году) — и на «призраке», и на уже
   // появившейся карточке: WebTorrent создаёт файл сразу, карточка становится «реальной»,
