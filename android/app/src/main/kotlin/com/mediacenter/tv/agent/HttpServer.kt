@@ -307,6 +307,7 @@ class HttpServer(
                 .put("castX", it.optJSONArray("castX") ?: JSONArray())
                 .put("directorsX", it.optJSONArray("directorsX") ?: JSONArray())
                 .put("tmdbTried", it.optBoolean("tmdbTried"))
+                .put("keywords", it.optJSONArray("keywords") ?: JSONArray())
                 .put("genres", it.optJSONArray("genres") ?: JSONArray())
                 .put("director", it.optString("director"))
                 .put("country", it.optString("country"))

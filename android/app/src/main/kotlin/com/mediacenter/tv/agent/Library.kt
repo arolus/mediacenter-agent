@@ -15,7 +15,7 @@ object Library {
     private val TMDB_FIELDS = listOf(
         "tmdbId", "catalogId", "poster", "backdrop", "backdrops", "overview", "cast", "rating",
         "animation", "collection", "castX", "directorsX", "genres", "director", "writers", "country", "studio",
-        "premiered", "votes", "tagline", "runtime", "trailer", "budget", "revenue",
+        "premiered", "votes", "tagline", "runtime", "trailer", "budget", "revenue", "keywords",
         "imdbId", "imdbRating", "imdbVotes", "enrichV"
     )
     private val TORRENT_FIELDS = listOf("magnet", "infoHash", "rutrackerTid", "rutrackerUrl")

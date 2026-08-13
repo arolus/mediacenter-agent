@@ -58,6 +58,38 @@ let epFilter = "all"; // фильтр списка серий (кнопка-гл
 const SORTS = [["new", "Новые"], ["year", "Год"], ["rating", "Рейтинг"], ["votes", "Голоса"], ["abc", "А-Я"]];
 const gridSortFor = (t) => localStorage.getItem("mc-sort:" + t) || "new";
 const setGridSort = (t, v) => localStorage.setItem("mc-sort:" + t, v);
+// Тематические тэги: русское имя → ключевые слова TMDb (англ.). Показываются только те,
+// под которые в разделе есть хотя бы два фильма.
+const TAGS = [
+  ["Новогодние", ["christmas", "santa claus", "new year", "new year's eve", "holiday", "holiday season"]],
+  ["Хэллоуин", ["halloween"]],
+  ["Супергерои", ["superhero", "superheroes", "marvel comics", "dc comics", "comic book"]],
+  ["Реальные события", ["based on true story", "biography", "based on real events"]],
+  ["Экранизации", ["based on novel or book", "based on comic", "based on young adult novel"]],
+  ["Путешествия во времени", ["time travel"]],
+  ["Роботы и ИИ", ["robot", "artificial intelligence (a.i.)", "artificial intelligence", "android"]],
+  ["Космос", ["space", "outer space", "astronaut", "nasa", "space travel"]],
+  ["Автогонки", ["car race", "motor racing", "formula 1", "racing"]],
+  ["Спорт", ["sports", "baseball", "boxing", "basketball", "football (soccer)", "american football"]]
+];
+let gridTag = "";
+const kwOf = (e) => {
+  const set = new Set();
+  (e.isCollection ? e.parts : [e]).forEach((p) => (p.keywords || []).forEach((k) => set.add(String(k).toLowerCase())));
+  return set;
+};
+const tagMatches = (e, tagName) => {
+  const t = TAGS.find(([n]) => n === tagName);
+  if (!t) return false;
+  const kws = kwOf(e);
+  return t[1].some((k) => kws.has(k));
+};
+function tagCounts(t) {
+  const arr = groupCollections(groupTitles(byType(t)));
+  return TAGS.map(([name]) => [name, arr.filter((e) => tagMatches(e, name)).length])
+    .filter(([, n]) => n >= 2);
+}
+
 const gridWatchFor = (t) => localStorage.getItem("mc-watch:" + t) || "all";
 const setGridWatch = (t, v) => localStorage.setItem("mc-watch:" + t, v);
 let gridGenre = localStorage.getItem("mc-genre") || "";
@@ -406,6 +438,8 @@ const entriesForType = (t) => {
   let arr = groupCollections(groupTitles(byType(t)));
   if ((t === "movie" || t === "cartoon") && gridGenre)
     arr = arr.filter((e) => genresOf(e).has(gridGenre));
+  if ((t === "movie" || t === "cartoon") && gridTag)
+    arr = arr.filter((e) => tagMatches(e, gridTag));
   const wf = gridWatchFor(t);
   if ((t === "movie" || t === "cartoon") && wf !== "all")
     arr = arr.filter((e) => (wf === "watched") === isWatched(e));
@@ -944,7 +978,7 @@ function updateInfo(i) {
   const el = document.getElementById("grid-info");
   if (!el) return;
   stopInfoScroll();
-  if (!i) { el.innerHTML = ""; return; }
+  if (!i) { renderTagPanel(el); return; }
   const rating = Number(i.imdbRating || i.rating || 0);
   const meta = [
     rating ? `<span class="font-semibold text-yellow-300">★ ${rating.toFixed(1)}</span>` : "",
@@ -985,6 +1019,28 @@ function updateInfo(i) {
     };
     infoScrollT = setTimeout(() => { infoScrollRaf = requestAnimationFrame(step); }, 2500);
   }
+}
+
+// Левая колонка, когда фокус не на фильме: тематические тэги (по ключевым словам TMDb).
+// ← с первой колонки сетки приводит сюда, Enter — фильтр по тэгу, повторный Enter снимает.
+function renderTagPanel(el) {
+  if (state.screen !== "grid" || (state.type !== "movie" && state.type !== "cartoon")) { el.innerHTML = ""; return; }
+  const counts = tagCounts(state.type);
+  if (!counts.length && !gridTag) { el.innerHTML = ""; return; }
+  el.innerHTML = `
+    <div class="mb-2 flex-none text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Подборки</div>
+    <div class="thin-scroll min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1">
+      ${counts.map(([name, n]) => `
+        <div tabindex="0" data-tag="${esc(name)}" class="tag-row flex cursor-pointer items-center justify-between rounded-xl border px-3.5 py-2 text-[14px] outline-none transition focus:scale-[1.02] focus:border-violet-400 focus:ring-2 focus:ring-violet-500/40 ${name === gridTag ? "border-violet-500/60 bg-violet-500/15 text-violet-200" : "border-zinc-800 bg-zinc-900/70 text-zinc-300"}">
+          <span>${esc(name)}</span><span class="text-zinc-500">${n}</span>
+        </div>`).join("")}
+    </div>`;
+  el.querySelectorAll(".tag-row").forEach((r) => r.addEventListener("click", () => {
+    gridTag = r.dataset.tag === gridTag ? "" : r.dataset.tag;
+    render();
+    const back = app.querySelector(`.tag-row[data-tag="${CSS.escape(r.dataset.tag)}"]`);
+    if (back) back.focus({ preventScroll: true });
+  }));
 }
 
 /* ---------- Деталь фильма ---------- */
@@ -1911,11 +1967,27 @@ document.addEventListener("keydown", (e) => {
       else if (e.key === "ArrowRight") { const c = app.querySelector(".pcard, .tv-card"); if (c) c.focus({ preventScroll: true }); }
       return;
     }
+    // Панель тэгов слева: ↑↓ по строкам, →/Back — обратно в сетку, Enter — фильтр.
+    if (cur?.classList?.contains("tag-row")) {
+      e.preventDefault();
+      const rows = [...app.querySelectorAll(".tag-row")];
+      const ti = rows.indexOf(cur);
+      if (e.key === "ArrowDown") { rows[Math.min(rows.length - 1, ti + 1)]?.focus(); rows[Math.min(rows.length - 1, ti + 1)]?.scrollIntoView({ block: "nearest" }); }
+      else if (e.key === "ArrowUp") { rows[Math.max(0, ti - 1)]?.focus(); rows[Math.max(0, ti - 1)]?.scrollIntoView({ block: "nearest" }); }
+      else if (e.key === "ArrowRight") (app.querySelector(".grid-back") || app.querySelector(".tv-card"))?.focus({ preventScroll: true });
+      else if (e.key === "Enter" || e.key === " ") cur.click();
+      return;
+    }
     if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) {
       e.preventDefault();
       const next = nearest(cur, { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" }[e.key]);
       if (next) { next.focus({ preventScroll: true }); next.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" }); }
       else if (e.key === "ArrowLeft" && bioScrolls) bio.focus({ preventScroll: true }); // из сетки влево — в биографию
+      else if (e.key === "ArrowLeft") {
+        // левый столбец сетки → панель тэгов (если она отрисована)
+        const tr = app.querySelector(".tag-row");
+        if (tr) tr.focus({ preventScroll: true });
+      }
     } else if (e.key === "Enter" || e.key === " ") {
       e.preventDefault(); cur?.click();
     }
