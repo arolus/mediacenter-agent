@@ -1,13 +1,13 @@
 {
-  "version": "9044f36ecd89",
+  "version": "ff7b043b570d",
   "files": {
-    "app.js": "77c16ad87a08a84d2378685a4883bed850d819d1",
+    "app.js": "54c339b17d737e3f1a396bc93f083b57d5f83c84",
     "icon.svg": "708a110eedc3fa26409d836ed5f06c46223bdc7a",
     "icons/apple-touch-icon.png": "90d4add3915465c5e2957d9b2ffcc12321feeaca",
     "icons/icon-180.png": "90d4add3915465c5e2957d9b2ffcc12321feeaca",
     "icons/icon-192.png": "8524cb7a7cf98407fe39f946c2392d4c945c5b28",
     "icons/icon-512.png": "fce5eb5fa3d565da92c9785e75388ffc8ef16464",
-    "index.html": "5228eefc0c58b53174c2c5ca303a9b2b531b3f82",
+    "index.html": "0ca86fad0e6cf425d6669022d09038ba9cb5471d",
     "manifest.webmanifest": "432cdb46cd92a8653000fdd7fbb1242598358d11",
     "sw.js": "f877ef938fe1c00e0289a11481c166b33d0b61b8",
     "tailwind.js": "1ff1738a40f3716e30e9031b181b0955ae578955"

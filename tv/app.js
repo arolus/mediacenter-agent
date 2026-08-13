@@ -63,6 +63,7 @@ async function loadDownloads() {
     for (const d of list) if (d.status !== "done" && d.status !== "error") m.set(dlKey(d.title, d.year), d);
     const changed = m.size !== downloads.size || [...m.keys()].some((k) => !downloads.has(k) || downloads.get(k).progress !== m.get(k).progress);
     downloads = m;
+    paintHeaderDownloads();
     return changed;
   } catch (_) { return false; }
 }
@@ -176,6 +177,7 @@ async function load() {
       const renamed = await refreshDeviceName();
       const modeChanged = await refreshKiosk();   // режим правят в дашборде
       if ((await reloadLibrary()) || renamed || modeChanged) rerenderKeepingFocus();
+      loadDownloads();   // процент в шапке — и для закачек, запущенных с дашборда
       try {
         const sc = await (await fetch("/api/scan-status", { cache: "no-store" })).json();
         if (sc.running && sc.total > 0) watchScan();
@@ -1323,20 +1325,19 @@ function askConfirm(text, onYes, labels) {
 function closeModal() { document.getElementById("mc-modal")?.remove(); modalYes = null; }
 
 // Диалог «Скачать?» → поиск на rutracker → окно выбора торрента.
-function askDownload(ghost) {
-  const kind = ghost.type === "cartoon" ? "мультфильм" : ghost.type === "series" ? "сериал" : "фильм";
-  askConfirm(`Скачать этот ${kind}?`, async () => {
-    showOverlay("Ищу на rutracker…", false);
-    try {
-      const q = `title=${encodeURIComponent(ghost.title)}&year=${ghost.year || ""}&type=${ghost.type}`;
-      const r = await (await fetch("/api/search-torrents?" + q)).json();
-      hideOverlay();
-      if (r.error) { showOverlay("⚠️ " + r.error); return setTimeout(hideOverlay, 3500); }
-      const list = r.results || [];
-      if (!list.length) { showOverlay("Ничего не найдено на rutracker"); return setTimeout(hideOverlay, 3000); }
-      showTorrentPicker(ghost, list);
-    } catch (_) { showOverlay("⚠️ Ошибка поиска"); setTimeout(hideOverlay, 3000); }
-  });
+// Без промежуточного «Скачать этот фильм?»: нажатие на «Скачать» — уже и есть согласие,
+// сразу ищем на rutracker и показываем варианты.
+async function askDownload(ghost) {
+  showOverlay("Ищу на rutracker…", false);
+  try {
+    const q = `title=${encodeURIComponent(ghost.title)}&year=${ghost.year || ""}&type=${ghost.type}`;
+    const r = await (await fetch("/api/search-torrents?" + q)).json();
+    hideOverlay();
+    if (r.error) { showOverlay("⚠️ " + r.error); return setTimeout(hideOverlay, 3500); }
+    const list = r.results || [];
+    if (!list.length) { showOverlay("Ничего не найдено на rutracker"); return setTimeout(hideOverlay, 3000); }
+    showTorrentPicker(ghost, list);
+  } catch (_) { showOverlay("⚠️ Ошибка поиска"); setTimeout(hideOverlay, 3000); }
 }
 
 // Размер строки rutracker («2.15GB», «980MB», «1.4 GB») → байты.
@@ -2287,6 +2288,17 @@ function showOverlay(t, withPlay) {
   document.getElementById("tv-overlay").classList.remove("hidden");
 }
 function hideOverlay() { document.getElementById("tv-overlay").classList.add("hidden"); }
+
+// Процент активной закачки в самом верху шапки, рядом со статус-иконками.
+// Одна закачка — «34%», несколько — «34% · 7%».
+function paintHeaderDownloads() {
+  const el = document.getElementById("st-dl");
+  if (!el) return;
+  const act = [...downloads.values()];
+  if (!act.length) { el.classList.add("hidden"); el.textContent = ""; return; }
+  el.textContent = act.map((d) => `${Math.round((d.progress || 0) * 100)}%`).join(" · ");
+  el.classList.remove("hidden");
+}
 
 window.addEventListener("resize", () => {
   if (["grid", "collection", "person"].includes(state.screen)) computeCardWidth();

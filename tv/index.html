@@ -72,6 +72,8 @@
     <!-- Статус агента: терминал — «агент» (HTTP до Termux), облако — «сервер» (Firebase),
          волны — «live» (SSE). fixed внутри #rot — как overlay, корректно поверх повёрнутого UI. -->
     <div id="status-dots">
+      <span id="st-dl" class="hidden mr-1 text-[11px] font-semibold leading-[11px] text-violet-300"
+            style="filter: drop-shadow(0 0 3px rgba(0,0,0,.7))"></span>
       <span id="st-agent" class="st-dot st-off"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m7 9 3 3-3 3"/><path d="M13 15h4"/></svg></span>
       <span id="st-cloud" class="st-dot st-off"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a4 4 0 0 0 0-8z"/></svg></span>
       <span id="st-live"  class="st-dot st-off"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11a9 9 0 0 1 9 9"/><path d="M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1.6" fill="currentColor" stroke="none"/></svg></span>
