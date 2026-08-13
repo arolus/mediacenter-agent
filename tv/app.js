@@ -697,7 +697,16 @@ async function markWatched(btn) {
     </svg>${compact ? "" : "Сохраняю…"}`;
   try {
     await fetch(`/api/watched?id=${encodeURIComponent(btn.dataset.id)}&set=${btn.dataset.set}`);
-    await reloadLibrary();
+    // Отметка едет через Firestore и возвращается к агенту НЕ мгновенно: перерисовка сразу
+    // после запроса заставала старые данные, кнопка «не срабатывала» с первого нажатия.
+    // Ждём, пока библиотека реально отдаст новое значение (или сдаёмся через ~4 секунды).
+    const want = btn.dataset.set === "1";
+    for (let k = 0; k < 13; k++) {
+      await reloadLibrary();
+      const it = items.find((x) => x.id === btn.dataset.id);
+      if (it && !!it.watched === want) break;
+      await new Promise((r) => setTimeout(r, 300));
+    }
     // Именно rerenderKeepingFocus, а не render(): он подтягивает свежий state.current, иначе
     // страница рисовалась по старым данным и кнопка оставалась в прежнем состоянии.
     rerenderKeepingFocus();
