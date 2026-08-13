@@ -2474,6 +2474,7 @@ function watchScan() {
   const bar = (d, t) => `<div class="mt-2 h-2 w-full overflow-hidden rounded-full bg-zinc-800">
       <div class="h-full bg-violet-500 transition-all" style="width:${t ? Math.round(100 * d / t) : 0}%"></div></div>`;
   let quiet = 0;
+  let lastPending = -1, stuck = 0;
   scanPoll = setInterval(async () => {
     try {
       const sc = await (await fetch("/api/scan-status", { cache: "no-store" })).json();
@@ -2486,7 +2487,11 @@ function watchScan() {
       // Скан закончился — но сервер ещё распознаёт новые файлы (постеры доезжают по одному).
       const libChanged = await reloadLibrary();
       const pending = items.filter((i) => !i.tmdbId && !i.tmdbTried).length;
-      if (pending > 0 && sc.finishedAgo >= 0 && sc.finishedAgo < 600) {
+      // Распознавание «замерло» (несколько файлов TMDb так и не узнал) — не держим окошко
+      // вечно: полминуты без движения значит, что живая работа кончилась.
+      stuck = pending === lastPending ? stuck + 1 : 0;
+      lastPending = pending;
+      if (pending > 0 && stuck < 15 && sc.finishedAgo >= 0 && sc.finishedAgo < 600) {
         quiet = 0;
         const done = items.length - pending;
         paint(`<div class="font-semibold">Распознаю фильмы…</div>
