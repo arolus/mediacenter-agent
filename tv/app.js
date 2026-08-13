@@ -802,7 +802,7 @@ function renderDetail() {
       <div class="absolute top-0 right-0 bottom-0 left-0 bg-black bg-cover bg-center brightness-[.3] saturate-[1.1]" style="${bg ? `background-image:url('${bg}')` : ""}"></div>
       <div class="absolute top-0 right-0 bottom-0 left-0 bg-gradient-to-r from-zinc-950/90 via-zinc-950/70 to-zinc-950/40"></div>
       <div class="relative flex h-full min-h-0 space-x-6 px-7 py-[clamp(16px,calc(var(--uivh)*4),40px)]">
-        ${p || !multi ? `<div class="flex w-[21%] max-w-[280px] flex-none flex-col justify-center">
+        ${p || !multi ? `<div class="flex w-[21%] max-w-[280px] flex-none flex-col pt-1">
           ${p ? `<div class="h-0 w-full flex-none rounded-xl bg-zinc-800 bg-cover bg-center pb-[150%] shadow-2xl shadow-black/60 ring-1 ring-white/15" style="background-image:url('${p}')"></div>` : ""}
           ${multi ? "" : `<div id="tech-strip" class="mt-2.5 flex flex-none flex-wrap">
             ${i.premiered ? techChip("📅 " + fmtDate(i.premiered)) : ""}
@@ -819,7 +819,7 @@ function renderDetail() {
           <div class="mt-1 flex-none truncate text-[clamp(18px,calc(var(--uivh)*4),28px)] font-extrabold leading-tight tracking-tight drop-shadow-lg">${esc(i.title)}${i.year ? ` <span class="font-semibold text-zinc-400">(${i.year})</span>` : ""}${multi ? ` <span class="text-[0.6em] font-semibold text-zinc-400">· ${eps.length} серий</span>` : ""}</div>
           ${i.tagline ? `<div class="flex-none truncate text-[clamp(11px,calc(var(--uivh)*2.1),15px)] italic text-zinc-400">«${esc(i.tagline)}»</div>` : ""}
           <div class="mt-2 flex min-h-0 flex-1 items-center space-x-6">
-            <div id="detail-desc" tabindex="0" class="thin-scroll max-h-full min-w-0 flex-1 overflow-y-auto rounded-md pr-1 text-[clamp(12px,calc(var(--uivh)*2.4),16px)] leading-snug text-zinc-200 outline-none drop-shadow focus:ring-2 focus:ring-violet-500/40">
+            <div id="detail-desc" tabindex="0" class="thin-scroll h-[clamp(96px,calc(var(--uivh)*30),300px)] min-w-0 flex-1 overflow-y-auto rounded-md pr-1 text-[clamp(12px,calc(var(--uivh)*2.4),16px)] leading-snug text-zinc-200 outline-none drop-shadow focus:ring-2 focus:ring-violet-500/40">
               ${esc(i.overview || "Нет описания")}
               ${multi ? `<div class="mt-3 space-y-1">${metaTable}</div>` : ""}
             </div>
@@ -837,7 +837,7 @@ function renderDetail() {
                     ${episodesHtml || `<div class="p-3 text-[13px] text-zinc-500">${epFilter === "watched" ? "Нет просмотренных серий" : "Все серии просмотрены"}</div>`}
                   </div>
                 </div>`
-              : `<div class="max-h-full w-[38%] max-w-[400px] flex-none space-y-1 overflow-y-auto">${metaTable}</div>`}
+              : `<div class="h-[clamp(96px,calc(var(--uivh)*30),300px)] w-[38%] max-w-[400px] flex-none space-y-1 overflow-y-auto">${metaTable}</div>`}
           </div>
           ${multi ? "" : `<div id="detail-buttons" class="mt-2.5 flex flex-none items-center space-x-2.5">
             <button class="${BTN} bg-white/5 text-zinc-300 focus:ring-violet-500/40" id="detail-back">${ICONS.back("mr-1.5 h-[1.1em] w-[1.1em]")} Назад</button>
