@@ -801,7 +801,8 @@ function renderDetail() {
     <div class="relative h-full overflow-hidden">
       <div class="absolute top-0 right-0 bottom-0 left-0 bg-black bg-cover bg-center brightness-[.3] saturate-[1.1]" style="${bg ? `background-image:url('${bg}')` : ""}"></div>
       <div class="absolute top-0 right-0 bottom-0 left-0 bg-gradient-to-r from-zinc-950/90 via-zinc-950/70 to-zinc-950/40"></div>
-      <div class="relative flex h-full min-h-0 space-x-6 px-7 py-[clamp(16px,calc(var(--uivh)*4),40px)]">
+      <div class="relative flex h-full min-h-0 flex-col justify-center px-7 py-[clamp(16px,calc(var(--uivh)*4),40px)]">
+      <div class="flex ${multi ? "h-full items-stretch" : "items-start"} min-h-0 space-x-6">
         ${p || !multi ? `<div class="flex w-[21%] max-w-[280px] flex-none flex-col pt-1">
           ${p ? `<div class="h-0 w-full flex-none rounded-xl bg-zinc-800 bg-cover bg-center pb-[150%] shadow-2xl shadow-black/60 ring-1 ring-white/15" style="background-image:url('${p}')"></div>` : ""}
           ${multi ? "" : `<div id="tech-strip" class="mt-2.5 flex flex-none flex-wrap">
@@ -816,7 +817,7 @@ function renderDetail() {
             ${dirCards.length && castX.length ? '<div class="mx-0.5 w-px flex-none self-stretch bg-white/20"></div>' : ""}
             ${castX.filter((a) => !dirCards.some((d) => d.n === a.n)).map(actorCard).join("")}
           </div>` : ""}
-          <div class="flex min-h-0 flex-1 flex-col ${multi ? "" : "justify-center"}">
+          <div class="flex min-h-0 ${multi ? "flex-1" : ""} flex-col">
           <div class="mt-1 flex-none truncate text-[clamp(18px,calc(var(--uivh)*4),28px)] font-extrabold leading-tight tracking-tight drop-shadow-lg">${esc(i.title)}${i.year ? ` <span class="font-semibold text-zinc-400">(${i.year})</span>` : ""}${multi ? ` <span class="text-[0.6em] font-semibold text-zinc-400">· ${eps.length} серий</span>` : ""}</div>
           ${i.tagline ? `<div class="flex-none truncate text-[clamp(11px,calc(var(--uivh)*2.1),15px)] italic text-zinc-400">«${esc(i.tagline)}»</div>` : ""}
           <div class="mt-1 flex min-h-0 ${multi ? "flex-1" : ""} space-x-6">
@@ -849,6 +850,7 @@ function renderDetail() {
           </div>`}
           </div>
         </div>
+      </div>
       </div>
     </div>`;
   document.getElementById("detail-back").addEventListener("click", back);
