@@ -69,6 +69,13 @@ async function loadDownloads() {
       const dl = downloads.get(el.dataset.dlkey);
       if (dl) el.innerHTML = dlBadgeHtml(dl);
     });
+    document.querySelectorAll(".dl-btn").forEach((el) => {
+      const dl = downloads.get(el.dataset.dlkey);
+      if (dl) el.innerHTML = dlBtnHtml(dl);
+    });
+    // Закачка завершилась, а мы на её карточке — перерисуем: кнопка станет «Смотреть»,
+    // когда файл доедет в медиатеку по SSE.
+    if (setChanged && (state.screen === "detail" || state.screen === "ghost")) rerenderKeepingFocus();
     return setChanged;
   } catch (_) { return false; }
 }
@@ -343,6 +350,17 @@ const newestOf = (e) => e.isCollection
 // Фильмы и мультфильмы — новые сверху (по дате добавления файла); сериалы — по алфавиту.
 const entriesForType = (t) => {
   const arr = groupCollections(groupTitles(byType(t)));
+  for (const d of downloads.values()) {
+    if ((d.type || "movie") !== t) continue;
+    const key = dlKey(d.title, d.year);
+    const known = arr.some((e) => dlKey(e.title, e.year) === key ||
+      (e.isCollection && (e.parts.some((p) => dlKey(p.title, p.year) === key) ||
+        (e.tmdbParts || []).some((p) => dlKey(p.title, p.year) === key))));
+    if (known) continue;
+    const meta = dlMeta()[key] || {};
+    arr.push({ isGhost: true, id: "dl_" + key, tmdbId: meta.tmdbId || null, kind: meta.kind || "movie",
+      type: t, title: d.title, year: d.year || meta.year || null, poster: meta.poster || null });
+  }
   if (t === "movie" || t === "cartoon") {
     arr.sort((a, b) => newestOf(b) - newestOf(a) || (a.title || "").localeCompare(b.title || ""));
   }
@@ -609,7 +627,8 @@ function renderGridPage({ heading, count, list, empty, onOpen, fallbackInfo }) {
     if (!card.dataset.id) return; // плитка «Назад»
     const item = list.find((i) => i.id === card.dataset.id);
     card.addEventListener("focus", () => updateInfo(item));
-    card.addEventListener("click", () => onOpen(item));
+    card.addEventListener("click", () => (item && item.isGhost && String(item.id).startsWith("dl_")
+      ? enterGhost(item) : onOpen(item)));
   });
   const bt = app.querySelector(".grid-back");
   bt.addEventListener("click", back);
@@ -907,7 +926,11 @@ function renderDetail() {
               : `<div class="h-[clamp(96px,calc(var(--uivh)*30),300px)] w-[38%] max-w-[400px] flex-none space-y-1 overflow-y-auto">${metaTable}</div>`}
           </div>
           ${multi ? "" : `<div id="detail-buttons" class="mt-[clamp(20px,calc(var(--uivh)*6),56px)] flex flex-none items-center space-x-2.5">
-            <button class="dfoc flex flex-none cursor-pointer items-center rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-[clamp(18px,calc(var(--uivw)*3),32px)] py-[clamp(7px,calc(var(--uivh)*1.8),12px)] text-[clamp(14px,calc(var(--uivh)*2.6),18px)] font-bold text-white shadow-xl shadow-violet-600/40 outline-none transition focus:scale-[1.04] focus:ring-4 focus:ring-violet-400/50" id="detail-play" data-id="${esc(i.id)}">${(i.isGhost ? ICONS.download : ICONS.play)("mr-2 h-[1.2em] w-[1.2em]")} ${i.isGhost ? "Скачать" : "Смотреть"}</button>
+            ${(() => {
+              const dl = downloads.get(dlKey(i.title, i.year));
+              if (dl) return `<div class="dl-btn flex flex-none items-center rounded-2xl bg-zinc-700/60 px-[clamp(18px,calc(var(--uivw)*3),32px)] py-[clamp(7px,calc(var(--uivh)*1.8),12px)] text-[clamp(14px,calc(var(--uivh)*2.6),18px)] font-bold text-zinc-300 opacity-80" data-dlkey="${esc(dlKey(i.title, i.year))}">${dlBtnHtml(dl)}</div>`;
+              return `<button class="dfoc flex flex-none cursor-pointer items-center rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-[clamp(18px,calc(var(--uivw)*3),32px)] py-[clamp(7px,calc(var(--uivh)*1.8),12px)] text-[clamp(14px,calc(var(--uivh)*2.6),18px)] font-bold text-white shadow-xl shadow-violet-600/40 outline-none transition focus:scale-[1.04] focus:ring-4 focus:ring-violet-400/50" id="detail-play" data-id="${esc(i.id)}">${(i.isGhost ? ICONS.download : ICONS.play)("mr-2 h-[1.2em] w-[1.2em]")} ${i.isGhost ? "Скачать" : "Смотреть"}</button>`;
+            })()}
             ${i.trailer ? `<button class="${BTN} bg-white/5 text-zinc-300 focus:ring-violet-500/40" id="detail-trailer">${ICONS.movie("mr-2 h-[1.1em] w-[1.1em]")} Трейлер</button>` : ""}
             ${i.isGhost ? "" : `<button class="${BTN} epw ${i.watched ? "bg-emerald-500/15 text-emerald-300 focus:ring-emerald-500/40" : "bg-white/5 text-zinc-300 focus:ring-violet-500/40"}"
               data-id="${esc(i.id)}" data-set="${i.watched ? 0 : 1}">${(i.watched ? ICONS.check : ICONS.eyeOff)("mr-2 h-[1.1em] w-[1.1em]")}${i.watched ? "Просмотрено" : "Не просмотрено"}</button>`}
@@ -1405,10 +1428,20 @@ function paintPicker() {
   });
 }
 function closePicker() { document.getElementById("mc-picker")?.remove(); pickerRows = []; }
+const dlMetaKey = "mc-dl-meta";
+const dlMeta = () => { try { return JSON.parse(localStorage.getItem(dlMetaKey) || "{}"); } catch (_) { return {}; } };
+function rememberDlMeta(ghost) {
+  const m = dlMeta();
+  m[dlKey(ghost.title, ghost.year)] = { tmdbId: ghost.tmdbId || null, kind: ghost.kind || (ghost.type === "series" ? "tv" : "movie"),
+    poster: ghost.poster || null, type: ghost.type || "movie", title: ghost.title, year: ghost.year || null };
+  try { localStorage.setItem(dlMetaKey, JSON.stringify(m)); } catch (_) {}
+}
+
 async function doDownload(ghost) {
   const t = pickerRows[pickerSel];
   if (!t) return;
   closePicker();
+  rememberDlMeta(ghost);
   showOverlay("Ставлю на загрузку…", false);
   try {
     const q = `tid=${encodeURIComponent(t.tid)}&title=${encodeURIComponent(ghost.title)}&year=${ghost.year || ""}&type=${ghost.type}`;
@@ -2290,6 +2323,11 @@ function showOverlay(t, withPlay) {
   document.getElementById("tv-overlay").classList.remove("hidden");
 }
 function hideOverlay() { document.getElementById("tv-overlay").classList.add("hidden"); }
+
+// Кнопка-прогресс на карточке качающегося фильма (вместо «Смотреть»).
+const dlBtnHtml = (dl) => `
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" class="mr-2 h-[1.2em] w-[1.2em]"><path d="M12 4v12"/><path d="m6 11 6 6 6-6"/><path d="M5 21h14"/></svg>
+  ${dl.status === "moving" ? "Переносим " : ""}${Math.round((dl.progress || 0) * 100)}%${fmtSpeed(dl.speed)}`;
 
 // Содержимое плашки закачки на плитке — отдельно, чтобы обновлять его без перерисовки сетки.
 const dlBadgeHtml = (dl) => `
