@@ -853,8 +853,12 @@ function renderDetail() {
   const castX = i.castX && i.castX.length ? i.castX : [];
   // Режиссёры — первыми в ленте персон (с вертикальным разделителем перед актёрами);
   // из таблицы метаданных строка «Режиссёр» убрана. Фото — из castX, если он там есть.
-  const dirCards = String(i.director || "").split(",").map((s) => s.trim()).filter(Boolean)
-    .map((n) => ({ n, c: "режиссёр", p: (castX.find((a) => a.n === n) || {}).p || null }));
+  // Фото режиссёра приходит отдельным полем directorsX (в актёрском castX его обычно нет);
+  // старые записи без directorsX остаются на прежнем фолбэке.
+  const dirCards = (i.directorsX && i.directorsX.length
+    ? i.directorsX.map((d) => ({ n: d.n, c: "режиссёр", p: d.p || null }))
+    : String(i.director || "").split(",").map((s) => s.trim()).filter(Boolean)
+        .map((n) => ({ n, c: "режиссёр", p: (castX.find((a) => a.n === n) || {}).p || null })));
   const BTN = "dfoc flex flex-none cursor-pointer items-center rounded-2xl border border-white/15 px-4 py-[clamp(7px,calc(var(--uivh)*1.8),12px)] text-[clamp(12px,calc(var(--uivh)*2.2),15px)] font-semibold outline-none backdrop-blur transition focus:ring-4";
   const metaTable = `
     ${metaRow("Рейтинг", ratingCell(i))}

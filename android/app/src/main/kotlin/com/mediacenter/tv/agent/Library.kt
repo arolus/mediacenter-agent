@@ -14,7 +14,7 @@ import java.security.MessageDigest
 object Library {
     private val TMDB_FIELDS = listOf(
         "tmdbId", "catalogId", "poster", "backdrop", "backdrops", "overview", "cast", "rating",
-        "animation", "collection", "castX", "genres", "director", "writers", "country", "studio",
+        "animation", "collection", "castX", "directorsX", "genres", "director", "writers", "country", "studio",
         "premiered", "votes", "tagline", "runtime", "trailer", "budget", "revenue",
         "imdbId", "imdbRating", "imdbVotes", "enrichV"
     )
