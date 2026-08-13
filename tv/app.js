@@ -58,6 +58,8 @@ let epFilter = "all"; // фильтр списка серий (кнопка-гл
 const SORTS = [["new", "Новые"], ["year", "Год"], ["rating", "Рейтинг"], ["votes", "Голоса"], ["abc", "А-Я"]];
 const gridSortFor = (t) => localStorage.getItem("mc-sort:" + t) || "new";
 const setGridSort = (t, v) => localStorage.setItem("mc-sort:" + t, v);
+const gridWatchFor = (t) => localStorage.getItem("mc-watch:" + t) || "all";
+const setGridWatch = (t, v) => localStorage.setItem("mc-watch:" + t, v);
 let gridGenre = localStorage.getItem("mc-genre") || "";
 let personSort = localStorage.getItem("mc-psort") || "year";
 // Активные загрузки этого устройства (для прогресса на «призраках»). Ключ: norm(title)|year.
@@ -404,6 +406,9 @@ const entriesForType = (t) => {
   let arr = groupCollections(groupTitles(byType(t)));
   if ((t === "movie" || t === "cartoon") && gridGenre)
     arr = arr.filter((e) => genresOf(e).has(gridGenre));
+  const wf = gridWatchFor(t);
+  if ((t === "movie" || t === "cartoon") && wf !== "all")
+    arr = arr.filter((e) => (wf === "watched") === isWatched(e));
   for (const d of downloads.values()) {
     if ((d.type || "movie") !== t) continue;
     const key = dlKey(d.title, d.year);
@@ -711,11 +716,18 @@ function renderGridPage({ heading, count, list, empty, onOpen, fallbackInfo, fil
       </div>
     </div>`;
   document.getElementById("flt-sort")?.addEventListener("click", () => openSortPicker());
+  document.getElementById("flt-eye")?.addEventListener("click", () => {
+    const cur = gridWatchFor(state.type);
+    setGridWatch(state.type, cur === "all" ? "watched" : cur === "watched" ? "unwatched" : "all");
+    render();
+    document.getElementById("flt-eye")?.focus({ preventScroll: true });
+  });
   app.querySelectorAll(".flt-genre").forEach((c) => c.addEventListener("click", () => {
-    gridGenre = c.dataset.genre;
+    // повторный клик по выбранному жанру снимает фильтр
+    gridGenre = c.dataset.genre === gridGenre ? "" : c.dataset.genre;
     localStorage.setItem("mc-genre", gridGenre);
     render();
-    app.querySelector(`.flt-genre[data-genre="${CSS.escape(gridGenre)}"]`)?.focus({ preventScroll: true });
+    (app.querySelector(`.flt-genre[data-genre="${CSS.escape(c.dataset.genre)}"]`) || document.getElementById("flt-eye"))?.focus({ preventScroll: true });
   }));
   app.querySelectorAll(".tv-card").forEach((card) => {
     if (!card.dataset.id) return; // плитка «Назад»
