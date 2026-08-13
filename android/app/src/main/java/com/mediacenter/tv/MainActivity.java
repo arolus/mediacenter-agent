@@ -500,7 +500,10 @@ public class MainActivity extends Activity {
                 // ACTION_VIEW ИГНОРИРУЕТ (проверено на телевизоре: фильм всё равно продолжался
                 // с сохранённой секунды). А вот "position" (мс) он честно отрабатывает — им и
                 // отматываем в ноль; from_start оставляем на случай других плееров.
-                if (fromStart) { i.putExtra("from_start", true); i.putExtra("position", 0L); }
+                // position=0 VLC считает «не задано» и продолжает со своей сохранённой секунды
+                // (поймано на сериале: «Начать сначала» молча продолжал). 1 мс — это честный
+                // ноль для зрителя, но уже ЗАДАННАЯ позиция, и VLC её отрабатывает всегда.
+                if (fromStart) { i.putExtra("from_start", true); i.putExtra("position", 1L); }
                 else if (positionMs > 0) i.putExtra("position", positionMs);
                 if (title != null && !title.isEmpty()) i.putExtra("title", title);
                 // VLC подхватит одноимённый .srt, если агент его нашёл рядом с фильмом
