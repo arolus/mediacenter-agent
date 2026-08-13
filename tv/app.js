@@ -2305,9 +2305,13 @@ function paintHeaderDownloads() {
   if (!el) return;
   const act = [...downloads.values()];
   if (!act.length) { el.classList.add("hidden"); el.innerHTML = ""; return; }
+  // Несколько закачек — одна общая пара: процент средний, скорость суммарная.
+  // «2 ×» подсказывает, что за числом стоит не один фильм.
+  const pct = Math.round(act.reduce((a, d) => a + (d.progress || 0), 0) / act.length * 100);
+  const speed = act.reduce((a, d) => a + (d.speed || 0), 0);
   el.innerHTML =
     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="mr-0.5 h-[11px] w-[11px]"><path d="M12 4v12"/><path d="m6 11 6 6 6-6"/><path d="M5 21h14"/></svg>` +
-    esc(act.map((d) => `${Math.round((d.progress || 0) * 100)}%${fmtSpeed(d.speed)}`).join("  ·  "));
+    esc(`${act.length > 1 ? act.length + " × " : ""}${pct}%${fmtSpeed(speed)}`);
   el.classList.remove("hidden");
 }
 
