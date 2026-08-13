@@ -237,11 +237,17 @@ class HttpServer(
     // ---- views ------------------------------------------------------------------------------
     private fun libraryView(): JSONArray {
         val out = JSONArray()
+        val mountedDirs = Storage.activeVolumes(ctx).map { it.dir.absolutePath + File.separator }
         for (i in 0 until library.length()) {
             val it = library.optJSONObject(i) ?: continue
             // Фильмы с вынутой флешки остаются в базе (см. Library.sync), но показывать их на
-            // телевизоре незачем — нажатие всё равно упрётся в отсутствующий файл.
+            // телевизоре незачем — нажатие всё равно упрётся в отсутствующий файл. Метку ставит
+            // сканирование, а оно доходит до дела через полминуты после старта; поэтому здесь же
+            // смотрим на путь — иначе после включения телевизора без флешки успевает мелькнуть
+            // каталог, которого нет.
             if (it.optBoolean("offline")) continue
+            val path = it.optString("filePath")
+            if (path.isNotEmpty() && mountedDirs.none { d -> path.startsWith(d) }) continue
             out.put(JSONObject()
                 .put("id", it.opt("id"))
                 .put("type", it.optString("type", "movie"))
