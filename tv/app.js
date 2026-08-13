@@ -2081,31 +2081,30 @@ async function startPlay(id, fromStart) {
   if (playBusy) return;
   playBusy = true;
   setTimeout(() => { playBusy = false; }, 4000);
-  // Кнопка гаснет и крутит спиннер, пока VLC поднимается: между нажатием и появлением плеера
-  // проходит пара секунд, и без отклика казалось, что нажатие не сработало.
+  // Весь отклик — НА САМОЙ КНОПКЕ: вместо иконки плей крутится спиннер, текст «Запускаю…».
+  // Никаких окошек поверх экрана: они жили дольше нужного (таймеры WebView замирают вместе
+  // со страницей) и мозолили глаза по возвращении из плеера.
   const playBtn = document.getElementById("detail-play");
-  let btnLabel = null;
+  let restore = () => {};
   if (playBtn) {
-    btnLabel = playBtn.innerHTML;
+    const btnLabel = playBtn.innerHTML;
     playBtn.classList.add("pointer-events-none", "opacity-60");
     playBtn.innerHTML = `<svg class="mr-2 h-[1.2em] w-[1.2em] animate-spin" viewBox="0 0 24 24" fill="none">
         <circle class="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
         <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
       </svg>Запускаю…`;
-    // VLC открылся — страница ушла в фон; вернулись — вернуть кнопку. Плюс страховка по
-    // таймеру на случай, если плеер не открылся вовсе.
-    const restore = () => {
+    restore = () => {
       if (!playBtn.isConnected) return;
       playBtn.innerHTML = btnLabel;
       playBtn.classList.remove("pointer-events-none", "opacity-60");
     };
+    // Вернулись из плеера — кнопка снова обычная; страховка таймером, если он не открылся.
     document.addEventListener("visibilitychange", function onVis() {
       if (!document.hidden) { document.removeEventListener("visibilitychange", onVis); restore(); }
     });
     setTimeout(restore, 8000);
   }
-  showOverlay("Запускаю плеер…", true);
-  // В приложении плеер запускаем САМИ через мост: агент сидит в фоне Termux, и с Android 12+
+  // В приложении плеер запускаем САМИ через мост: агент сидит в фоне, и с Android 12+
   // система рубит его `am start` как background activity launch. Агент в этом режиме только
   // отдаёт адрес потока. В браузере моста нет — там всё как раньше, запускает агент.
   const viaApp = IN_APP && window.MCApp && typeof window.MCApp.playVideo === "function";
@@ -2116,11 +2115,10 @@ async function startPlay(id, fromStart) {
       const it = items.find((x) => x.id === id);
       const pos = fromStart ? 0 : Number((it && it.position) || 0);
       window.MCApp.playVideo(r.url, r.package || "", r.title || "", r.subtitles || "", id, !!fromStart, pos);
-      return;   // плашку погасит приложение в момент открытия плеера (onPause → hideOverlay)
+      return;
     }
-    showOverlay(r.ok ? "Играет в плеере" : "⚠️ " + (r.error || "ошибка"), r.ok);
-  } catch (_) { showOverlay("⚠️ Не удалось запустить"); }
-  setTimeout(hideOverlay, 2500);
+    if (!r.ok) { restore(); showOverlay("⚠️ " + (r.error || "ошибка")); setTimeout(hideOverlay, 2500); }
+  } catch (_) { restore(); showOverlay("⚠️ Не удалось запустить"); setTimeout(hideOverlay, 2500); }
 }
 // --- Родительский код: экранная цифровая панель (на пульте Google TV цифр нет) ---
 let pinEntered = "";
