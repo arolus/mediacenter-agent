@@ -414,8 +414,9 @@ function renderCategories() {
         ${logo("h-[clamp(36px,calc(var(--uivh)*6),48px)] w-[clamp(36px,calc(var(--uivh)*6),48px)]")}
         <span class="text-[clamp(22px,calc(var(--uivh)*4),30px)] font-extrabold tracking-tight">MediaCenter</span>
         ${deviceName ? `<span class="rounded-full border border-zinc-800 bg-zinc-900/80 px-4 py-1.5 text-lg text-zinc-400">${esc(deviceName)}</span>` : ""}
+        <div class="flex-1"></div>
         <button id="cat-settings" tabindex="0" title="Настройки"
-          class="ml-auto mr-2 grid h-12 w-12 cursor-pointer place-items-center rounded-full border border-zinc-800 bg-zinc-900/80 text-zinc-400 outline-none transition focus:scale-110 focus:border-violet-500/60 focus:text-zinc-100 focus:ring-4 focus:ring-violet-500/25">
+          class="grid h-12 w-12 cursor-pointer place-items-center rounded-full border border-zinc-800 bg-zinc-900/80 text-zinc-400 outline-none transition focus:scale-110 focus:border-violet-500/60 focus:text-zinc-100 focus:ring-4 focus:ring-violet-500/25">
           ${ICONS.gear("h-6 w-6")}</button>
       </div>
       ${playerMissing ? `
