@@ -163,7 +163,11 @@ async function load() {
   // Страница перезагружалась (обновление интерфейса) — возвращаемся на тот же экран.
   try {
     const saved = JSON.parse(sessionStorage.getItem("mc-restore") || "null");
+    // Только СВЕЖЕЕ состояние — перезагрузка из-за приехавшего обновления интерфейса.
+    // WebView хранит sessionStorage и между запусками приложения, и без этой проверки
+    // телевизор после включения открывался бы на карточке недельной давности.
     if (saved && saved.screen && saved.screen !== "categories" &&
+        Date.now() - (saved.at || 0) < 60000 &&
         !new URLSearchParams(location.search).get("play")) navigate(saved);
   } catch (_) {}
   // Пришли из ленты «Продолжить просмотр» на домашнем экране (?play=<id>) — открываем фильм
@@ -1276,7 +1280,7 @@ function applyState(s) {
   // экран восстановится тем же. sessionStorage живёт ровно столько же, сколько сама страница
   // WebView: reload его сохраняет, перезапуск приложения — чистит, то есть после включения
   // телевизор честно начнёт с категорий.
-  try { sessionStorage.setItem("mc-restore", JSON.stringify({ ...s, type: state.type })); } catch (_) {}
+  try { sessionStorage.setItem("mc-restore", JSON.stringify({ ...s, type: state.type, at: Date.now() })); } catch (_) {}
   if (state.screen === "detail" || state.screen === "collection") {
     state.current = findEntry(state.type, s.id) || null;
   }
@@ -1931,6 +1935,8 @@ async function startPlay(id, fromStart) {
       const it = items.find((x) => x.id === id);
       const pos = fromStart ? 0 : Number((it && it.position) || 0);
       window.MCApp.playVideo(r.url, r.package || "", r.title || "", r.subtitles || "", id, !!fromStart, pos);
+      hideOverlay();   // плеер открывается поверх — плашке тут больше нечего делать
+      return;
     }
     showOverlay(r.ok ? "Играет в плеере" : "⚠️ " + (r.error || "ошибка"), r.ok);
   } catch (_) { showOverlay("⚠️ Не удалось запустить"); }
