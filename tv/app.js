@@ -969,13 +969,21 @@ function updateInfo(i) {
     ${attrs ? `<div class="mt-3 flex-none space-y-1 border-t border-white/10 pt-3">${attrs}</div>` : ""}`;
   const d = document.getElementById("ginfo-desc");
   if (d && d.scrollHeight > d.clientHeight + 4) {
-    infoScrollT = setTimeout(() => {
-      const step = () => {
-        d.scrollTop += 0.35;   // ~20 пикселей в секунду — читается, не мельтешит
-        if (d.scrollTop + d.clientHeight < d.scrollHeight - 1) infoScrollRaf = requestAnimationFrame(step);
-      };
-      infoScrollRaf = requestAnimationFrame(step);
-    }, 2500);
+    // Пинг-понг: доехал до низа — пауза — наверх — пауза — снова вниз. Длинное описание
+    // читается по кругу, пока фокус стоит на плитке.
+    let dir = 1;
+    const step = () => {
+      d.scrollTop += 0.35 * dir;   // ~20 пикселей в секунду — читается, не мельтешит
+      const atBottom = d.scrollTop + d.clientHeight >= d.scrollHeight - 1;
+      const atTop = d.scrollTop <= 0;
+      if ((dir > 0 && atBottom) || (dir < 0 && atTop)) {
+        dir = -dir;
+        infoScrollT = setTimeout(() => { infoScrollRaf = requestAnimationFrame(step); }, 2000);
+      } else {
+        infoScrollRaf = requestAnimationFrame(step);
+      }
+    };
+    infoScrollT = setTimeout(() => { infoScrollRaf = requestAnimationFrame(step); }, 2500);
   }
 }
 
