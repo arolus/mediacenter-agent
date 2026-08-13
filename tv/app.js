@@ -567,7 +567,7 @@ function cardHtml(i) {
       ${badge ? `<div class="absolute top-1.5 right-1.5 rounded-md bg-black/75 px-1.5 py-0.5 text-[11px] font-semibold text-zinc-100">${badge}</div>` : ""}
       ${isWatched(i) ? `<div class="absolute bottom-1.5 right-1.5 grid h-6 w-6 place-items-center rounded-md bg-black/70 text-emerald-400">${ICONS.check("h-4 w-4")}</div>` : ""}
       ${dl ? `<div class="absolute right-0 bottom-0 left-0 bg-black/80 px-2 py-1.5">
-        <div class="mb-1 text-[10px] font-semibold text-violet-200">${dl.status === "downloading" ? "Скачивается " + Math.round((dl.progress || 0) * 100) + "%" : dl.status === "moving" ? "Переносим " + Math.round((dl.progress || 0) * 100) + "%" : dl.error ? "Ошибка" : "Ожидает…"}</div>
+        <div class="mb-1 text-[10px] font-semibold text-violet-200">${dl.status === "downloading" ? Math.round((dl.progress || 0) * 100) + "%" + fmtSpeed(dl.speed) : dl.status === "moving" ? "Переносим " + Math.round((dl.progress || 0) * 100) + "%" : dl.error ? "Ошибка" : "Ожидает…"}</div>
         <div class="h-1 overflow-hidden rounded bg-white/15"><div class="h-full bg-violet-500 transition-all" style="width:${Math.round((dl.progress || 0) * 100)}%"></div></div>
       </div>` : ""}
     </div>`;
@@ -2289,6 +2289,8 @@ function showOverlay(t, withPlay) {
 }
 function hideOverlay() { document.getElementById("tv-overlay").classList.add("hidden"); }
 
+const fmtSpeed = (bps) => bps > 50000 ? ` · ${(bps / 1048576).toFixed(1).replace(".", ",")} МБ/с` : "";
+
 // Процент активной закачки в самом верху шапки, рядом со статус-иконками.
 // Одна закачка — «34%», несколько — «34% · 7%».
 function paintHeaderDownloads() {
@@ -2298,7 +2300,7 @@ function paintHeaderDownloads() {
   if (!act.length) { el.classList.add("hidden"); el.innerHTML = ""; return; }
   el.innerHTML =
     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="mr-0.5 h-[11px] w-[11px]"><path d="M12 4v12"/><path d="m6 11 6 6 6-6"/><path d="M5 21h14"/></svg>` +
-    esc(act.map((d) => `${Math.round((d.progress || 0) * 100)}%`).join(" · "));
+    esc(act.map((d) => `${Math.round((d.progress || 0) * 100)}%${fmtSpeed(d.speed)}`).join("  ·  "));
   el.classList.remove("hidden");
 }
 

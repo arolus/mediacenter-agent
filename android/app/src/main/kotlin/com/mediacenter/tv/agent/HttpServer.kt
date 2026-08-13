@@ -105,6 +105,7 @@ class HttpServer(
                     .put("type", d.getString("type") ?: "movie")
                     .put("status", d.getString("status") ?: "")
                     .put("progress", d.getDouble("progress") ?: 0.0)
+                    .put("speed", (d.get("speed") as? Number)?.toLong() ?: 0)
                     .put("error", d.getString("error")))
             }
             downloadsView = arr
