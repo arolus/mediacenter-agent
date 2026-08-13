@@ -676,13 +676,7 @@ function renderGridPage({ heading, count, list, empty, onOpen, fallbackInfo, fil
         </div>
       </div>
     </div>`;
-  document.getElementById("flt-sort")?.addEventListener("click", () => {
-    const i = SORTS.findIndex(([k]) => k === gridSort);
-    gridSort = SORTS[(i + 1) % SORTS.length][0];
-    localStorage.setItem("mc-sort", gridSort);
-    render();
-    document.getElementById("flt-sort")?.focus({ preventScroll: true });
-  });
+  document.getElementById("flt-sort")?.addEventListener("click", () => openSortPicker());
   document.getElementById("flt-genre")?.addEventListener("click", () => openGenrePicker());
   app.querySelectorAll(".tv-card").forEach((card) => {
     if (!card.dataset.id) return; // плитка «Назад»
@@ -712,27 +706,44 @@ function renderGrid() {
   });
 }
 
-// Выбор жанра: вертикальный список по убыванию частоты, ↑↓ + Enter, Back — закрыть.
-function openGenrePicker() {
-  const counts = genreCounts(state.type);
+// Общее меню-список (сортировка, жанр): ↑↓ + Enter — выбрать, Back — просто закрыть.
+function openOptionPicker(title, options, current, onPick) {
+  closeOptionPicker();
   const wrap = document.createElement("div");
-  wrap.id = "genre-picker";
+  wrap.id = "opt-picker";
   wrap.className = "fixed top-0 right-0 bottom-0 left-0 z-40 flex items-center justify-center bg-black/70 backdrop-blur-sm";
   wrap.innerHTML = `
     <div class="thin-scroll max-h-[80vh] w-[380px] overflow-y-auto rounded-2xl border border-zinc-700 bg-zinc-900 p-3 shadow-2xl">
-      <div class="px-3 pb-2 text-lg font-bold">Жанр</div>
-      ${[["", `Все жанры`], ...counts.map(([g, n]) => [g, `${g} <span class="text-zinc-500">· ${n}</span>`])].map(([g, label]) => `
-        <div tabindex="0" data-genre="${esc(g)}" class="genre-row cursor-pointer rounded-xl px-3 py-2 text-[15px] outline-none transition focus:bg-violet-500/20 focus:ring-2 focus:ring-violet-500/40 ${g === gridGenre ? "text-violet-300 font-semibold" : "text-zinc-200"}">${label}</div>`).join("")}
+      <div class="px-3 pb-2 text-lg font-bold">${esc(title)}</div>
+      ${options.map(([v, label]) => `
+        <div tabindex="0" data-val="${esc(v)}" class="opt-row cursor-pointer rounded-xl px-3 py-2 text-[15px] outline-none transition focus:bg-violet-500/20 focus:ring-2 focus:ring-violet-500/40 ${v === current ? "text-violet-300 font-semibold" : "text-zinc-200"}">${label}</div>`).join("")}
     </div>`;
   document.body.appendChild(wrap);
-  wrap.querySelectorAll(".genre-row").forEach((r) => r.addEventListener("click", () => {
-    gridGenre = r.dataset.genre;
-    localStorage.setItem("mc-genre", gridGenre);
+  wrap.querySelectorAll(".opt-row").forEach((r) => r.addEventListener("click", () => {
     wrap.remove();
+    onPick(r.dataset.val);
+  }));
+  (wrap.querySelector(`[data-val="${CSS.escape(current)}"]`) || wrap.querySelector(".opt-row"))?.focus();
+}
+function closeOptionPicker() { document.getElementById("opt-picker")?.remove(); }
+
+function openSortPicker() {
+  openOptionPicker("Сортировка", SORTS, gridSort, (v) => {
+    gridSort = v;
+    localStorage.setItem("mc-sort", gridSort);
+    render();
+    document.getElementById("flt-sort")?.focus({ preventScroll: true });
+  });
+}
+function openGenrePicker() {
+  const counts = genreCounts(state.type);
+  const options = [["", "Все жанры"], ...counts.map(([g, n]) => [g, `${g} <span class="text-zinc-500">· ${n}</span>`])];
+  openOptionPicker("Жанр", options, gridGenre, (v) => {
+    gridGenre = v;
+    localStorage.setItem("mc-genre", gridGenre);
     render();
     document.getElementById("flt-genre")?.focus({ preventScroll: true });
-  }));
-  (wrap.querySelector(`[data-genre="${CSS.escape(gridGenre)}"]`) || wrap.querySelector(".genre-row"))?.focus();
+  });
 }
 
 /* ---------- Коллекция (франшиза): та же сетка, что и список фильмов ---------- */
@@ -1284,13 +1295,13 @@ function renderPersonFilms(credits, lib, full) {
         return `<div class="mb-3 mr-3">${pcardHtml(c, lib.has(key), imdb || c.rating || 0, votes)}</div>`;
       }).join("")}
     </div>`;
-  document.getElementById("pflt-sort")?.addEventListener("click", () => {
-    const i = PSORTS.findIndex(([k]) => k === personSort);
-    personSort = PSORTS[(i + 1) % PSORTS.length][0];
-    localStorage.setItem("mc-psort", personSort);
-    renderPersonFilms(credits, lib, full);
-    document.getElementById("pflt-sort")?.focus({ preventScroll: true });
-  });
+  document.getElementById("pflt-sort")?.addEventListener("click", () =>
+    openOptionPicker("Сортировка", PSORTS, personSort, (v) => {
+      personSort = v;
+      localStorage.setItem("mc-psort", personSort);
+      renderPersonFilms(credits, lib, full);
+      document.getElementById("pflt-sort")?.focus({ preventScroll: true });
+    }));
   const progress = document.getElementById("person-progress");
   if (progress && full) progress.remove(); // полная пришла — индикатор больше не нужен
   // Левая панель контекстная: фокус на карточке — инфо фильма (как в списке фильмов:
@@ -1614,6 +1625,7 @@ window.mcHandleBack = () => {
   if (document.getElementById("settings-box")) { closeSettings(); return true; }
   if (closeTrailerInline()) return true;
   if (document.getElementById("pin-pad")) { closePinPad(); return true; }
+  if (document.getElementById("opt-picker")) { closeOptionPicker(); return true; }
   if (document.getElementById("mc-picker")) { closePicker(); return true; }
   if (document.getElementById("mc-modal")) { closeModal(); return true; }
   if (document.getElementById("copy-box")) { closeCopy(); return true; }
@@ -1693,12 +1705,12 @@ document.addEventListener("keydown", (e) => {
     return;
   }
   // Окно выбора торрента: ↑/↓ по списку, Enter — скачать, Esc/Back — отмена.
-  // Пикер жанра: ↑↓ по строкам, Enter — выбрать, Back — закрыть без изменений.
-  const gp = document.getElementById("genre-picker");
+  // Меню сортировки/жанра: ↑↓ по строкам, Enter — выбрать, Back — закрыть без изменений.
+  const gp = document.getElementById("opt-picker");
   if (gp) {
     e.preventDefault();
     if (["Escape", "Backspace", "GoBack", "BrowserBack"].includes(e.key)) return void gp.remove();
-    const rows = [...gp.querySelectorAll(".genre-row")];
+    const rows = [...gp.querySelectorAll(".opt-row")];
     const i = rows.indexOf(document.activeElement);
     if (e.key === "ArrowDown") { const el = rows[Math.min(rows.length - 1, i + 1)]; el?.focus(); el?.scrollIntoView({ block: "nearest" }); return; }
     if (e.key === "ArrowUp") { const el = rows[Math.max(0, i - 1)]; el?.focus(); el?.scrollIntoView({ block: "nearest" }); return; }
