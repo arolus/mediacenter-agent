@@ -544,27 +544,118 @@ class HttpServer(
     }
 
     // Frame from the middle of the video — Android's own retriever, no ffmpeg.
+    // The retriever is firmware-dependent (the Vestel TV has no AVI demuxer at all, and a
+    // mid-file frame can land on a black fade), so this escalates: several positions, any
+    // keyframe as a last resort, and finally the same file on another online node — the
+    // phones decode formats the TV can't. Failures are cached so every rerender of a
+    // 160-episode series doesn't rescan files that will never produce a frame.
     private fun thumb(id: String?): Response {
         val item = findItem(id) ?: return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "")
         val fp = findRawPath(item.optString("id"))
         if (!inMediaDirs(fp)) return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "")
         val out = File(thumbDir, item.optString("id") + ".jpg")
         if (!out.exists()) {
-            try {
-                val mmr = MediaMetadataRetriever()
-                mmr.setDataSource(fp)
-                val durUs = (mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0) * 1000
-                val bmp = mmr.getFrameAtTime(durUs / 2, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-                mmr.release()
-                bmp ?: return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "")
+            val fail = File(thumbDir, item.optString("id") + ".fail")
+            if (fail.exists() && System.currentTimeMillis() - fail.lastModified() < 6 * 3600_000L)
+                return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "")
+            val bmp = grabFrame(fp)
+            if (bmp != null) {
                 out.outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, it) }
-            } catch (e: Exception) {
+            } else if (!remoteThumb(item.optString("fileName"), out)) {
+                try { fail.writeText("") } catch (_: Exception) {}
                 return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "")
             }
+            fail.delete()
         }
         val r = newFixedLengthResponse(Response.Status.OK, "image/jpeg", FileInputStream(out), out.length())
         r.addHeader("Cache-Control", "max-age=86400")
         return r
+    }
+
+    private fun grabFrame(fp: String): android.graphics.Bitmap? {
+        return try {
+            val mmr = MediaMetadataRetriever()
+            mmr.setDataSource(fp)
+            val durUs = (mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0) * 1000
+            var best: android.graphics.Bitmap? = null
+            for (pos in listOf(0.5, 0.3, 0.7)) {
+                val b = try { mmr.getFrameAtTime((durUs * pos).toLong(), MediaMetadataRetriever.OPTION_CLOSEST_SYNC) }
+                        catch (_: Exception) { null } ?: continue
+                if (!isDark(b)) { best = b; break }
+                if (best == null) best = b       // dark, but better than nothing
+            }
+            if (best == null) best = try { mmr.getFrameAtTime(-1) } catch (_: Exception) { null }
+            mmr.release()
+            best?.let { b ->
+                if (b.width > 640)
+                    android.graphics.Bitmap.createScaledBitmap(b, 640, b.height * 640 / b.width, true)
+                else b
+            }
+        } catch (_: Exception) { null }
+    }
+
+    private fun isDark(b: android.graphics.Bitmap): Boolean {
+        var sum = 0L; var n = 0
+        val stepX = maxOf(1, b.width / 16); val stepY = maxOf(1, b.height / 9)
+        var y = 0
+        while (y < b.height) {
+            var x = 0
+            while (x < b.width) {
+                val p = b.getPixel(x, y)
+                sum += ((p shr 16 and 0xFF) + (p shr 8 and 0xFF) + (p and 0xFF)) / 3
+                n++; x += stepX
+            }
+            y += stepY
+        }
+        return n == 0 || sum / n < 18
+    }
+
+    // Other online nodes: address is devices/{id}.lanIp/tvPort, and their library ids for the
+    // same file differ (SHA1 of THEIR path) — so we map fileName→id via their /api/library.
+    @Volatile private var peers: List<Pair<String, Map<String, String>>> = emptyList()
+    @Volatile private var peersAt = 0L
+
+    private fun refreshPeers() {
+        if (System.currentTimeMillis() - peersAt < 5 * 60_000L) return
+        peersAt = System.currentTimeMillis()
+        peers = try {
+            kotlinx.coroutines.runBlocking {
+                db.collection("devices").get().await().documents
+                    .filter { it.id != config.deviceId && it.getBoolean("online") == true }
+                    .mapNotNull { d ->
+                        val ip = d.getString("lanIp") ?: return@mapNotNull null
+                        val port = (d.get("tvPort") as? Number)?.toInt() ?: return@mapNotNull null
+                        try {
+                            val res = httpFetch("http://$ip:$port/api/library", timeoutMs = 5000)
+                            if (res.status != 200) return@mapNotNull null
+                            val arr = JSONArray(String(res.body))
+                            val map = HashMap<String, String>()
+                            for (i in 0 until arr.length()) {
+                                val o = arr.optJSONObject(i) ?: continue
+                                val fn = o.optString("fileName")
+                                if (fn.isNotEmpty()) map[fn] = o.optString("id")
+                            }
+                            "http://$ip:$port" to map
+                        } catch (_: Exception) { null }
+                    }
+            }
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun remoteThumb(fileName: String, out: File): Boolean {
+        if (fileName.isEmpty()) return false
+        refreshPeers()
+        for ((base, map) in peers) {
+            val rid = map[fileName] ?: continue
+            try {
+                val res = httpFetch("$base/thumb?id=$rid", timeoutMs = 20000)
+                if (res.status == 200 && res.body.size > 2 && res.body[0] == 0xFF.toByte()) {
+                    out.writeBytes(res.body)
+                    return true
+                }
+            } catch (_: Exception) {}
+        }
+        return false
     }
 
     // Codec/resolution/audio/duration — MediaExtractor, cached like the Node agent did with ffprobe.
