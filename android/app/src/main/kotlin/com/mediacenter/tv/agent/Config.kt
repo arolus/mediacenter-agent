@@ -58,6 +58,7 @@ class Config(val json: JSONObject) {
     companion object {
         private fun file(ctx: Context) = File(ctx.filesDir, "agent-config.json")
 
+        @JvmStatic
         fun load(ctx: Context): Config? = try {
             Config(JSONObject(file(ctx).readText()))
         } catch (_: Exception) { null }
@@ -67,5 +68,27 @@ class Config(val json: JSONObject) {
             file(ctx).writeText(jsonText)
             true
         } catch (_: Exception) { false }
+
+        // QR enrollment for a fresh node (no config yet): a random token shown in the QR and
+        // polled against the `enroll` Cloud Function. Kept on disk so reboots don't change
+        // the QR mid-registration. The project id is hardcoded — there is no config to read
+        // it from yet, and it is public anyway (it's in every dashboard URL).
+        const val ENROLL_PROJECT = "mediacenter-49c3c"
+
+        @JvmStatic
+        fun enrollToken(ctx: Context): String {
+            val f = File(ctx.filesDir, "enroll-token")
+            runCatching {
+                val t = f.readText().trim()
+                if (t.matches(Regex("[a-f0-9]{32}"))) return t
+            }
+            val b = ByteArray(16)
+            java.security.SecureRandom().nextBytes(b)
+            val t = b.joinToString("") { "%02x".format(it) }
+            f.writeText(t)
+            return t
+        }
+
+        fun clearEnrollToken(ctx: Context) { File(ctx.filesDir, "enroll-token").delete() }
     }
 }

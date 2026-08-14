@@ -46,6 +46,7 @@ public class MainActivity extends Activity {
     private BroadcastReceiver agentReady;
     private BroadcastReceiver uiUpdated;
     private boolean reloadedOnAgentReady;
+    private boolean enrollMode;
     private String url;
     private Thread waiter; // фоновая проба агента, пока он не поднялся
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -216,11 +217,28 @@ public class MainActivity extends Activity {
         long idleSec = getIntent() != null ? getIntent().getLongExtra("idle", 0) : 0;
         if (idleSec > 0) idleMs = idleSec * 1000;
         wakeAndSchedule(true); // KEEP_SCREEN_ON + рабочая яркость + старт отсчёта неактивности
-        web.loadUrl(url);
+        // Непровиженная нода показывает QR-регистрацию (enroll.html из assets) вместо
+        // TV-страницы; агент тем временем поллит сервер и по одобрению получает конфиг.
+        enrollMode = com.mediacenter.tv.agent.Config.load(this) == null;
+        if (enrollMode) {
+            String tok = com.mediacenter.tv.agent.Config.enrollToken(this);
+            web.loadUrl("file:///android_asset/tv/enroll.html#"
+                + android.net.Uri.encode(tok + "|" + Build.MODEL));
+        } else {
+            web.loadUrl(url);
+        }
         // Агент поднимается через пару секунд после активити: как только его сервер готов,
         // перезагружаем страницу — до этого WebView мог показать её из офлайн-кэша.
+        // В режиме регистрации готовность агента означает «конфиг получен» — уходим с QR
+        // на обычную TV-страницу.
         agentReady = new BroadcastReceiver() {
             @Override public void onReceive(Context c, Intent i) {
+                if (enrollMode) {
+                    enrollMode = false;
+                    reloadedOnAgentReady = true;
+                    web.post(new Runnable() { @Override public void run() { web.loadUrl(url); } });
+                    return;
+                }
                 if (reloadedOnAgentReady) return;
                 reloadedOnAgentReady = true;
                 web.post(new Runnable() { @Override public void run() { web.reload(); } });

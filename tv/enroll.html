@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<!-- First-run screen: the node has no config yet. Shows a QR that opens the dashboard with
+     an enrollment token; the owner approves there and the agent picks the config up from
+     the `enroll` Cloud Function. Opened by MainActivity as
+     file:///android_asset/tv/enroll.html#<token>|<device model> -->
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MediaCenter — добавление устройства</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #09090b; color: #e4e4e7;
+    font-family: -apple-system, Roboto, "Segoe UI", sans-serif; }
+  .wrap { height: 100%; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; text-align: center; padding: 24px; box-sizing: border-box; }
+  h1 { font-size: clamp(20px, 4vh, 34px); margin: 0 0 8px; font-weight: 800; }
+  p  { color: #a1a1aa; font-size: clamp(13px, 2.4vh, 18px); margin: 4px 0; max-width: 640px; }
+  #qr { background: #fff; padding: 16px; border-radius: 16px; margin: 22px 0;
+    box-shadow: 0 0 60px rgba(139, 92, 246, .35); }
+  #qr img { display: block; width: clamp(180px, 34vh, 320px); height: auto;
+    image-rendering: pixelated; }
+  .dots::after { content: ""; animation: d 1.5s steps(4) infinite; }
+  @keyframes d { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
+  .ok { color: #34d399; font-weight: 700; font-size: clamp(16px, 3vh, 24px); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Добавить это устройство в MediaCenter</h1>
+  <p>Наведи камеру телефона на код — откроется страница подтверждения.</p>
+  <div id="qr"></div>
+  <p id="status" class="dots">Жду подтверждения</p>
+  <p id="name" style="color:#71717a"></p>
+</div>
+<script src="qrcode.js"></script>
+<script>
+  var frag = decodeURIComponent(location.hash.slice(1) || "");
+  var sep = frag.indexOf("|");
+  var token = sep >= 0 ? frag.slice(0, sep) : frag;
+  var model = sep >= 0 ? frag.slice(sep + 1) : "";
+  if (model) document.getElementById("name").textContent = model;
+  var url = "https://mc.arsidian.com/?enroll=" + encodeURIComponent(token) +
+    (model ? "&name=" + encodeURIComponent(model) : "");
+  var q = qrcode(0, "M");
+  q.addData(url);
+  q.make();
+  document.getElementById("qr").innerHTML = q.createImgTag(8, 0);
+  // The agent polls the server; once the config lands it broadcasts and MainActivity
+  // reloads into the normal TV page. This handler is just in case the page outlives that.
+  window.mcEnrolled = function () {
+    document.getElementById("status").className = "ok";
+    document.getElementById("status").textContent = "Устройство добавлено! Запускаюсь…";
+  };
+</script>
+</body>
+</html>

@@ -98,9 +98,9 @@ class AgentService : Service() {
     private suspend fun boot() {
         val cfg = Config.load(this)
         if (cfg == null) {
-            Log.e("config: нет agent-config.json — жду провижена")
-            notify("Нет конфигурации ноды")
-            running = false
+            Log.i("config: нет agent-config.json — QR-регистрация")
+            notify("Регистрация: наведи камеру телефона на QR")
+            enrollLoop()
             return
         }
         config = cfg
@@ -308,6 +308,35 @@ class AgentService : Service() {
         relay?.stop(); relay = null
         torrents?.stop(); torrents = null
         http?.stopAll(); http = null
+    }
+
+    // No config: MainActivity is showing the enrollment QR (tv/enroll.html). We poll the
+    // `enroll` Cloud Function with the same token until the owner approves it in the
+    // dashboard; the function then hands over the full agent config exactly once.
+    private suspend fun enrollLoop() {
+        val token = Config.enrollToken(this)
+        val name = android.net.Uri.encode(android.os.Build.MODEL ?: "TV")
+        val url = "https://us-central1-${Config.ENROLL_PROJECT}.cloudfunctions.net/enroll" +
+            "?token=$token&name=$name"
+        Log.i("enroll: жду одобрения (токен ${token.take(6)}…)")
+        while (running) {
+            // Провижен мог прийти интентом (--es cfg) — тогда новый boot уже запущен, выходим.
+            if (Config.load(this) != null) return
+            try {
+                val r = httpFetch(url, timeoutMs = 15000)
+                if (r.status == 200) {
+                    val o = JSONObject(String(r.body, Charsets.UTF_8))
+                    val cfgJson = if (o.optString("status") == "approved") o.optJSONObject("config") else null
+                    if (cfgJson != null && Config.save(this, cfgJson.toString())) {
+                        Config.clearEnrollToken(this)
+                        Log.i("enroll: конфиг получен — стартую")
+                        boot()
+                        return
+                    }
+                }
+            } catch (e: Exception) { Log.e("enroll: ${e.message}") }
+            kotlinx.coroutines.delay(5000)
+        }
     }
 
     override fun onDestroy() {
