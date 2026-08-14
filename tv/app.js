@@ -1011,8 +1011,9 @@ function updateInfo(i) {
       const atBottom = d.scrollTop + d.clientHeight >= d.scrollHeight - 1;
       const atTop = d.scrollTop <= 0;
       if ((dir > 0 && atBottom) || (dir < 0 && atTop)) {
+        const pause = dir > 0 ? 6000 : 2000;   // внизу дольше: дочитать конец
         dir = -dir;
-        infoScrollT = setTimeout(() => { infoScrollRaf = requestAnimationFrame(step); }, 2000);
+        infoScrollT = setTimeout(() => { infoScrollRaf = requestAnimationFrame(step); }, pause);
       } else {
         infoScrollRaf = requestAnimationFrame(step);
       }
