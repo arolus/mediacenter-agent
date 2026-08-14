@@ -57,9 +57,24 @@ class AgentService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    // A TV "turned off" by the remote is standby: the system suspends CPU and Wi-Fi and the
+    // node vanishes from Firestore. These locks keep the agent reachable through standby —
+    // provided the TV's own power settings allow networked standby (fast start / network
+    // standby); against a true suspend they are powerless.
+    private var wakeLock: android.os.PowerManager.WakeLock? = null
+    private var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
+
     override fun onCreate() {
         super.onCreate()
         startForeground(NOTIF_ID, notification("Запускаюсь…"))
+        runCatching {
+            val pm = getSystemService(POWER_SERVICE) as android.os.PowerManager
+            wakeLock = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "mediacenter:agent")
+                .apply { setReferenceCounted(false); acquire() }
+            val wm = applicationContext.getSystemService(WIFI_SERVICE) as android.net.wifi.WifiManager
+            wifiLock = wm.createWifiLock(android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF, "mediacenter:agent")
+                .apply { setReferenceCounted(false); acquire() }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -306,6 +321,8 @@ class AgentService : Service() {
             db.collection("devices").document(config.deviceId)
                 .set(mapOf("online" to false, "lastSeen" to FieldValue.serverTimestamp()), SetOptions.merge())
         }
+        runCatching { wakeLock?.release() }
+        runCatching { wifiLock?.release() }
         scope.cancel()
         super.onDestroy()
     }
