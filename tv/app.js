@@ -1156,7 +1156,7 @@ function renderDetail() {
           <div class="mt-1 flex min-h-0 ${multi ? "flex-1" : ""} space-x-6">
             ${multi ? `<div class="flex min-w-0 flex-1 flex-col">
               <div id="detail-desc" tabindex="0" class="thin-scroll h-[clamp(96px,calc(var(--uivh)*24),240px)] min-w-0 flex-none overflow-y-auto rounded-md pr-1 text-[clamp(12px,calc(var(--uivh)*2.4),16px)] leading-snug text-zinc-200 outline-none drop-shadow focus:ring-2 focus:ring-violet-500/40">${esc(i.overview || "Нет описания")}</div>
-              <div class="mt-3 flex-none space-y-1">${metaTable}</div>
+              <div class="mt-auto flex-none space-y-1 pt-3">${metaTable}</div>
             </div>` : `<div id="detail-desc" tabindex="0" class="thin-scroll h-[clamp(96px,calc(var(--uivh)*30),300px)] min-w-0 flex-1 overflow-y-auto rounded-md pr-1 text-[clamp(12px,calc(var(--uivh)*2.4),16px)] leading-snug text-zinc-200 outline-none drop-shadow focus:ring-2 focus:ring-violet-500/40">${esc(i.overview || "Нет описания")}</div>`}
             ${multi
               ? `<div class="flex h-full min-h-0 w-[46%] max-w-[560px] flex-none flex-col">
