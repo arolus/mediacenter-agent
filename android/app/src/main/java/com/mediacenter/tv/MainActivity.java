@@ -49,6 +49,7 @@ public class MainActivity extends Activity {
     private boolean enrollMode;
     private String url;
     private Thread waiter; // фоновая проба агента, пока он не поднялся
+    private boolean waitingShown; // экран «Жду агента…» на экране (не перерисовывать)
     private final Handler handler = new Handler(Looper.getMainLooper());
     // Момент последнего РЕАЛЬНОГО ввода (пульт/тач). Отсчёт простоя ведём от него, а НЕ от
     // onResume: иначе ночные onPause/onResume (зарядка, системные события) сбрасывали таймер
@@ -210,6 +211,20 @@ public class MainActivity extends Activity {
             public void onReceivedError(WebView v, int code, String desc, String failingUrl) {
                 showWaiting();
             }
+            @Override
+            public void onPageFinished(WebView v, String loaded) {
+                if (loaded != null && loaded.startsWith("http")) waitingShown = false;
+            }
+            // Телевизор с 1.4 ГБ памяти под конец дня уходит в своп, и система убивает
+            // процесс рендерера. Без этого обработчика WebView остаётся мёртвым навсегда
+            // (пустой экран, onReceivedError не приходит — ждать агента бесполезно, он жив):
+            // именно так телевизор простоял ночь на экране «Жду агента…». Пересоздаём.
+            @Override
+            public boolean onRenderProcessGone(WebView v, android.webkit.RenderProcessGoneDetail d) {
+                android.util.Log.e("MCWeb", "render process gone — пересоздаю WebView");
+                recreate();
+                return true;   // false = система убила бы и наше приложение
+            }
         });
         setContentView(web);
         hideSystemUi();
@@ -320,6 +335,13 @@ public class MainActivity extends Activity {
     // Пробуем достучаться фоном и грузим страницу только когда она реально отвечает —
     // без мигания повторными loadUrl по таймеру.
     private void showWaiting() {
+        // Экран уже показан — не перерисовывать: иначе фоновые попытки загрузки сбрасывали бы
+        // отсчёт до аварийной кнопки «Открыть настройки Android», и она не появилась бы никогда.
+        if (waitingShown) {
+            if (waiter != null && waiter.isAlive()) return;
+        } else {
+            waitingShown = true;
+        }
         web.loadDataWithBaseURL(url,
             "<!doctype html><html><head><meta name='viewport' content='width=device-width, initial-scale=1'>" +
             "<style>body{margin:0;height:100vh;display:flex;flex-direction:column;align-items:center;" +
@@ -359,18 +381,30 @@ public class MainActivity extends Activity {
             "text/html", "utf-8", null);
         if (waiter != null && waiter.isAlive()) return;
         waiter = new Thread(() -> {
+            int tries = 0;
             while (!isFinishing()) {
+                tries++;
                 try {
                     HttpURLConnection c = (HttpURLConnection) new URL(url + "api/device").openConnection();
-                    c.setConnectTimeout(2000);
-                    c.setReadTimeout(2000);
+                    // Не жадничать с таймаутами: под конец дня телевизор уходит в своп, и
+                    // двух секунд ему не хватало — экран ожидания залипал при живом агенте.
+                    c.setConnectTimeout(8000);
+                    c.setReadTimeout(8000);
                     int rc = c.getResponseCode();
                     c.disconnect();
                     if (rc == 200) {
                         runOnUiThread(() -> web.loadUrl(url));
                         return;
                     }
-                } catch (Exception ignored) {}
+                    android.util.Log.e("MCWeb", "проба агента: HTTP " + rc);
+                } catch (Exception e) {
+                    // Молчаливый catch стоил ночи «Жду агента…» при живом агенте — логируем.
+                    android.util.Log.e("MCWeb", "проба агента: " + e);
+                }
+                // Проба ходит через java.net, а страницу грузит chromium — это РАЗНЫЕ сетевые
+                // стеки. Если пробе поплохело (залипший пул соединений, своп), страница всё
+                // равно может открыться, поэтому раз в полминуты просто пробуем её загрузить.
+                if (tries % 10 == 0) runOnUiThread(() -> web.loadUrl(url));
                 try { Thread.sleep(3000); } catch (InterruptedException e) { return; }
             }
         });
