@@ -1313,7 +1313,11 @@ function renderDetail() {
       .sort((a, b) => String(a.fileName || "").localeCompare(String(b.fileName || "")));
     if (parts.length > 1) {
       openOptionPicker("Какую серию смотреть?", parts.map((p, n) => [p.id, esc(partLabel(p, n))]), "",
-        (id) => play(id));
+        (id) => {
+          const ids = parts.map((p) => p.id);
+          autoNext = { ids, idx: ids.indexOf(id) };  // досмотрел — следующая включится сама
+          play(id);
+        });
       return;
     }
     play(i.id);
@@ -2346,6 +2350,31 @@ let playBusy = false;
 
 // Фильм начат — предлагаем выбор вместо молчаливого решения за зрителя: продолжить с той
 // секунды, где остановились, или смотреть сначала.
+// Автопродолжение многосерийного фильма: досмотрел «Серию 1» — «Серия 2» запускается сама.
+// Сигнал «досмотрел» — отметка watched от агента (VLC отдаёт позицию при выходе, агент
+// помечает с 92% длительности). Вышел на середине — ничего не навязываем.
+let autoNext = null; // { ids: [id частей по порядку], idx: какую играли }
+async function maybePlayNextPart() {
+  const q = autoNext;
+  if (!q) return;
+  autoNext = null;
+  if (q.idx + 1 >= q.ids.length) return;
+  // Позиция доезжает через Firestore и слушатель агента — даём ей несколько секунд.
+  for (let i = 0; i < 4; i++) {
+    await new Promise((r) => setTimeout(r, 1200));
+    await reloadLibrary();
+    const played = items.find((x) => x.id === q.ids[q.idx]);
+    if (!played) return;
+    if (played.watched) {
+      autoNext = { ids: q.ids, idx: q.idx + 1 };   // после второй — третья, если есть
+      startPlay(q.ids[q.idx + 1], false);
+      return;
+    }
+    if (Number(played.position || 0) > 0) return;  // вышли на середине
+  }
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) maybePlayNextPart(); });
+
 async function play(id) {
   // Позиция могла обновиться секунду назад (вышли из плеера и сразу жмут «Смотреть»), а SSE
   // после возврата из VLC иногда молчит — берём свежие данные, а не кэш страницы.
