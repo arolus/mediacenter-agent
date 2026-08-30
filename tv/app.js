@@ -736,9 +736,9 @@ function renderGridPage({ heading, count, list, empty, onOpen, fallbackInfo, fil
   // Чипы НЕ приклеены: полоса лежит внутри скролл-зоны и уезжает вместе со списком.
   // Жанры — сразу строкой (без меню): «все» + жанры библиотеки по убыванию частоты.
   const genreChips = filters && filters.genres ? genreCounts(state.type).map(([g]) => [g, g]) : null;
-  // Фильтры живут в ЛЕВОЙ колонке, над подборками: в узкой колонке чипы переносятся по
-  // строкам (flex-wrap), а не уезжают горизонтальным скроллом, и вся «настройка списка»
-  // собрана в одном месте — пультом до неё один шаг влево, как до подборок.
+  // Фильтры живут в ЛЕВОЙ колонке, над подборками: вся «настройка списка» собрана в одном
+  // месте — пультом до неё один шаг влево, как до подборок. Жанры — горизонтальной лентой
+  // в своём скролле (width:0+min-width:100% — чтобы чипы не распирали колонку вширь).
   // p-1 вокруг чипов — чтобы фокус-кольцо не резалось краем колонки.
   const filterBar = filters ? `
         <div id="grid-filters" class="mb-3 flex-none border-b border-white/10 pb-3">
@@ -747,9 +747,9 @@ function renderGridPage({ heading, count, list, empty, onOpen, fallbackInfo, fil
             ${eyeChip()}
           </div>
           ${genreChips && genreChips.length ? `
-          <div class="thin-scroll mt-0.5 flex max-h-[22vh] flex-wrap items-center gap-1.5 overflow-y-auto p-1">
+          <div class="thin-scroll mt-0.5 flex items-center space-x-1.5 overflow-x-auto p-1" style="width:0;min-width:100%">
             ${genreChips.map(([g, label]) => `
-              <div tabindex="0" data-genre="${esc(g)}" class="flt-genre ${CHIP} ${g === gridGenre ? "border-violet-500/60 bg-violet-500/15 text-violet-200" : ""}">${esc(label)}</div>`).join("")}
+              <div tabindex="0" data-genre="${esc(g)}" class="flt-genre ${CHIP} flex-none ${g === gridGenre ? "border-violet-500/60 bg-violet-500/15 text-violet-200" : ""}">${esc(label)}</div>`).join("")}
           </div>` : ""}
         </div>` : "";
   app.innerHTML = `
