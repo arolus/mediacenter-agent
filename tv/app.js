@@ -1214,6 +1214,7 @@ function renderDetail() {
   const BTN = "dfoc flex flex-none cursor-pointer items-center rounded-2xl border border-white/15 px-4 py-[clamp(7px,calc(var(--uivh)*1.8),12px)] text-[clamp(12px,calc(var(--uivh)*2.2),15px)] font-semibold outline-none backdrop-blur transition focus:ring-4";
   const metaTable = `
     ${metaRow("Рейтинг", ratingCell(i))}
+    ${metaRow("Возраст", esc(i.ageRating || ""))}
     ${metaRow("Жанр", esc((i.genres || []).join(", ")))}
     ${metaRow("Страна", esc(i.country))}
     ${metaRow("Студия", esc(i.studio))}

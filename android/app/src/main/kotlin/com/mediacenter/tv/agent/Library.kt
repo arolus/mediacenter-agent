@@ -16,7 +16,7 @@ object Library {
         "tmdbId", "catalogId", "poster", "backdrop", "backdrops", "overview", "cast", "rating",
         "animation", "collection", "castX", "directorsX", "genres", "director", "writers", "country", "studio",
         "premiered", "votes", "tagline", "runtime", "trailer", "budget", "revenue", "keywords",
-        "imdbId", "imdbRating", "imdbVotes", "enrichV"
+        "imdbId", "imdbRating", "imdbVotes", "ageRating", "enrichV"
     )
     private val TORRENT_FIELDS = listOf("magnet", "infoHash", "rutrackerTid", "rutrackerUrl")
     private const val MIN_SERIES_FILES = 8

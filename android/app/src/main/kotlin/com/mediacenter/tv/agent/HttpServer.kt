@@ -332,6 +332,7 @@ class HttpServer(
                 .put("votes", it.optInt("votes", 0))
                 .put("tagline", it.optString("tagline"))
                 .put("runtime", it.optInt("runtime", 0))
+                .put("ageRating", it.opt("ageRating"))
                 .put("trailer", it.opt("trailer"))
                 .put("budget", it.optLong("budget", 0))
                 .put("revenue", it.optLong("revenue", 0))
