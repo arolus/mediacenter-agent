@@ -1282,8 +1282,10 @@ function ghostItem(s) {
   if (!got) return { ...seed, loading: true };
   // Данные с сервера полнее того, что было на плитке, — они и главные; своё оставляем только
   // там, где сервер молчит, плюс служебные поля (тип нужен для «Скачать»: он решает папку).
-  return { ...seed, ...got, isGhost: true, id: seed.id,
-    type: got.animation && seed.type !== "series" ? "cartoon" : seed.type };
+  // Тип берём ИЗ ДАННЫХ, а не из открытого раздела: фильм, найденный в фильмографии актёра
+  // из «Мультфильмов», раньше наследовал cartoon и качался в папку мультиков.
+  const type = seed.kind === "tv" ? "series" : (got.animation ? "cartoon" : "movie");
+  return { ...seed, ...got, isGhost: true, id: seed.id, type };
 }
 
 async function loadGhost(s) {
