@@ -1067,6 +1067,33 @@ function stopInfoScroll() {
   cancelAnimationFrame(infoScrollRaf); infoScrollRaf = null;
 }
 
+// Пинг-понг-автоскролл длинного описания: пауза — медленно вниз (читаем) — долгая пауза
+// внизу — быстро наверх — снова вниз. Общий для левой панели сетки и детальной страницы.
+function startPingPongScroll(d) {
+  stopInfoScroll();
+  if (!d || d.scrollHeight <= d.clientHeight + 4) return;
+  let dir = 1;
+  // Позицию копим сами: шаг вниз меньше пикселя, а scrollTop у WebView округляется —
+  // прибавка «в лоб» может теряться, и скролл застревал бы на месте.
+  // Стартуем с текущей позиции: возобновление после ручного листания не должно прыгать.
+  let pos = d.scrollTop || 0;
+  const step = () => {
+    if (!d.isConnected) { stopInfoScroll(); return; }   // страницу сменили — глушим цикл
+    pos = Math.max(0, pos + (dir > 0 ? 0.175 : 1.4) * dir);
+    d.scrollTop = pos;
+    const atBottom = pos + d.clientHeight >= d.scrollHeight - 1;
+    const atTop = pos <= 0;
+    if ((dir > 0 && atBottom) || (dir < 0 && atTop)) {
+      const pause = dir > 0 ? 6000 : 2000;   // внизу дольше: дочитать конец
+      dir = -dir;
+      infoScrollT = setTimeout(() => { infoScrollRaf = requestAnimationFrame(step); }, pause);
+    } else {
+      infoScrollRaf = requestAnimationFrame(step);
+    }
+  };
+  infoScrollT = setTimeout(() => { infoScrollRaf = requestAnimationFrame(step); }, 2500);
+}
+
 function updateInfo(i) {
   const el = document.getElementById("grid-info");
   if (!el) return;
@@ -1098,29 +1125,7 @@ function updateInfo(i) {
     <div id="ginfo-desc" class="mt-3 min-h-0 flex-1 overflow-y-auto pr-1 text-[clamp(12px,calc(var(--uivh)*2.2),15px)] leading-snug text-zinc-300">${esc(i.overview || "Нет описания")}</div>
     ${attrs ? `<div class="mt-3 flex-none space-y-1 border-t border-white/10 pt-3">${attrs}</div>` : ""}`;
   const d = document.getElementById("ginfo-desc");
-  if (d && d.scrollHeight > d.clientHeight + 4) {
-    // Пинг-понг: доехал до низа — пауза — наверх — пауза — снова вниз. Длинное описание
-    // читается по кругу, пока фокус стоит на плитке.
-    let dir = 1;
-    // Позицию копим сами: шаг вниз меньше пикселя, а scrollTop у WebView округляется —
-    // прибавка «в лоб» может теряться, и скролл застревал бы на месте.
-    let pos = 0;
-    const step = () => {
-      // Вниз — медленно (читаем), наверх — быстро (перемотка к началу, читать нечего).
-      pos = Math.max(0, pos + (dir > 0 ? 0.175 : 1.4) * dir);
-      d.scrollTop = pos;
-      const atBottom = pos + d.clientHeight >= d.scrollHeight - 1;
-      const atTop = pos <= 0;
-      if ((dir > 0 && atBottom) || (dir < 0 && atTop)) {
-        const pause = dir > 0 ? 6000 : 2000;   // внизу дольше: дочитать конец
-        dir = -dir;
-        infoScrollT = setTimeout(() => { infoScrollRaf = requestAnimationFrame(step); }, pause);
-      } else {
-        infoScrollRaf = requestAnimationFrame(step);
-      }
-    };
-    infoScrollT = setTimeout(() => { infoScrollRaf = requestAnimationFrame(step); }, 2500);
-  }
+  startPingPongScroll(d);
 }
 
 // Левая колонка, когда фокус не на фильме: тематические тэги (по ключевым словам TMDb).
@@ -1310,6 +1315,14 @@ function renderDetail() {
   // Актёры и персоны из таблицы → страница персоны
   app.querySelectorAll(".actor").forEach((b) => b.addEventListener("click", () => enterPerson(b.dataset.name, b.dataset.photo || null)));
   app.querySelectorAll(".plink").forEach((b) => b.addEventListener("click", () => enterPerson(b.dataset.name, null)));
+  // Автоскролл описания и на детальной: длинный текст листается сам, пока его не трогают.
+  // Взял пульт в руки (фокус на описании) — автоскролл замолкает, ушёл — продолжает с места.
+  const dd = document.getElementById("detail-desc");
+  if (dd) {
+    startPingPongScroll(dd);
+    dd.addEventListener("focus", stopInfoScroll);
+    dd.addEventListener("blur", () => startPingPongScroll(dd));
+  }
   const playBtn = document.getElementById("detail-play");
   if (playBtn) playBtn.addEventListener("click", () => {
     if (i.isGhost) return askDownload(i);
