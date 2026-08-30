@@ -34,7 +34,9 @@ const ICONS = {
   eyeOff: (cls) => icon(`<path d="m3 3 18 18"/><path d="M6.6 6.7C3.4 8.6 2 12 2 12s3.5 7 10 7c1.9 0 3.6-.5 5-1.3"/><path d="M10.7 5.1c.4 0 .9-.1 1.3-.1 6.5 0 10 7 10 7s-.6 1.3-1.9 2.8"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/>`, cls),
   gear: (cls) => icon(`<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.14.5.53.9 1.02 1.02H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/>`, cls),
   drive: (cls) => icon(`<rect width="20" height="8" x="2" y="4" rx="2"/><rect width="20" height="8" x="2" y="12" rx="2"/><path d="M6 8h.01"/><path d="M6 16h.01"/>`, cls),
-  star: (cls) => `<svg class="${cls}" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4 6.1 20.5l1.2-6.5L2.5 9.4l6.6-.9z"/></svg>`
+  star: (cls) => `<svg class="${cls}" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4 6.1 20.5l1.2-6.5L2.5 9.4l6.6-.9z"/></svg>`,
+  sort: (cls) => icon(`<path d="M7 4v16"/><path d="m3 8 4-4 4 4"/><path d="M17 20V4"/><path d="m13 16 4 4 4-4"/>`, cls),
+  search: (cls) => icon(`<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>`, cls)
 };
 const logo = (cls) =>
   `<span class="grid ${cls} place-items-center rounded-2xl bg-gradient-to-br from-violet-500 to-indigo-600 text-white shadow-lg shadow-violet-500/30">${ICONS.play("h-[55%] w-[55%] translate-x-[4%]")}</span>`;
@@ -715,23 +717,39 @@ const backTile = () => `
 // Заголовок (категория/коллекция) живёт в ЛЕВОЙ колонке, над описанием сфокусированного.
 const CHIP = "tv-card flex cursor-pointer items-center rounded-xl border border-zinc-700/70 bg-zinc-900/80 px-3.5 py-1.5 text-[13px] font-semibold text-zinc-300 outline-none transition focus:scale-105 focus:border-violet-400 focus:text-white focus:ring-2 focus:ring-violet-500/40";
 
+// Трёхпозиционный фильтр просмотра: все → просмотренные → непросмотренные. Иконкой, без
+// подписи: в узкой колонке текст «Непросмотренные» занимал бы всю строку.
+function eyeChip() {
+  const w = gridWatchFor(state.type);
+  const ico = w === "unwatched" ? ICONS.eyeOff : ICONS.eye;
+  const cls = w === "watched" ? "border-emerald-500/60 bg-emerald-500/15 text-emerald-300"
+    : w === "unwatched" ? "border-violet-500/60 bg-violet-500/15 text-violet-200"
+    : "opacity-60";
+  const title = w === "all" ? "Все" : w === "watched" ? "Только просмотренные" : "Только непросмотренные";
+  return `<div id="flt-eye" tabindex="0" title="${title}" aria-label="${title}" class="${CHIP} ml-1.5 px-2.5 ${cls}">${ico("h-4 w-4")}</div>`;
+}
+
 function renderGridPage({ heading, count, list, empty, onOpen, fallbackInfo, filters }) {
   computeCardWidth();
   // Чипы сортировки/жанра: класс tv-card включает их в пространственную навигацию пультом
   // (nearest ходит по геометрии), но data-id нет — обработчики плиток их не трогают.
   // Чипы НЕ приклеены: полоса лежит внутри скролл-зоны и уезжает вместе со списком.
   // Жанры — сразу строкой (без меню): «все» + жанры библиотеки по убыванию частоты.
-  const genreChips = filters && filters.genres ? [["", "все"], ...genreCounts(state.type).map(([g]) => [g, g])] : null;
-  // width:0 + min-width:100% — ширина полосы не зависит от контента (иначе строка чипов
-  // распирала страницу вширь); жанры скроллятся в СВОЁМ контейнере, сортировка стоит слева.
-  // p-1 внутри скролла — чтобы фокус-кольцо чипов не резалось краем.
+  const genreChips = filters && filters.genres ? genreCounts(state.type).map(([g]) => [g, g]) : null;
+  // Фильтры живут в ЛЕВОЙ колонке, над подборками: в узкой колонке чипы переносятся по
+  // строкам (flex-wrap), а не уезжают горизонтальным скроллом, и вся «настройка списка»
+  // собрана в одном месте — пультом до неё один шаг влево, как до подборок.
+  // p-1 вокруг чипов — чтобы фокус-кольцо не резалось краем колонки.
   const filterBar = filters ? `
-        <div id="grid-filters" class="mb-3 flex items-center" style="width:0;min-width:100%">
-          <div class="flex-none p-1"><div id="flt-sort" tabindex="0" class="${CHIP}">Сортировка: ${(SORTS.find(([k]) => k === gridSortFor(state.type)) || SORTS[0])[1]}</div></div>
-          ${genreChips ? `<div class="mx-1.5 h-5 w-px flex-none bg-white/15"></div>
-          <div class="thin-scroll flex min-w-0 flex-1 items-center space-x-2 overflow-x-auto p-1">
+        <div id="grid-filters" class="mb-3 flex-none border-b border-white/10 pb-3">
+          <div class="flex items-center p-1">
+            <div id="flt-sort" tabindex="0" class="${CHIP}">${ICONS.sort("mr-1.5 h-3.5 w-3.5")}${(SORTS.find(([k]) => k === gridSortFor(state.type)) || SORTS[0])[1]}</div>
+            ${eyeChip()}
+          </div>
+          ${genreChips && genreChips.length ? `
+          <div class="thin-scroll mt-0.5 flex max-h-[22vh] flex-wrap items-center gap-1.5 overflow-y-auto p-1">
             ${genreChips.map(([g, label]) => `
-              <div tabindex="0" data-genre="${esc(g)}" class="flt-genre ${CHIP} flex-none ${g === gridGenre ? "border-violet-500/60 bg-violet-500/15 text-violet-200" : ""}">${esc(label)}</div>`).join("")}
+              <div tabindex="0" data-genre="${esc(g)}" class="flt-genre ${CHIP} ${g === gridGenre ? "border-violet-500/60 bg-violet-500/15 text-violet-200" : ""}">${esc(label)}</div>`).join("")}
           </div>` : ""}
         </div>` : "";
   app.innerHTML = `
@@ -741,11 +759,12 @@ function renderGridPage({ heading, count, list, empty, onOpen, fallbackInfo, fil
           ${heading}
           <span class="rounded-full bg-zinc-800/80 px-2.5 py-0.5 text-[14px] text-zinc-400">${count}</span>
         </div>
-        <div class="mt-4 flex min-h-0 flex-1 flex-col" id="grid-info"></div>
+        <div class="mt-3">${filterBar}</div>
+        <div class="flex min-h-0 flex-1 flex-col" id="grid-info"></div>
       </div>
       <div class="flex flex-1 flex-col px-3 pt-2">
         <!-- pt/pl: чтобы фокус-кольцо и scale карточек не обрезались краем скролл-зоны -->
-        <div class="flex-1 overflow-y-auto pb-4 pl-2.5 pt-2.5">${filterBar}
+        <div class="flex-1 overflow-y-auto pb-4 pl-2.5 pt-2.5">
           <div class="grid grid-cols-[repeat(var(--cols),var(--card-w))] justify-start gap-7">
             ${backTile()}${list.map(cardHtml).join("") || empty}
           </div>
@@ -766,6 +785,10 @@ function renderGridPage({ heading, count, list, empty, onOpen, fallbackInfo, fil
     render();
     (app.querySelector(`.flt-genre[data-genre="${CSS.escape(c.dataset.genre)}"]`) || document.getElementById("flt-eye"))?.focus({ preventScroll: true });
   }));
+  // Фокус на фильтре — левая колонка показывает подборки, а не описание последнего фильма:
+  // так под фильтрами всегда то, во что ведёт стрелка вниз.
+  app.querySelectorAll("#grid-filters .tv-card").forEach((c) =>
+    c.addEventListener("focus", () => updateInfo(null)));
   app.querySelectorAll(".tv-card").forEach((card) => {
     if (!card.dataset.id) return; // плитка «Назад»
     const item = list.find((i) => i.id === card.dataset.id);
@@ -1181,7 +1204,7 @@ function renderDetail() {
             ${(() => {
               const dl = downloads.get(dlKey(i.title, i.year));
               if (dl) return `<div class="dl-btn flex flex-none items-center rounded-2xl bg-zinc-700/60 px-[clamp(18px,calc(var(--uivw)*3),32px)] py-[clamp(7px,calc(var(--uivh)*1.8),12px)] text-[clamp(14px,calc(var(--uivh)*2.6),18px)] font-bold text-zinc-300 opacity-80" data-dlkey="${esc(dlKey(i.title, i.year))}">${dlBtnHtml(dl)}</div>`;
-              return `<button class="dfoc flex flex-none cursor-pointer items-center rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-[clamp(18px,calc(var(--uivw)*3),32px)] py-[clamp(7px,calc(var(--uivh)*1.8),12px)] text-[clamp(14px,calc(var(--uivh)*2.6),18px)] font-bold text-white shadow-xl shadow-violet-600/40 outline-none transition focus:scale-[1.04] focus:ring-4 focus:ring-violet-400/50" id="detail-play" data-id="${esc(i.id)}">${(i.isGhost ? ICONS.download : ICONS.play)("mr-2 h-[1.2em] w-[1.2em]")} ${i.isGhost ? "Скачать" : "Смотреть"}</button>`;
+              return `<button class="dfoc flex flex-none cursor-pointer items-center rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-[clamp(18px,calc(var(--uivw)*3),32px)] py-[clamp(7px,calc(var(--uivh)*1.8),12px)] text-[clamp(14px,calc(var(--uivh)*2.6),18px)] font-bold text-white shadow-xl shadow-violet-600/40 outline-none transition focus:scale-[1.04] focus:ring-4 focus:ring-violet-400/50" id="detail-play" data-id="${esc(i.id)}">${(i.isGhost ? ICONS.search : ICONS.play)("mr-2 h-[1.2em] w-[1.2em]")} ${i.isGhost ? "Искать" : "Смотреть"}</button>`;
             })()}
             ${i.colRef ? `<button class="${BTN} bg-white/5 text-zinc-300 focus:ring-violet-500/40" id="detail-collection">${ICONS.folderBack ? "" : ""}Коллекция (${Math.max(i.colRef.parts.length, (i.colRef.tmdbParts || []).length)})</button>` : ""}
             ${i.trailer ? `<button class="${BTN} bg-white/5 text-zinc-300 focus:ring-violet-500/40" id="detail-trailer">${ICONS.movie("mr-2 h-[1.1em] w-[1.1em]")} Трейлер</button>` : ""}
@@ -1301,7 +1324,7 @@ function renderGhostWaiting(i) {
             </div>
             <div class="mt-6 flex space-x-3">
               <button id="detail-back" class="dfoc flex cursor-pointer items-center rounded-2xl border border-white/15 bg-white/5 px-5 py-3 font-semibold text-zinc-200 outline-none transition focus:scale-[1.03] focus:ring-4 focus:ring-violet-500/40">${ICONS.back("mr-2 h-5 w-5")} Назад</button>
-              <button id="ghost-dl" class="dfoc flex cursor-pointer items-center rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-6 py-3 font-bold text-white shadow-xl shadow-violet-600/40 outline-none transition focus:scale-[1.04] focus:ring-4 focus:ring-violet-400/50">${ICONS.download("mr-2 h-5 w-5")} Скачать</button>
+              <button id="ghost-dl" class="dfoc flex cursor-pointer items-center rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-6 py-3 font-bold text-white shadow-xl shadow-violet-600/40 outline-none transition focus:scale-[1.04] focus:ring-4 focus:ring-violet-400/50">${ICONS.search("mr-2 h-5 w-5")} Искать</button>
             </div>
           </div>
         </div>
@@ -1977,6 +2000,11 @@ document.addEventListener("keydown", (e) => {
       const rows = [...app.querySelectorAll(".tag-row")];
       const ti = rows.indexOf(cur);
       if (e.key === "ArrowDown") { rows[Math.min(rows.length - 1, ti + 1)]?.focus(); rows[Math.min(rows.length - 1, ti + 1)]?.scrollIntoView({ block: "nearest" }); }
+      // С первой подборки вверх — в фильтры над ними (сортировка/жанры живут в той же колонке).
+      else if (e.key === "ArrowUp" && ti === 0) {
+        const chips = [...app.querySelectorAll("#grid-filters .tv-card")];
+        (chips[chips.length - 1] || document.getElementById("flt-sort"))?.focus({ preventScroll: true });
+      }
       else if (e.key === "ArrowUp") { rows[Math.max(0, ti - 1)]?.focus(); rows[Math.max(0, ti - 1)]?.scrollIntoView({ block: "nearest" }); }
       else if (e.key === "ArrowRight") (app.querySelector(".grid-back") || app.querySelector(".tv-card"))?.focus({ preventScroll: true });
       else if (e.key === "Enter" || e.key === " ") cur.click();
@@ -1991,6 +2019,11 @@ document.addEventListener("keydown", (e) => {
         // левый столбец сетки → панель тэгов (если она отрисована)
         const tr = app.querySelector(".tag-row");
         if (tr) tr.focus({ preventScroll: true });
+      }
+      // Из нижнего фильтра вниз — в подборки: они в той же колонке, но вне пространственной
+      // навигации (у строк подборок свой класс, nearest их не видит).
+      else if (e.key === "ArrowDown" && cur?.closest("#grid-filters")) {
+        app.querySelector(".tag-row")?.focus({ preventScroll: true });
       }
     } else if (e.key === "Enter" || e.key === " ") {
       e.preventDefault(); cur?.click();
