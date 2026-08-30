@@ -138,14 +138,19 @@ let kioskPinSet = false;
 // не зависит — она живёт на уровне Android; режим решает, спрашивать ли код.
 let kidsMode = false;
 let adminMode = false;   // режим Админа (из дашборда): открывает «Удалить со всех устройств»
+// Замок на выходе — ОТДЕЛЬНАЯ настройка устройства («Выход по коду» в дашборде), а не часть
+// детского режима: телевизор в гостиной может быть обычным и всё равно выпускать по коду.
+// Детский режим замок подразумевает — без него он бессмыслен.
+let exitLock = false;
 async function refreshKiosk() {
   try {
     const k = await (await fetch("/api/kiosk", { cache: "no-store" })).json();
-    const before = kidsMode + ":" + adminMode;
+    const before = kidsMode + ":" + adminMode + ":" + exitLock;
     kioskPinSet = !!k.pinSet;
     kidsMode = k.mode === "kids" && kioskPinSet;   // без кода запирать нельзя: ключа не будет
     adminMode = k.mode === "admin";
-    return before !== kidsMode + ":" + adminMode;
+    exitLock = (!!k.exitPin || kidsMode) && kioskPinSet;
+    return before !== kidsMode + ":" + adminMode + ":" + exitLock;
   } catch (_) { return false; }
 }
 
@@ -1595,9 +1600,9 @@ function enterGhost(g) {
 // В корне (категории) — родительский код: выйти отсюда = покинуть медиатеку.
 function back() {
   if (state.screen !== "categories") { history.back(); return; }
-  // Детский режим выпускает только по коду. В обычном не спрашиваем ничего: «Назад» на
-  // первом экране — это и есть «выйти», лишний вопрос там только мешает.
-  if (IN_APP && kidsMode) openPinPad(); else exitApp();
+  // С замком выпускает только код. Без него не спрашиваем ничего: «Назад» на первом
+  // экране — это и есть «выйти», лишний вопрос там только мешает.
+  if (IN_APP && exitLock) openPinPad(); else exitApp();
 }
 
 /* ---------- Скачивание фильма-«призрака» с rutracker ---------- */
@@ -1799,9 +1804,9 @@ window.mcHandleBack = () => {
   if (document.getElementById("copy-box")) { closeCopy(); return true; }
   if (document.getElementById("exit-confirm")) { hideExitConfirm(); return true; }
   if (state.screen !== "categories") { history.back(); return true; }
-  // В детском режиме с первого экрана выпускает только код — иначе «Назад» была бы дырой
-  // шире замка: приставка и так наш домашний экран. В обычном — выходим сразу, без вопросов.
-  if (kidsMode) openPinPad(); else exitApp();
+  // С замком с первого экрана выпускает только код — иначе «Назад» была бы дырой шире
+  // замка: приставка и так наш домашний экран. Без замка — выходим сразу, без вопросов.
+  if (exitLock) openPinPad(); else exitApp();
   return true;
 };
 // Брендовая кнопка пульта (Xiaomi TV+, YouTube, Netflix…) — всегда на первый экран медиатеки,

@@ -44,6 +44,7 @@ class HttpServer(
     @Volatile private var kioskPin: String = ""
     @Volatile private var kioskMode: String = "normal"      // общий режим (config/tv)
     @Volatile private var deviceMode: String? = null        // режим этого устройства, если задан
+    @Volatile private var exitPin: Boolean = false          // спрашивать код при выходе (сам по себе)
     @Volatile private var downloadsView: JSONArray = JSONArray()
     @Volatile var lastFirebaseOk: Long = 0
     @Volatile var firebaseOk: Boolean = false
@@ -63,6 +64,7 @@ class HttpServer(
         try {
             val c = JSONObject(kioskCache.readText())
             kioskPin = c.optString("pin"); kioskMode = c.optString("mode", "normal")
+            exitPin = c.optBoolean("exitPin")
         } catch (_: Exception) {}
 
         val devRef = db.collection("devices").document(config.deviceId)
@@ -85,13 +87,17 @@ class HttpServer(
             // телевизор в гостиной — обычным. Пусто — берём общий из config/tv (совместимость).
             val own = snap.getString("mode")
             deviceMode = if (own == "kids" || own == "normal" || own == "admin") own else null
+            // Выход по коду — САМОСТОЯТЕЛЬНАЯ настройка, не часть детского режима: телевизор
+            // в гостиной может быть обычным, но выпускать из медиатеки только по коду.
+            exitPin = snap.getBoolean("exitPin") == true
+            saveKioskCache()
             notifyClients()
         })
         subs.add(db.collection("config").document("tv").addSnapshotListener { snap, _ ->
             if (snap == null || !snap.exists()) return@addSnapshotListener
             kioskPin = snap.getString("pin") ?: ""
             kioskMode = if (snap.getString("mode") == "kids") "kids" else "normal"
-            try { kioskCache.writeText(JSONObject().put("pin", kioskPin).put("mode", kioskMode).toString()) } catch (_: Exception) {}
+            saveKioskCache()
             notifyClients()
         })
         subs.add(db.collection("downloads").addSnapshotListener { snap, _ ->
@@ -113,6 +119,15 @@ class HttpServer(
         })
         start(SOCKET_READ_TIMEOUT, false)
         Log.i("TV server: http://0.0.0.0:${config.localPort}/")
+    }
+
+    // Замок и код нужны и без сети (телевизор включили раньше роутера), поэтому храним их
+    // на диске. Пишут оба слушателя — общий config/tv и документ устройства.
+    private fun saveKioskCache() {
+        try {
+            kioskCache.writeText(JSONObject()
+                .put("pin", kioskPin).put("mode", kioskMode).put("exitPin", exitPin).toString())
+        } catch (_: Exception) {}
     }
 
     fun stopAll() {
@@ -178,6 +193,7 @@ class HttpServer(
                 uri == "/api/events" -> sse()
                 uri == "/api/kiosk" -> json(JSONObject()
                     .put("pinSet", kioskPin.isNotEmpty())
+                    .put("exitPin", exitPin)
                     .put("mode", deviceMode ?: kioskMode))
                 uri == "/api/kiosk-pin" -> if (isLocal(session)) json(JSONObject().put("pin", kioskPin))
                     else err("только с localhost", Response.Status.FORBIDDEN)
