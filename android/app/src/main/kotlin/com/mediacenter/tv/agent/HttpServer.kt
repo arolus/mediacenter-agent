@@ -735,7 +735,7 @@ class HttpServer(
     // Person page: proxied to Cloud Function `person` (TMDb key lives on the server only).
     private fun person(name: String?, refresh: Boolean): Response {
         if (name.isNullOrEmpty()) return err("нет имени", Response.Status.BAD_REQUEST)
-        val key = MessageDigest.getInstance("SHA-1").digest("v3|$name".toByteArray())
+        val key = MessageDigest.getInstance("SHA-1").digest("v4|$name".toByteArray())
             .joinToString("") { "%02x".format(it) }.substring(0, 20)
         val cache = File(personDir, "$key.json")
         if (refresh) cache.delete()

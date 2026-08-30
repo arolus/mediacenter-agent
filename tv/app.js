@@ -1470,8 +1470,11 @@ function renderPersonFilms(credits, lib, full) {
   // важнее TMDb из фильмографии).
   const val = (c) => {
     const li = lib.get(c.kind + "_" + c.tmdbId);
-    if (personSort === "rating") return Number((li && li.imdbRating) || c.rating || 0);
-    if (personSort === "votes") return Number(li && li.imdbRating ? li.imdbVotes : c.votes) || 0;
+    if (personSort === "rating") return Number((li && li.imdbRating) || c.imdbRating || c.rating || 0);
+    if (personSort === "votes") {
+      const imdb = (li && li.imdbRating) ? li.imdbVotes : c.imdbRating ? c.imdbVotes : null;
+      return Number(imdb != null ? imdb : c.votes) || 0;
+    }
     return c.year || 0;
   };
   const sorted = [...credits].sort((a, b) => val(b) - val(a) || String(a.title).localeCompare(String(b.title)));
@@ -1484,10 +1487,13 @@ function renderPersonFilms(credits, lib, full) {
       ${sorted.map((c) => {
         const key = c.kind + "_" + c.tmdbId;
         const libItem = lib.get(key);
-        // рейтинг: IMDb для того, что в медиатеке; TMDb (из фильмографии) для остального.
+        // Рейтинг: IMDb отовсюду — из медиатеки или из фильмографии (сервер v4 дообогащает
+        // credits датасетом IMDb); TMDb остаётся последним фолбэком для тайтлов без рейтинга.
         // Голоса берём от ТОГО ЖЕ источника, что и балл, иначе цифры не про одно и то же.
-        const imdb = Number((libItem && libItem.imdbRating) || 0);
-        const votes = imdb ? Number((libItem && libItem.imdbVotes) || 0) : Number(c.votes || 0);
+        const imdb = Number((libItem && libItem.imdbRating) || c.imdbRating || 0);
+        const votes = imdb
+          ? Number((libItem && libItem.imdbRating ? libItem.imdbVotes : c.imdbVotes) || 0)
+          : Number(c.votes || 0);
         return `<div class="mb-3 mr-3">${pcardHtml(c, lib.has(key), imdb || c.rating || 0, votes)}</div>`;
       }).join("")}
     </div>`;
