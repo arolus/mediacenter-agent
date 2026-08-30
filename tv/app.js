@@ -194,6 +194,11 @@ async function pollHealth() {
   try {
     if (await reloadLibrary()) rerenderKeepingFocus();
   } catch (_) {}
+  // И закачки: 3-секундный опрос прогресса живёт, только пока страница о них знает, —
+  // а новая закачка из дашборда приезжала лишь по SSE. Здесь подхватываем и её.
+  try {
+    if (await loadDownloads() && (state.screen === "collection" || state.screen === "grid")) rerenderKeepingFocus();
+  } catch (_) {}
 }
 setInterval(pollHealth, 10000);
 pollHealth();
