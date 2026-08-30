@@ -360,9 +360,24 @@ const dedupe = (list) => {
     const key = i.tmdbId ? "t:" + i.tmdbId
       : `n:${String(i.title || i.fileName || "").toLowerCase().trim()}:${i.year || ""}`;
     const prev = map.get(key);
-    if (!prev || (!prev.started && !prev.watched && (i.started || i.watched))) map.set(key, i);
+    if (!prev) { map.set(key, i); continue; }
+    // Все файлы записи копим на выжившем: двухсерийные издания («Служебный роман» Ep01/Ep02)
+    // раньше схлопывались так, что вторую серию с ТВ было не посмотреть вовсе —
+    // теперь кнопка «Смотреть» предложит выбор части.
+    const parts = prev.altParts || [prev];
+    parts.push(i);
+    if (!prev.started && !prev.watched && (i.started || i.watched)) map.set(key, i);
+    map.get(key).altParts = parts;
   }
   return [...map.values()];
+};
+
+// Подпись части многосерийного фильма для диалога выбора: «Серия N» по маркеру в имени
+// файла, без маркера — само имя.
+const partLabel = (i, idx) => {
+  const m = String(i.fileName || "").match(/\b(?:ep|part|pt|cd|disc|disk)[ ._-]?(\d{1,3})\b|\b(?:серия|часть|фильм)[ ._-]?(\d{1,3})\b|\b(\d{1,3})[ ._-]?(?:серия|часть)\b/i);
+  const n = m ? Number(m[1] || m[2] || m[3]) : null;
+  return n ? `Серия ${n}` : (i.fileName || `Часть ${idx + 1}`);
 };
 
 const byType = (t) => {
@@ -1266,7 +1281,18 @@ function renderDetail() {
   app.querySelectorAll(".actor").forEach((b) => b.addEventListener("click", () => enterPerson(b.dataset.name, b.dataset.photo || null)));
   app.querySelectorAll(".plink").forEach((b) => b.addEventListener("click", () => enterPerson(b.dataset.name, null)));
   const playBtn = document.getElementById("detail-play");
-  if (playBtn) playBtn.addEventListener("click", () => (i.isGhost ? askDownload(i) : play(i.id)));
+  if (playBtn) playBtn.addEventListener("click", () => {
+    if (i.isGhost) return askDownload(i);
+    // Многосерийное издание фильма (Ep01/Ep02…): спрашиваем, какую часть играть.
+    const parts = (i.altParts || []).slice()
+      .sort((a, b) => String(a.fileName || "").localeCompare(String(b.fileName || "")));
+    if (parts.length > 1) {
+      openOptionPicker("Какую серию смотреть?", parts.map((p, n) => [p.id, esc(partLabel(p, n))]), "",
+        (id) => play(id));
+      return;
+    }
+    play(i.id);
+  });
   document.getElementById("detail-collection")?.addEventListener("click", () => enterCollection(i.colRef));
   document.getElementById("detail-more")?.addEventListener("click", () => {
     const opts = [["del", "Удалить с этого устройства"]];
