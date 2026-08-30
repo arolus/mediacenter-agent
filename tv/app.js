@@ -1983,11 +1983,15 @@ document.addEventListener("keydown", (e) => {
     const group = (sel) => { const els = [...st.querySelectorAll(sel)]; if (els.length) rows.push(els); };
     single("#st-limit");
     group(".st-mode");
+    st.querySelectorAll(".st-dl-row").forEach((el) => rows.push([el]));
     group("#st-files, #st-copy, #st-webupd, #st-usb");
     single("#st-close");
     const ri = rows.findIndex((r) => r.includes(document.activeElement));
     const ci = ri >= 0 ? rows[ri].indexOf(document.activeElement) : 0;
-    const go = (r, c) => rows[r]?.[Math.min(c, rows[r].length - 1)]?.focus();
+    const go = (r, c) => {
+      const el = rows[r]?.[Math.min(c, rows[r].length - 1)];
+      if (el) { el.focus({ preventScroll: true }); el.scrollIntoView({ block: "nearest" }); }
+    };
     if (e.key === "ArrowDown") return void go(Math.min(rows.length - 1, ri + 1), ci);
     if (e.key === "ArrowUp") return void go(Math.max(0, ri - 1), ci);
     if (ri >= 0 && rows[ri].length > 1 && (e.key === "ArrowLeft" || e.key === "ArrowRight"))
@@ -2676,6 +2680,8 @@ function paintSettingsDownloads() {
     el.innerHTML = '<div class="text-sm text-zinc-500">Сейчас ничего не качается</div>';
     return;
   }
+  // Перерисовка идёт каждые несколько секунд — фокус со строки не должен слетать.
+  const focusedIdx = [...el.querySelectorAll(".st-dl-row")].indexOf(document.activeElement);
   el.innerHTML = act.map((d) => {
     const pct = Math.round((d.progress || 0) * 100);
     const busy = (d.speed || 0) > 50000 || d.status === "moving";
@@ -2684,7 +2690,7 @@ function paintSettingsDownloads() {
       : busy ? `${pct}%${fmtSpeed(d.speed)}`
       : pct > 0 ? `${pct}% · ждёт очереди` : "в очереди";
     return `
-    <div class="flex items-center space-x-4 rounded-2xl border border-zinc-800 bg-zinc-900/70 px-5 py-3">
+    <div tabindex="0" class="st-dl-row flex items-center space-x-4 rounded-2xl border border-zinc-800 bg-zinc-900/70 px-5 py-3 outline-none transition focus:scale-[1.01] focus:border-violet-400 focus:ring-4 focus:ring-violet-500/25">
       <div class="min-w-0 flex-1">
         <div class="flex items-baseline justify-between">
           <span class="truncate text-base font-semibold">${esc(d.title)}${d.year ? ` <span class="font-normal text-zinc-500">(${esc(String(d.year))})</span>` : ""}</span>
@@ -2696,6 +2702,7 @@ function paintSettingsDownloads() {
       </div>
     </div>`;
   }).join("");
+  if (focusedIdx >= 0) el.querySelectorAll(".st-dl-row")[Math.min(focusedIdx, act.length - 1)]?.focus({ preventScroll: true });
 }
 
 /* ---------- Копирование между носителями ноды ---------- */

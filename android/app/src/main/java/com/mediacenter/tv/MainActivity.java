@@ -41,6 +41,10 @@ public class MainActivity extends Activity {
     private static final long IDLE_OFF_DEFAULT = 3L * 60 * 60 * 1000;
     private static final float BRIGHTNESS = 0.3f; // рабочая яркость окна (HDMI не трогает)
     private long idleMs = IDLE_OFF_DEFAULT;
+    // Приставка/телевизор: экран не гасим НИКОГДА — им управляет сам телевизор и пульт.
+    // Таймер простоя нужен только телефону-ноде (AMOLED у HDMI): без этой проверки фолбэк
+    // idleOff через 3 часа снимал KEEP_SCREEN_ON, и приставка «сама отключалась».
+    private boolean tvMode;
 
     private WebView web;
     private BroadcastReceiver agentReady;
@@ -97,6 +101,7 @@ public class MainActivity extends Activity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         setBrightness(BRIGHTNESS);
         handler.removeCallbacks(idleOff);
+        if (tvMode) return;   // на ТВ-устройствах гашение не планируем вовсе
         long delay = idleMs - (SystemClock.uptimeMillis() - lastInput);
         handler.postDelayed(idleOff, Math.max(0, delay));
     }
@@ -117,6 +122,9 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        tvMode = (getResources().getConfiguration().uiMode
+            & android.content.res.Configuration.UI_MODE_TYPE_MASK)
+            == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION;
         WindowManager.LayoutParams lp = getWindow().getAttributes();
         // Рисуем под вырезом камеры: без этого система letterbox'ит зону выреза белой полосой.
         if (Build.VERSION.SDK_INT >= 28) {
