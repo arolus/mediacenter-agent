@@ -1472,6 +1472,7 @@ function pcardHtml(c, inLib, rating, votes) {
       ${r ? `<div class="absolute top-1 left-1 rounded bg-black/75 px-1 py-0.5 text-center text-[10px] font-semibold leading-tight text-yellow-300">★ ${r.toFixed(1)}${
         v ? `<div class="text-[9px] font-normal text-zinc-400">${fmtVotes(v)}</div>` : ""}</div>` : ""}
       ${c.year ? `<div class="absolute bottom-1 left-1 rounded bg-black/75 px-1 py-0.5 text-[10px] font-semibold text-zinc-200">${c.year}</div>` : ""}
+      ${c.kind === "tv" ? `<div class="absolute bottom-1 right-1 grid h-5 w-5 place-items-center rounded bg-black/75 text-sky-300" title="Сериал">${ICONS.series("h-3.5 w-3.5")}</div>` : ""}
       ${inLib ? `<div class="absolute top-1 right-1 grid h-5 w-5 place-items-center rounded bg-violet-600 text-white shadow">${ICONS.check("h-3.5 w-3.5")}</div>` : ""}
     </div>`;
 }
