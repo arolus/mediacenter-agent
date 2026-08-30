@@ -2031,9 +2031,12 @@ document.addEventListener("keydown", (e) => {
       if (next) { next.focus({ preventScroll: true }); next.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" }); }
       else if (e.key === "ArrowLeft" && bioScrolls) bio.focus({ preventScroll: true }); // из сетки влево — в биографию
       else if (e.key === "ArrowLeft") {
-        // левый столбец сетки → панель тэгов (если она отрисована)
-        const tr = app.querySelector(".tag-row");
-        if (tr) tr.focus({ preventScroll: true });
+        // левый столбец сетки → левая колонка: подборки, а без них — фильтры
+        (app.querySelector(".tag-row") || app.querySelector("#grid-filters .tv-card"))?.focus({ preventScroll: true });
+      }
+      // правый край фильтров → сетка (в своей зоне пространственному поиску идти некуда)
+      else if (e.key === "ArrowRight" && cur?.closest("#grid-filters")) {
+        (app.querySelector(".grid-back") || app.querySelector(".tv-card:not(#grid-filters .tv-card)"))?.focus({ preventScroll: true });
       }
     } else if (e.key === "Enter" || e.key === " ") {
       e.preventDefault(); cur?.click();
@@ -2103,7 +2106,11 @@ document.addEventListener("keydown", (e) => {
 function nearest(cur, dir) {
   const SEL = ".tv-card, .grid-back";
   if (!cur || !cur.matches(SEL)) return app.querySelector(".tv-card") || app.querySelector(".grid-back");
-  const cards = [...app.querySelectorAll(SEL)];
+  // Зоны не смешиваем: фильтры в левой колонке — свой мир, сетка — свой. Иначе вертикальные
+  // стрелки в сетке «находили» ближайшим чип фильтров, и фокус скакал между колонками.
+  // Переходы между зонами — только явные ветки (←/→/↓), не пространственный поиск.
+  const inFilters = !!cur.closest("#grid-filters");
+  const cards = [...app.querySelectorAll(SEL)].filter((el) => !!el.closest("#grid-filters") === inFilters);
   const cr = cur.getBoundingClientRect(), cx = cr.left + cr.width / 2, cy = cr.top + cr.height / 2;
   let best = null, bestScore = Infinity;
   for (const el of cards) {
