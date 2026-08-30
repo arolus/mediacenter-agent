@@ -1730,7 +1730,8 @@ function showTorrentPicker(ghost, results) {
   wrap.innerHTML = `
     <div class="flex max-h-[86%] w-[80%] max-w-[900px] flex-col rounded-3xl border border-white/10 bg-zinc-900/95 p-6 shadow-2xl shadow-black/60">
       <div class="mb-3 flex-none text-xl font-bold">${esc(ghost.title)}${ghost.year ? ` (${ghost.year})` : ""} — выбери раздачу</div>
-      <div id="picker-list" class="thin-scroll min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1">
+<!-- p-1: фокус-кольцо строк не должно резаться краем скролл-контейнера -->
+      <div id="picker-list" class="thin-scroll min-h-0 flex-1 space-y-1.5 overflow-y-auto p-1">
         ${scored.map((t, i) => torrentRow(t, i)).join("")}
       </div>
       <div class="mt-3 flex-none text-[13px] text-zinc-500">1–3 ГБ и больше сидов — сверху · Enter — скачать · Esc — отмена</div>
