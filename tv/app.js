@@ -107,6 +107,7 @@ async function loadDownloads() {
     const setChanged = m.size !== downloads.size || [...m.keys()].some((k) => !downloads.has(k));
     downloads = m;
     paintHeaderDownloads();
+    paintSettingsDownloads();   // секция «Закачки» в настройках, если открыта
     // Прогресс — на месте: от полной перерисовки каждые 3 секунды мигала окантовка фокуса.
     document.querySelectorAll(".dl-badge").forEach((el) => {
       const dl = downloads.get(el.dataset.dlkey);
@@ -2620,6 +2621,10 @@ function paintSettings() {
       </div>
     </div>
     <div class="mt-8">
+      <div class="text-lg font-semibold">Закачки</div>
+      <div id="st-dl-list" class="mt-3 space-y-2"></div>
+    </div>
+    <div class="mt-8">
       <div class="text-lg font-semibold">Копирование между дисками</div>
       <div class="mt-1 text-sm text-zinc-400">Перенести уже скачанное с одного носителя на другой —
         отметив галочками, что именно. Флешку, воткнутую в телефон, Android отдаёт приложениям
@@ -2656,7 +2661,41 @@ function paintSettings() {
     else { showOverlay("Доступно только в приложении"); setTimeout(hideOverlay, 2000); }
   });
   document.getElementById("st-close")?.addEventListener("click", closeSettings);
+  paintSettingsDownloads();
   (box.querySelector(".st-vol") || document.getElementById("st-close"))?.focus();
+}
+
+// Секция «Закачки» в настройках: список с прогрессом, обновляется на месте из loadDownloads
+// (перерисовка всего экрана сбивала бы фокус). Активные — сверху, очередь — ниже.
+function paintSettingsDownloads() {
+  const el = document.getElementById("st-dl-list");
+  if (!el) return;
+  const act = [...downloads.values()]
+    .sort((a, b) => (b.speed || 0) - (a.speed || 0) || (b.progress || 0) - (a.progress || 0));
+  if (!act.length) {
+    el.innerHTML = '<div class="text-sm text-zinc-500">Сейчас ничего не качается</div>';
+    return;
+  }
+  el.innerHTML = act.map((d) => {
+    const pct = Math.round((d.progress || 0) * 100);
+    const busy = (d.speed || 0) > 50000 || d.status === "moving";
+    const label = d.status === "moving" ? `переносим на носитель · ${pct}%`
+      : d.status === "error" ? "ошибка"
+      : busy ? `${pct}%${fmtSpeed(d.speed)}`
+      : pct > 0 ? `${pct}% · ждёт очереди` : "в очереди";
+    return `
+    <div class="flex items-center space-x-4 rounded-2xl border border-zinc-800 bg-zinc-900/70 px-5 py-3">
+      <div class="min-w-0 flex-1">
+        <div class="flex items-baseline justify-between">
+          <span class="truncate text-base font-semibold">${esc(d.title)}${d.year ? ` <span class="font-normal text-zinc-500">(${esc(String(d.year))})</span>` : ""}</span>
+          <span class="ml-4 flex-none text-sm ${busy ? "text-violet-300" : "text-zinc-500"}">${label}</span>
+        </div>
+        <div class="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-zinc-800">
+          <div class="h-full ${busy ? "bg-violet-500" : "bg-zinc-600"} transition-all" style="width:${pct}%"></div>
+        </div>
+      </div>
+    </div>`;
+  }).join("");
 }
 
 /* ---------- Копирование между носителями ноды ---------- */
