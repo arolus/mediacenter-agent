@@ -177,9 +177,28 @@ async function pollHealth() {
     setDot("st-agent", "bad");
     setDot("st-cloud", "off"); // агент недоступен — про сервер ничего не знаем
   }
+  // Сканирование могло начаться БЕЗ событий от сервера (вставили флешку — агент перебирает
+  // файлы, доки ещё не пишутся, SSE молчит): узнаём о нём регулярным опросом, а не только
+  // из onChange. watchScan дальше сам ведёт окошко, счётчики и индикатор в шапке.
+  try {
+    const sc = await (await fetch("/api/scan-status", { cache: "no-store" })).json();
+    if (sc.running && sc.total > 0) watchScan();
+  } catch (_) {}
 }
 setInterval(pollHealth, 10000);
 pollHealth();
+
+// Прогресс сканирования в самом верху шапки (жёлтым, рядом с процентом закачек):
+// «⟳ 132 / 346» — видно с любого экрана, не только когда всплыло окошко.
+function paintHeaderScan(done, total) {
+  const el = document.getElementById("st-scan");
+  if (!el) return;
+  if (total == null) { el.classList.add("hidden"); el.innerHTML = ""; return; }
+  el.classList.remove("hidden");
+  el.innerHTML =
+    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="mr-0.5 h-[11px] w-[11px] animate-spin"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v5h-5"/></svg>` +
+    esc(`${done} / ${total}`);
+}
 
 // Крутилка загрузки (первая подгрузка библиотеки может занять пару секунд)
 const spinner = (label) => `
@@ -2715,8 +2734,12 @@ function watchScan() {
       const sc = await (await fetch("/api/scan-status", { cache: "no-store" })).json();
       if (sc.running && sc.total > 0) {
         quiet = 0;
+        paintHeaderScan(sc.done, sc.total);
         paint(`<div class="font-semibold">Сканирую хранилище…</div>
           <div class="mt-1 text-sm text-zinc-400">${sc.done} из ${sc.total} файлов</div>${bar(sc.done, sc.total)}`);
+        // Счётчики категорий растут по ходу скана — раньше они оживали только после
+        // перезахода в приложение: доки уже писались, а экран никто не перерисовывал.
+        if (await reloadLibrary()) rerenderKeepingFocus();
         return;
       }
       // Скан закончился — но сервер ещё распознаёт новые файлы (постеры доезжают по одному).
@@ -2729,6 +2752,7 @@ function watchScan() {
       if (pending > 0 && stuck < 15 && sc.finishedAgo >= 0 && sc.finishedAgo < 600) {
         quiet = 0;
         const done = items.length - pending;
+        paintHeaderScan(done, items.length);
         paint(`<div class="font-semibold">Распознаю фильмы…</div>
           <div class="mt-1 text-sm text-zinc-400">${done} из ${items.length}</div>${bar(done, items.length)}`);
         // Перерисовка — ТОЛЬКО когда данные реально изменились: пара нераспознаваемых файлов
@@ -2737,6 +2761,7 @@ function watchScan() {
         return;
       }
       // Всё готово: показываем итог пару тактов и убираем окошко.
+      paintHeaderScan(null);
       if (++quiet === 1 && document.getElementById("scan-box")) {
         paint(`<div class="font-semibold text-emerald-300">Готово</div>
           <div class="mt-1 text-sm text-zinc-400">В медиатеке ${items.length} файлов</div>`);
