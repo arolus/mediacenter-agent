@@ -1062,6 +1062,9 @@ function updateInfo(i) {
   const el = document.getElementById("grid-info");
   if (!el) return;
   stopInfoScroll();
+  // Фокус на фильме — вся колонка под его описание: фильтры и сортировка прячутся
+  // (они нужны, только пока выбираешь, что смотреть, а не когда уже читаешь о фильме).
+  document.getElementById("grid-filters")?.classList.toggle("hidden", !!i);
   if (!i) { renderTagPanel(el); return; }
   const rating = Number(i.imdbRating || i.rating || 0);
   const meta = [
@@ -2118,7 +2121,10 @@ document.addEventListener("keydown", (e) => {
       if (next) { next.focus({ preventScroll: true }); next.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" }); }
       else if (e.key === "ArrowLeft" && bioScrolls) bio.focus({ preventScroll: true }); // из сетки влево — в биографию
       else if (e.key === "ArrowLeft") {
-        // левый столбец сетки → левая колонка: подборки, а без них — фильтры
+        // левый столбец сетки → левая колонка: сперва вернуть ей «режим навигации»
+        // (updateInfo(null) показывает фильтры и рисует подборки — при фокусе на фильме
+        // они скрыты, и фокусировать было бы нечего), затем фокус на подборки/фильтры.
+        updateInfo(null);
         (app.querySelector(".tag-row") || app.querySelector("#grid-filters .tv-card"))?.focus({ preventScroll: true });
       }
       // правый край фильтров → сетка (в своей зоне пространственному поиску идти некуда)
