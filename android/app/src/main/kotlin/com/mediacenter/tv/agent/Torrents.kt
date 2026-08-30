@@ -61,6 +61,13 @@ class Torrents(
         swig.set_int(org.libtorrent4j.swig.settings_pack.int_types.in_enc_policy.swigValue(), enc)
         swig.set_int(org.libtorrent4j.swig.settings_pack.int_types.connections_limit.swigValue(), 200)
         swig.set_int(org.libtorrent4j.swig.settings_pack.int_types.max_out_request_queue.swigValue(), 1500)
+        // Очередь закачек: активны максимум 2, остальные ждут своей очереди и стартуют сами.
+        // 20 закачек разом клали телевизор (1,4 ГБ памяти) на лопатки: сотни пиров, heartbeat
+        // Firebase задыхался, а запись на его USB (потолок 2,4 МБ/с) от параллельности только
+        // проигрывает — последовательная строго быстрее.
+        swig.set_int(org.libtorrent4j.swig.settings_pack.int_types.active_downloads.swigValue(), 2)
+        swig.set_int(org.libtorrent4j.swig.settings_pack.int_types.active_seeds.swigValue(), 2)
+        swig.set_int(org.libtorrent4j.swig.settings_pack.int_types.active_limit.swigValue(), 5)
         swig.set_int(org.libtorrent4j.swig.settings_pack.int_types.whole_pieces_threshold.swigValue(), 20)
         swig.set_int(org.libtorrent4j.swig.settings_pack.int_types.request_queue_time.swigValue(), 10)
         swig.set_int(org.libtorrent4j.swig.settings_pack.int_types.send_buffer_watermark.swigValue(), 6 * 1024 * 1024)
@@ -315,6 +322,9 @@ class Torrents(
                     // Источник НЕ анонсируется на публичном трекере даже в гибриде: наружу
                     // нас не видно, куски отдаём только тем, кто пришёл сам (приёмник по LAN).
                     if (origTf != null) h.replaceTrackers(emptyList())
+                    // Раздача переноса не должна вставать в очередь active_downloads —
+                    // иначе очередь закачек замораживала бы live-перенос между устройствами.
+                    h.unsetFlags(org.libtorrent4j.TorrentFlags.AUTO_MANAGED)
                 }
                 val addr = "${lanIp() ?: "127.0.0.1"}:${config.torrentPort}"
                 val patch = mutableMapOf<String, Any>(
