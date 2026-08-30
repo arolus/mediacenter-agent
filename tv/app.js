@@ -1090,11 +1090,15 @@ function updateInfo(i) {
     // Пинг-понг: доехал до низа — пауза — наверх — пауза — снова вниз. Длинное описание
     // читается по кругу, пока фокус стоит на плитке.
     let dir = 1;
+    // Позицию копим сами: шаг вниз меньше пикселя, а scrollTop у WebView округляется —
+    // прибавка «в лоб» может теряться, и скролл застревал бы на месте.
+    let pos = 0;
     const step = () => {
       // Вниз — медленно (читаем), наверх — быстро (перемотка к началу, читать нечего).
-      d.scrollTop += (dir > 0 ? 0.35 : 1.4) * dir;
-      const atBottom = d.scrollTop + d.clientHeight >= d.scrollHeight - 1;
-      const atTop = d.scrollTop <= 0;
+      pos = Math.max(0, pos + (dir > 0 ? 0.175 : 1.4) * dir);
+      d.scrollTop = pos;
+      const atBottom = pos + d.clientHeight >= d.scrollHeight - 1;
+      const atTop = pos <= 0;
       if ((dir > 0 && atBottom) || (dir < 0 && atTop)) {
         const pause = dir > 0 ? 6000 : 2000;   // внизу дольше: дочитать конец
         dir = -dir;
