@@ -2021,6 +2021,12 @@ document.addEventListener("keydown", (e) => {
     }
     if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) {
       e.preventDefault();
+      // Из фильтров вниз — в подборки, ДО пространственного поиска: nearest не знает про
+      // строки подборок (у них свой класс) и утаскивал фокус в сетку фильмов.
+      if (e.key === "ArrowDown" && cur?.closest("#grid-filters")) {
+        const tr = app.querySelector(".tag-row");
+        if (tr) { tr.focus({ preventScroll: true }); return; }
+      }
       const next = nearest(cur, { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" }[e.key]);
       if (next) { next.focus({ preventScroll: true }); next.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" }); }
       else if (e.key === "ArrowLeft" && bioScrolls) bio.focus({ preventScroll: true }); // из сетки влево — в биографию
@@ -2028,11 +2034,6 @@ document.addEventListener("keydown", (e) => {
         // левый столбец сетки → панель тэгов (если она отрисована)
         const tr = app.querySelector(".tag-row");
         if (tr) tr.focus({ preventScroll: true });
-      }
-      // Из нижнего фильтра вниз — в подборки: они в той же колонке, но вне пространственной
-      // навигации (у строк подборок свой класс, nearest их не видит).
-      else if (e.key === "ArrowDown" && cur?.closest("#grid-filters")) {
-        app.querySelector(".tag-row")?.focus({ preventScroll: true });
       }
     } else if (e.key === "Enter" || e.key === " ") {
       e.preventDefault(); cur?.click();
