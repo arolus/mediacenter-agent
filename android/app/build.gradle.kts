@@ -18,7 +18,7 @@ android {
         applicationId = "com.mediacenter.tv"
         minSdk = 24
         targetSdk = 30
-        versionCode = 109
+        versionCode = 110
         versionName = "4.0"
     }
 

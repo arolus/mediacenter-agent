@@ -463,19 +463,23 @@ class HttpServer(
         val title = q["title"]?.trim().orEmpty()
         if (title.isEmpty()) return err("нет названия", Response.Status.BAD_REQUEST)
         val year = q["year"].orEmpty()
-        val type = q["type"] ?: "movie"
-        val cat = mapOf("movie" to "movies", "cartoon" to "cartoons", "series" to "series")[type] ?: "movies"
+        // Категорию НЕ навязываем (пустой список = сервер ищет по всем разделам): тип у нас
+        // берётся из папки, а «Брюс Всемогущий» с типом cartoon уходил в мультфильмы и не
+        // находился вовсе. Названия на трекере всё равно лежат не там, где мы ожидаем.
         val ref = db.collection("searches").document()
         val data = mapOf(
             "phrase" to if (year.isNotEmpty()) "$title $year" else title,
-            "days" to -1, "order" to 10, "categories" to listOf(cat),
+            "days" to -1, "order" to 10, "categories" to emptyList<String>(),
             "status" to "requested",
             "createdAt" to FieldValue.serverTimestamp(), "updatedAt" to FieldValue.serverTimestamp())
         return try {
             kotlinx.coroutines.runBlocking {
                 ref.set(data).await()
+                // 30с не хватало: холодный старт функции плюс логин на трекере через ноду-релей
+                // укладываются в 20-40с, и пользователь видел «сервер не ответил» у поиска,
+                // который на самом деле успешно завершался следом.
                 val started = System.currentTimeMillis()
-                while (System.currentTimeMillis() - started < 30000) {
+                while (System.currentTimeMillis() - started < 90000) {
                     kotlinx.coroutines.delay(1200)
                     val d = ref.get().await()
                     when (d.getString("status")) {
@@ -488,7 +492,7 @@ class HttpServer(
                         "error" -> return@runBlocking err(d.getString("error") ?: "ошибка поиска", Response.Status.SERVICE_UNAVAILABLE)
                     }
                 }
-                err("сервер не ответил", Response.Status.SERVICE_UNAVAILABLE)
+                err("трекер долго не отвечает — попробуйте ещё раз", Response.Status.SERVICE_UNAVAILABLE)
             }
         } catch (e: Exception) { err(e.message ?: "ошибка") }
     }
