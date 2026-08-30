@@ -872,7 +872,8 @@ function renderCollection() {
       isGhost: true, isCollectionPart: true, id: "ghost_" + g.tmdbId, type: col.type,
       tmdbId: g.tmdbId,   // нужен, чтобы открыть карточку фильма (страница «Скачать»)
       title: g.title || "", year: g.year || null, poster: g.poster || null,
-      overview: g.overview || "", rating: g.rating || 0
+      overview: g.overview || "", rating: g.rating || 0,
+      imdbRating: g.imdbRating || 0, imdbVotes: g.imdbVotes || 0  // с ENRICH_V=14 части несут IMDb
     }));
   const parts = [...owned, ...ghosts].sort((a, b) => (a.year || 9999) - (b.year || 9999));
   renderGridPage({
