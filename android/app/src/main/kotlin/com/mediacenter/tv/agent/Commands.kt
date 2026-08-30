@@ -28,10 +28,7 @@ object Commands {
                             "rescan" -> { Library.sync(ctx, db, config); onLibraryChanged() }
                             "delete" -> {
                                 val fp = cmd["filePath"] as? String ?: ""
-                                val allowed = Storage.scanDirs(ctx).values.flatten().any {
-                                    fp == it.path || fp.startsWith(it.path + File.separator)
-                                }
-                                if (!allowed) throw Exception("путь вне медиапапок: $fp")
+                                if (!Storage.isInMediaDirs(ctx, fp)) throw Exception("путь вне медиапапок: $fp")
                                 File(fp).deleteRecursively()
                                 val libId = cmd["libId"] as? String ?: Library.libIdFor(fp)
                                 db.collection("devices").document(config.deviceId)
@@ -46,10 +43,7 @@ object Commands {
                                 val newName = (cmd["newName"] as? String ?: "").trim()
                                 if (newName.isEmpty() || newName.contains('/'))
                                     throw Exception("некорректное имя: «$newName»")
-                                val allowed = Storage.scanDirs(ctx).values.flatten().any {
-                                    fp.startsWith(it.path + File.separator)
-                                }
-                                if (!allowed) throw Exception("путь вне медиапапок: $fp")
+                                if (!Storage.isInMediaDirs(ctx, fp)) throw Exception("путь вне медиапапок: $fp")
                                 val src = File(fp)
                                 if (!src.isFile) throw Exception("файла нет: $fp")
                                 val dst = File(src.parentFile, newName)

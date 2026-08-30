@@ -827,7 +827,7 @@ class HttpServer(
         val item = findItem(id) ?: return err("не найдено", Response.Status.NOT_FOUND)
         val fp = item.optString("filePath")
         if (fp.isNotEmpty()) {
-            if (!inMediaDirs(fp)) return err("путь вне медиапапок")
+            if (!Storage.isInMediaDirs(ctx, fp)) return err("путь вне медиапапок")
             java.io.File(fp).delete()
         }
         db.collection("devices").document(config.deviceId)

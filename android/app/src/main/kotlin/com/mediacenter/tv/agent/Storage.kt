@@ -151,6 +151,31 @@ object Storage {
             (File(dir, sub).listFiles()?.any { it.isFile } ?: false)
         }
 
+    // Медиатечный ли путь: Movies/Series/Cartoons на ЛЮБОМ известном носителе — включая
+    // корень тома И служебную папку (у съёмных томов две жизни, см. mediaDirOn), и не только
+    // на выбранных сейчас. Команды удаления/переименования падали «путь вне медиапапок»,
+    // когда том в момент исполнения определялся иначе, чем при создании команды (рестарт
+    // агента, перевыбор носителей) — хотя путь был абсолютно легитимным.
+    fun isInMediaDirs(ctx: Context, path: String): Boolean {
+        if (path.isEmpty()) return false
+        val bases = mutableListOf<File>()
+        volumes(ctx).forEach { v ->
+            bases.add(v.dir)
+            if (v.removable) bases.add(File("/storage/${v.id}"))
+        }
+        ctx.getExternalFilesDirs(null).filterNotNull()
+            .filter { it.absolutePath.startsWith("/storage/") && !it.absolutePath.contains("/emulated/") }
+            .forEach { bases.add(File(it, "media")) }
+        sharedRoot(ctx)?.let { bases.add(it) }
+        bases.add(File(ctx.filesDir, "media"))
+        return bases.any { b ->
+            listOf("Movies", "Series", "Cartoons").any { t ->
+                val d = File(b, t)
+                path == d.path || path.startsWith(d.path + File.separator)
+            }
+        }
+    }
+
     // Выбранные пользователем носители; пока не выбрал — все найденные (флешка предпочтительнее).
     fun activeVolumes(ctx: Context): List<Volume> {
         val all = volumes(ctx)
