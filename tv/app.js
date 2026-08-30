@@ -1518,7 +1518,7 @@ function renderPersonFilms(credits, lib, full) {
     if (!filmEl) return;
     const c = byKey.get(key) || {};
     const li = lib.get(key); // элемент медиатеки — у него данные полнее (IMDb, длительность)
-    const rating = Number((li && li.imdbRating) || c.rating || 0);
+    const rating = Number((li && li.imdbRating) || c.imdbRating || c.rating || 0);
     const meta = [
       rating ? `<span class="font-semibold text-yellow-300">★ ${rating.toFixed(1)}</span>` : "",
       (li && li.year) || c.year ? String((li && li.year) || c.year) : "",
