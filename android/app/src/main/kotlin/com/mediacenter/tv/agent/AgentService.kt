@@ -167,9 +167,22 @@ class AgentService : Service() {
         packageManager.getPackageInfo(packageName, 0).versionName ?: "app"
     } catch (_: Exception) { "app" }
 
+    // Место — по РЕАЛЬНО выбранным носителям (медиатека на флешке), а не по mediaRoot из
+    // конфига: телевизор показывал «свободно 2 ГБ» своей встроенной памяти при пустой
+    // терабайтной флешке. Носителей может быть несколько — суммируем.
     private fun disk(): Map<String, Long>? = try {
-        val st = android.os.StatFs(config.mediaRoot(this).path)
-        mapOf("freeBytes" to st.availableBytes, "totalBytes" to st.totalBytes)
+        val vols = Storage.activeVolumes(this)
+        if (vols.isEmpty()) {
+            val st = android.os.StatFs(config.mediaRoot(this).path)
+            mapOf("freeBytes" to st.availableBytes, "totalBytes" to st.totalBytes)
+        } else {
+            var free = 0L; var total = 0L
+            for (v in vols) {
+                val st = android.os.StatFs(v.dir.path)
+                free += st.availableBytes; total += st.totalBytes
+            }
+            mapOf("freeBytes" to free, "totalBytes" to total)
+        }
     } catch (_: Exception) { null }
 
     private fun heartbeat(devRef: com.google.firebase.firestore.DocumentReference) {
