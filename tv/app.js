@@ -139,6 +139,9 @@ let kioskPinSet = false;
 // Системная часть (наше приложение как домашний экран, перехват кнопок пульта) от режима
 // не зависит — она живёт на уровне Android; режим решает, спрашивать ли код.
 let adminMode = false;   // режим Админа (из дашборда): открывает «Удалить со всех устройств»
+// Детский режим: интерфейс без «взрослых» органов — ни удаления, ни поиска на трекере,
+// ни настроек. Замок на выходе к нему НЕ привязан — это отдельная настройка exitPin.
+let kidsMode = false;
 // Замок на выходе — САМОСТОЯТЕЛЬНАЯ настройка устройства («Выход по коду» в дашборде).
 // С детским режимом НЕ связан вообще: детский может быть без кода, а обычный телевизор —
 // с кодом. Без заданного кода замок не включаем: ключа от него не будет.
@@ -146,11 +149,12 @@ let exitLock = false;
 async function refreshKiosk() {
   try {
     const k = await (await fetch("/api/kiosk", { cache: "no-store" })).json();
-    const before = adminMode + ":" + exitLock;
+    const before = adminMode + ":" + exitLock + ":" + kidsMode;
     kioskPinSet = !!k.pinSet;
     adminMode = k.mode === "admin";
+    kidsMode = k.mode === "kids";
     exitLock = !!k.exitPin && kioskPinSet;
-    return before !== adminMode + ":" + exitLock;
+    return before !== adminMode + ":" + exitLock + ":" + kidsMode;
   } catch (_) { return false; }
 }
 
@@ -183,6 +187,12 @@ async function pollHealth() {
   try {
     const sc = await (await fetch("/api/scan-status", { cache: "no-store" })).json();
     if (sc.running && sc.total > 0) watchScan();
+  } catch (_) {}
+  // Страховка реального времени: SSE может молча умереть (удалённый в дашборде фильм
+  // оставался на экране до перезахода) — раз в 10с сверяем библиотеку и перерисовываем,
+  // если она реально изменилась. rerenderKeepingFocus сохраняет фокус и скролл.
+  try {
+    if (await reloadLibrary()) rerenderKeepingFocus();
   } catch (_) {}
 }
 setInterval(pollHealth, 10000);
@@ -592,9 +602,9 @@ function renderCategories() {
         <span class="text-[clamp(22px,calc(var(--uivh)*4),30px)] font-extrabold tracking-tight">MediaCenter</span>
         ${deviceName ? `<span class="text-[clamp(18px,calc(var(--uivh)*3.2),24px)] font-bold text-zinc-500">${esc(deviceName)}</span>` : ""}
         <div class="flex-1"></div>
-        <button id="cat-settings" tabindex="0" title="Настройки"
+        ${kidsMode ? "" : `<button id="cat-settings" tabindex="0" title="Настройки"
           class="grid h-12 w-12 cursor-pointer place-items-center rounded-full border border-zinc-800 bg-zinc-900/80 text-zinc-400 outline-none transition focus:scale-110 focus:border-violet-500/60 focus:text-zinc-100 focus:ring-4 focus:ring-violet-500/25">
-          ${ICONS.gear("h-6 w-6")}</button>
+          ${ICONS.gear("h-6 w-6")}</button>`}
       </div>
       ${playerMissing ? `
         <button id="cat-vlc" tabindex="0" class="mx-12 mt-4 flex cursor-pointer items-center self-start rounded-2xl border border-red-500/30 bg-red-500/10 px-6 py-3.5 text-lg font-semibold text-red-300 outline-none transition focus:scale-[1.02] focus:border-red-400 focus:ring-4 focus:ring-red-500/30">
@@ -1081,7 +1091,8 @@ function updateInfo(i) {
     // читается по кругу, пока фокус стоит на плитке.
     let dir = 1;
     const step = () => {
-      d.scrollTop += 0.35 * dir;   // ~20 пикселей в секунду — читается, не мельтешит
+      // Вниз — медленно (читаем), наверх — быстро (перемотка к началу, читать нечего).
+      d.scrollTop += (dir > 0 ? 0.35 : 1.4) * dir;
       const atBottom = d.scrollTop + d.clientHeight >= d.scrollHeight - 1;
       const atTop = d.scrollTop <= 0;
       if ((dir > 0 && atBottom) || (dir < 0 && atTop)) {
@@ -1253,11 +1264,14 @@ function renderDetail() {
             ${(() => {
               const dl = downloads.get(dlKey(i.title, i.year));
               if (dl) return `<div class="dl-btn flex flex-none items-center rounded-2xl bg-zinc-700/60 px-[clamp(18px,calc(var(--uivw)*3),32px)] py-[clamp(7px,calc(var(--uivh)*1.8),12px)] text-[clamp(14px,calc(var(--uivh)*2.6),18px)] font-bold text-zinc-300 opacity-80" data-dlkey="${esc(dlKey(i.title, i.year))}">${dlBtnHtml(dl)}</div>`;
-              return `<button class="dfoc flex flex-none cursor-pointer items-center rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-[clamp(18px,calc(var(--uivw)*3),32px)] py-[clamp(7px,calc(var(--uivh)*1.8),12px)] text-[clamp(14px,calc(var(--uivh)*2.6),18px)] font-bold text-white shadow-xl shadow-violet-600/40 outline-none transition focus:scale-[1.04] focus:ring-4 focus:ring-violet-400/50" id="detail-play" data-id="${esc(i.id)}">${(i.isGhost ? ICONS.search : ICONS.play)("mr-2 h-[1.2em] w-[1.2em]")} ${i.isGhost ? "Искать" : "Смотреть"}</button>`;
+              // Детский режим: «Искать» (поиск на трекере) видна, но выключена — ребёнок
+              // не должен качать сам; «Смотреть» работает как обычно.
+              const kidsOff = i.isGhost && kidsMode;
+              return `<button class="dfoc flex flex-none items-center rounded-2xl px-[clamp(18px,calc(var(--uivw)*3),32px)] py-[clamp(7px,calc(var(--uivh)*1.8),12px)] text-[clamp(14px,calc(var(--uivh)*2.6),18px)] font-bold outline-none transition ${kidsOff ? "cursor-default bg-zinc-800/70 text-zinc-500 focus:ring-2 focus:ring-zinc-600" : "cursor-pointer bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-xl shadow-violet-600/40 focus:scale-[1.04] focus:ring-4 focus:ring-violet-400/50"}" id="detail-play" data-id="${esc(i.id)}" ${kidsOff ? "data-kids-off=\"1\"" : ""}>${(i.isGhost ? ICONS.search : ICONS.play)("mr-2 h-[1.2em] w-[1.2em]")} ${i.isGhost ? "Искать" : "Смотреть"}</button>`;
             })()}
             ${i.colRef ? `<button class="${BTN} bg-white/5 text-zinc-300 focus:ring-violet-500/40" id="detail-collection">${ICONS.folderBack ? "" : ""}Коллекция (${Math.max(i.colRef.parts.length, (i.colRef.tmdbParts || []).length)})</button>` : ""}
             ${i.trailer ? `<button class="${BTN} bg-white/5 text-zinc-300 focus:ring-violet-500/40" id="detail-trailer">${ICONS.movie("mr-2 h-[1.1em] w-[1.1em]")} Трейлер</button>` : ""}
-            ${i.isGhost ? "" : `<button class="${BTN} bg-white/5 px-3.5 text-zinc-300 focus:ring-violet-500/40" id="detail-more" aria-label="Действия">⋯</button>`}
+            ${i.isGhost || kidsMode ? "" : `<button class="${BTN} bg-white/5 px-3.5 text-zinc-300 focus:ring-violet-500/40" id="detail-more" aria-label="Действия">⋯</button>`}
             ${i.isGhost ? "" : `<button class="${BTN} epw ${i.watched ? "bg-emerald-500/15 text-emerald-300 focus:ring-emerald-500/40" : "bg-white/5 text-zinc-300 focus:ring-violet-500/40"}"
               data-id="${esc(i.id)}" data-set="${i.watched ? 0 : 1}">${(i.watched ? ICONS.check : ICONS.eyeOff)("mr-2 h-[1.1em] w-[1.1em]")}${i.watched ? "Просмотрено" : "Не просмотрено"}</button>`}
           </div>`}
@@ -1386,7 +1400,7 @@ function renderGhostWaiting(i) {
             </div>
             <div class="mt-6 flex space-x-3">
               <button id="detail-back" class="dfoc flex cursor-pointer items-center rounded-2xl border border-white/15 bg-white/5 px-5 py-3 font-semibold text-zinc-200 outline-none transition focus:scale-[1.03] focus:ring-4 focus:ring-violet-500/40">${ICONS.back("mr-2 h-5 w-5")} Назад</button>
-              <button id="ghost-dl" class="dfoc flex cursor-pointer items-center rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-6 py-3 font-bold text-white shadow-xl shadow-violet-600/40 outline-none transition focus:scale-[1.04] focus:ring-4 focus:ring-violet-400/50">${ICONS.search("mr-2 h-5 w-5")} Искать</button>
+              <button id="ghost-dl" class="dfoc flex items-center rounded-2xl px-6 py-3 font-bold outline-none transition ${kidsMode ? "cursor-default bg-zinc-800/70 text-zinc-500 focus:ring-2 focus:ring-zinc-600" : "cursor-pointer bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-xl shadow-violet-600/40 focus:scale-[1.04] focus:ring-4 focus:ring-violet-400/50"}">${ICONS.search("mr-2 h-5 w-5")} Искать</button>
             </div>
           </div>
         </div>
@@ -1735,6 +1749,7 @@ function closeModal() { document.getElementById("mc-modal")?.remove(); modalYes 
 // Без промежуточного «Скачать этот фильм?»: нажатие на «Скачать» — уже и есть согласие,
 // сразу ищем на rutracker и показываем варианты.
 async function askDownload(ghost) {
+  if (kidsMode) return; // детский режим: скачивание с трекера недоступно
   showOverlay("Ищу на rutracker…", false);
   try {
     const q = `title=${encodeURIComponent(ghost.title)}&year=${ghost.year || ""}&type=${ghost.type}`;
