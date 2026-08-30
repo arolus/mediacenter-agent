@@ -218,8 +218,17 @@ class Torrents(
                         "title" to t["title"], "year" to t["year"],
                         "tmdbId" to t["tmdbId"], "catalogId" to t["catalogId"],
                         "poster" to t["poster"], "backdrop" to t["backdrop"],
-                        "overview" to t["overview"], "cast" to t["cast"], "rating" to t["rating"]
+                        "overview" to t["overview"], "cast" to t["cast"], "rating" to t["rating"],
+                        "magnet" to magnet, "infoHash" to infoHash
                     ))
+                    // Гибридный перенос: .torrent переезжает вместе с файлом — с этого
+                    // устройства следующий перенос тоже сможет идти «LAN + трекер».
+                    (t["torrentFile"] as? String)?.let { tf ->
+                        db.collection("devices").document(config.deviceId)
+                            .collection("torrents").document(Library.libIdFor(dest.path))
+                            .set(mapOf("torrentFile" to tf, "magnet" to magnet, "infoHash" to infoHash,
+                                "savedAt" to FieldValue.serverTimestamp())).await()
+                    }
                     db.collection("transfers").document(job.docId).update(
                         mapOf("progress" to 1, "speed" to 0, "status" to "done",
                             "updatedAt" to FieldValue.serverTimestamp())).await()
@@ -274,15 +283,48 @@ class Torrents(
         if (jobs.values.any { it.kind == "seed" && it.docId == id }) return
         scope.launch {
             try {
-                val entry = TorrentBuilder().path(f).generate()
-                val ti = TorrentInfo(entry.entry().bencode())
-                jobs[ti.infoHash().toHex()] = Job("seed", id, t, f.parentFile!!)
-                session.download(ti, f.parentFile)
+                // Гибридный перенос: файл, скачанный с рутрекера, раздаём кусками ЕГО ЖЕ
+                // раздачи (оригинальный .torrent лежит в devices/{id}/torrents/{libId}) —
+                // приёмник тогда качает одновременно с нас по LAN и с живых сидов трекера,
+                // и скорости складываются. Годится только одиночный файл ровно с нашим
+                // именем и размером; иначе — приватный LAN-only перенос, как раньше.
+                var origTf: String? = null
+                var ti: TorrentInfo? = null
+                (t["sourceLibId"] as? String)?.let { libId ->
+                    try {
+                        val doc = db.collection("devices").document(config.deviceId)
+                            .collection("torrents").document(libId).get().await()
+                        val tf = doc.getString("torrentFile")
+                        if (tf != null) {
+                            val orig = TorrentInfo(Base64.decode(tf, Base64.DEFAULT))
+                            val fs = orig.files()
+                            if (orig.numFiles() == 1 &&
+                                fs.filePath(0).substringAfterLast('/') == f.name &&
+                                fs.fileSize(0) == f.length()) { ti = orig; origTf = tf }
+                        }
+                    } catch (e: Exception) { Log.e("transfer hybrid lookup: ${e.message}") }
+                }
+                if (ti == null) {
+                    val entry = TorrentBuilder().path(f).generate()
+                    ti = TorrentInfo(entry.entry().bencode())
+                }
+                val info = ti!!
+                jobs[info.infoHash().toHex()] = Job("seed", id, t, f.parentFile!!)
+                session.download(info, f.parentFile)
+                session.find(info.infoHash())?.let { h ->
+                    // Источник НЕ анонсируется на публичном трекере даже в гибриде: наружу
+                    // нас не видно, куски отдаём только тем, кто пришёл сам (приёмник по LAN).
+                    if (origTf != null) h.replaceTrackers(emptyList())
+                }
                 val addr = "${lanIp() ?: "127.0.0.1"}:${config.torrentPort}"
-                db.collection("transfers").document(id).update(
-                    mapOf("magnet" to ti.makeMagnetUri(), "seederAddr" to addr,
-                        "status" to "seeding", "updatedAt" to FieldValue.serverTimestamp())).await()
-                Log.i("transfer: seeding ${t["title"]}")
+                val patch = mutableMapOf<String, Any>(
+                    "magnet" to info.makeMagnetUri(), "seederAddr" to addr,
+                    "status" to "seeding", "updatedAt" to FieldValue.serverTimestamp())
+                // Приёмнику — сам .torrent: старт без ожидания метаданных, анонс на трекер
+                // (публичный контент, правила как у обычной закачки — лимит отдачи, стоп по done).
+                origTf?.let { patch["torrentFile"] = it }
+                db.collection("transfers").document(id).update(patch).await()
+                Log.i("transfer: seeding ${t["title"]}${if (origTf != null) " (гибрид: LAN + трекер)" else " (LAN-only)"}")
             } catch (e: Exception) {
                 Log.e("transfer seed: ${e.message}")
                 db.collection("transfers").document(id).update("status", "error", "error", (e.message ?: "?"))
@@ -327,7 +369,17 @@ class Torrents(
         if (hashHex != null) jobs[hashHex] = Job("transfer", id, t, dir, if (stage != null) target else null)
         // Куски строго по порядку — запись на носитель становится последовательной. На USB
         // телевизора это принципиально: вразнобой он пишет ~0,7 МБ/с, подряд — ~2,4 МБ/с.
-        session.download(magnet, dir, org.libtorrent4j.TorrentFlags.SEQUENTIAL_DOWNLOAD)
+        // Гибрид: источник положил оригинальный .torrent — стартуем с него (метаданные на
+        // руках, трекеры в нём анонсируют нас, внешние сиды складываются с LAN-источником).
+        val tf = t["torrentFile"] as? String
+        if (tf != null) {
+            val ti = TorrentInfo(Base64.decode(tf, Base64.DEFAULT))
+            session.download(ti, dir)
+            session.find(ti.infoHash())?.let { h ->
+                h.setUploadLimit(64 * 1024)  // на публичном трекере всерьёз не сидируем
+                h.setFlags(org.libtorrent4j.TorrentFlags.SEQUENTIAL_DOWNLOAD)
+            }
+        } else session.download(magnet, dir, org.libtorrent4j.TorrentFlags.SEQUENTIAL_DOWNLOAD)
         // direct LAN peer — LSD may be slow, the address is authoritative
         (t["seederAddr"] as? String)?.let { addr ->
             scope.launch {
