@@ -1070,7 +1070,8 @@ function renderTagPanel(el) {
   if (!counts.length && !gridTag) { el.innerHTML = ""; return; }
   el.innerHTML = `
     <div class="mb-2 flex-none text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Подборки</div>
-    <div class="thin-scroll min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1">
+    <!-- p-1 внутри скролла: иначе фокус-кольцо и scale строк режутся краем контейнера -->
+    <div class="thin-scroll min-h-0 flex-1 space-y-1.5 overflow-y-auto p-1">
       ${counts.map(([name, n]) => `
         <div tabindex="0" data-tag="${esc(name)}" class="tag-row flex cursor-pointer items-center justify-between rounded-xl border px-3.5 py-2 text-[14px] outline-none transition focus:scale-[1.02] focus:border-violet-400 focus:ring-2 focus:ring-violet-500/40 ${name === gridTag ? "border-violet-500/60 bg-violet-500/15 text-violet-200" : "border-zinc-800 bg-zinc-900/70 text-zinc-300"}">
           <span>${esc(name)}</span><span class="text-zinc-500">${n}</span>
