@@ -28,8 +28,13 @@ object Commands {
                             "rescan" -> { Library.sync(ctx, db, config); onLibraryChanged() }
                             "delete" -> {
                                 val fp = cmd["filePath"] as? String ?: ""
-                                if (!Storage.isInMediaDirs(ctx, fp)) throw Exception("путь вне медиапапок: $fp")
-                                File(fp).deleteRecursively()
+                                // Файл на вынутом носителе: удалить нечего, но запись из
+                                // каталога убрать надо — иначе «удалить везде» оставляет
+                                // фильм висеть до подключения носителя (и падает «путь вне
+                                // медиапапок»: несмонтированный том не в списке томов).
+                                if (!Storage.isInMediaDirs(ctx, fp)) {
+                                    if (File(fp).exists()) throw Exception("путь вне медиапапок: $fp")
+                                } else File(fp).deleteRecursively()
                                 val libId = cmd["libId"] as? String ?: Library.libIdFor(fp)
                                 db.collection("devices").document(config.deviceId)
                                     .collection("library").document(libId).delete().await()
