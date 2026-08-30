@@ -2176,6 +2176,12 @@ function onTrailerMessage(e) {
     const d = typeof e.data === "string" ? JSON.parse(e.data) : e.data;
     const info = d && d.info;
     if (!info) return;
+    // Плеер точно готов (шлёт состояние) — добиваем выгрузку субтитров один раз.
+    if (!onTrailerMessage.ccOff) {
+      onTrailerMessage.ccOff = true;
+      trailerCmd("unloadModule", ["captions"]);
+      trailerCmd("unloadModule", ["cc"]);
+    }
     if (typeof info.currentTime === "number") trailerTime = info.currentTime;
     if (typeof info.playerState === "number") {
       trailerPlaying = info.playerState === 1;
@@ -2190,6 +2196,7 @@ function openTrailerInline(key, title) {
   if (document.getElementById("trailer-box")) return;
   trailerTime = 0;
   trailerPlaying = true;
+  onTrailerMessage.ccOff = false; // каждый ролик глушит субтитры заново
   const box = document.createElement("div");
   box.id = "trailer-box";
   box.tabIndex = 0;   // клавиши должны приходить в НАШ документ
@@ -2211,6 +2218,12 @@ function openTrailerInline(key, title) {
   const f = box.querySelector("iframe");
   f.addEventListener("load", () => {
     try { f.contentWindow.postMessage(JSON.stringify({ event: "listening" }), "*"); } catch (_) {}
+    // Без субтитров по умолчанию: YouTube сам включает авто-сабы (русский интерфейс +
+    // английский ролик). URL-параметра «выключить» нет — выгружаем модуль командой API
+    // ("captions" — новый плеер, "cc" — старый). Ещё раз в onTrailerMessage: при load
+    // плеер мог быть не готов принять команду.
+    trailerCmd("unloadModule", ["captions"]);
+    trailerCmd("unloadModule", ["cc"]);
   });
   // WebView норовит отдать фокус iframe при автозапуске — забираем обратно, пока ролик открыт.
   trailerTimer = setInterval(() => {
