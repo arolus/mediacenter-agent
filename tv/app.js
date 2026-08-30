@@ -136,21 +136,19 @@ let kioskPinSet = false;
 // (выйти из медиатеки можно только по коду), «normal» — обычный телевизор без ограничений.
 // Системная часть (наше приложение как домашний экран, перехват кнопок пульта) от режима
 // не зависит — она живёт на уровне Android; режим решает, спрашивать ли код.
-let kidsMode = false;
 let adminMode = false;   // режим Админа (из дашборда): открывает «Удалить со всех устройств»
-// Замок на выходе — ОТДЕЛЬНАЯ настройка устройства («Выход по коду» в дашборде), а не часть
-// детского режима: телевизор в гостиной может быть обычным и всё равно выпускать по коду.
-// Детский режим замок подразумевает — без него он бессмыслен.
+// Замок на выходе — САМОСТОЯТЕЛЬНАЯ настройка устройства («Выход по коду» в дашборде).
+// С детским режимом НЕ связан вообще: детский может быть без кода, а обычный телевизор —
+// с кодом. Без заданного кода замок не включаем: ключа от него не будет.
 let exitLock = false;
 async function refreshKiosk() {
   try {
     const k = await (await fetch("/api/kiosk", { cache: "no-store" })).json();
-    const before = kidsMode + ":" + adminMode + ":" + exitLock;
+    const before = adminMode + ":" + exitLock;
     kioskPinSet = !!k.pinSet;
-    kidsMode = k.mode === "kids" && kioskPinSet;   // без кода запирать нельзя: ключа не будет
     adminMode = k.mode === "admin";
-    exitLock = (!!k.exitPin || kidsMode) && kioskPinSet;
-    return before !== kidsMode + ":" + adminMode + ":" + exitLock;
+    exitLock = !!k.exitPin && kioskPinSet;
+    return before !== adminMode + ":" + exitLock;
   } catch (_) { return false; }
 }
 
