@@ -365,21 +365,25 @@ async function reloadLibrary() {
 // можно любую, а «просмотрено» у них общее только по совпадению, так что предпочитаем ту,
 // что уже начали смотреть.
 const dedupe = (list) => {
+  // Все файлы записи копим отдельно и ПЕРЕЗАПИСЫВАЕМ на выжившем каждый проход: dedupe
+  // зовётся при каждой перерисовке на тех же объектах, и накопление «в объект» плодило
+  // дубли («Служебный роман» показывал шесть «Серия 1»). Двухсерийные издания (Ep01/Ep02)
+  // не теряются: кнопка «Смотреть» предложит выбор части.
   const map = new Map();
+  const parts = new Map();
   for (const i of list) {
     const key = i.tmdbId ? "t:" + i.tmdbId
       : `n:${String(i.title || i.fileName || "").toLowerCase().trim()}:${i.year || ""}`;
+    if (!parts.has(key)) parts.set(key, []);
+    parts.get(key).push(i);
     const prev = map.get(key);
-    if (!prev) { map.set(key, i); continue; }
-    // Все файлы записи копим на выжившем: двухсерийные издания («Служебный роман» Ep01/Ep02)
-    // раньше схлопывались так, что вторую серию с ТВ было не посмотреть вовсе —
-    // теперь кнопка «Смотреть» предложит выбор части.
-    const parts = prev.altParts || [prev];
-    parts.push(i);
-    if (!prev.started && !prev.watched && (i.started || i.watched)) map.set(key, i);
-    map.get(key).altParts = parts;
+    if (!prev || (!prev.started && !prev.watched && (i.started || i.watched))) map.set(key, i);
   }
-  return [...map.values()];
+  return [...map.entries()].map(([key, i]) => {
+    const p = parts.get(key);
+    i.altParts = p.length > 1 ? p : null;
+    return i;
+  });
 };
 
 // Подпись части многосерийного фильма для диалога выбора: «Серия N» по маркеру в имени
