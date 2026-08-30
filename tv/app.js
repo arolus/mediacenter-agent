@@ -729,6 +729,17 @@ function eyeChip() {
   return `<div id="flt-eye" tabindex="0" title="${title}" aria-label="${title}" class="${CHIP} ml-1.5 px-2.5 ${cls}">${ico("h-4 w-4")}</div>`;
 }
 
+// Вход в ленту жанров: фокус — на выбранном чипе (без выбора — на первом), и лента
+// подъезжает к нему: выбранный жанр мог остаться за краем горизонтального скролла.
+function focusGenreChip() {
+  const sel = gridGenre && app.querySelector(`.flt-genre[data-genre="${CSS.escape(gridGenre)}"]`);
+  const chip = sel || app.querySelector(".flt-genre");
+  if (!chip) return false;
+  chip.focus({ preventScroll: true });
+  chip.scrollIntoView({ block: "nearest", inline: "center" });
+  return true;
+}
+
 function renderGridPage({ heading, count, list, empty, onOpen, fallbackInfo, filters }) {
   computeCardWidth();
   // Чипы сортировки/жанра: класс tv-card включает их в пространственную навигацию пультом
@@ -783,7 +794,9 @@ function renderGridPage({ heading, count, list, empty, onOpen, fallbackInfo, fil
     gridGenre = c.dataset.genre === gridGenre ? "" : c.dataset.genre;
     localStorage.setItem("mc-genre", gridGenre);
     render();
-    (app.querySelector(`.flt-genre[data-genre="${CSS.escape(c.dataset.genre)}"]`) || document.getElementById("flt-eye"))?.focus({ preventScroll: true });
+    const back = app.querySelector(`.flt-genre[data-genre="${CSS.escape(c.dataset.genre)}"]`) || document.getElementById("flt-eye");
+    back?.focus({ preventScroll: true });
+    back?.scrollIntoView({ block: "nearest", inline: "center" }); // лента могла перерисоваться с нуля
   }));
   // Фокус на фильтре — левая колонка показывает подборки, а не описание последнего фильма:
   // так под фильтрами всегда то, во что ведёт стрелка вниз.
@@ -2009,10 +2022,10 @@ document.addEventListener("keydown", (e) => {
       const rows = [...app.querySelectorAll(".tag-row")];
       const ti = rows.indexOf(cur);
       if (e.key === "ArrowDown") { rows[Math.min(rows.length - 1, ti + 1)]?.focus(); rows[Math.min(rows.length - 1, ti + 1)]?.scrollIntoView({ block: "nearest" }); }
-      // С первой подборки вверх — в фильтры над ними (сортировка/жанры живут в той же колонке).
+      // С первой подборки вверх — в ленту жанров: на выбранный чип (или первый), с
+      // подскроллом к нему; жанров нет — на чип сортировки.
       else if (e.key === "ArrowUp" && ti === 0) {
-        const chips = [...app.querySelectorAll("#grid-filters .tv-card")];
-        (chips[chips.length - 1] || document.getElementById("flt-sort"))?.focus({ preventScroll: true });
+        if (!focusGenreChip()) document.getElementById("flt-sort")?.focus({ preventScroll: true });
       }
       else if (e.key === "ArrowUp") { rows[Math.max(0, ti - 1)]?.focus(); rows[Math.max(0, ti - 1)]?.scrollIntoView({ block: "nearest" }); }
       else if (e.key === "ArrowRight") (app.querySelector(".grid-back") || app.querySelector(".tv-card"))?.focus({ preventScroll: true });
@@ -2021,11 +2034,19 @@ document.addEventListener("keydown", (e) => {
     }
     if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) {
       e.preventDefault();
-      // Из фильтров вниз — в подборки, ДО пространственного поиска: nearest не знает про
-      // строки подборок (у них свой класс) и утаскивал фокус в сетку фильмов.
+      // Из фильтров вниз — по ярусам, ДО пространственного поиска: с ряда сортировки — в
+      // ленту жанров (на выбранный чип, с подскроллом), с жанров — в подборки. nearest не
+      // знает про строки подборок (свой класс) и утаскивал фокус в сетку фильмов.
       if (e.key === "ArrowDown" && cur?.closest("#grid-filters")) {
+        if (!cur.classList.contains("flt-genre") && focusGenreChip()) return;
         const tr = app.querySelector(".tag-row");
         if (tr) { tr.focus({ preventScroll: true }); return; }
+      }
+      // Глаз — правый край верхнего ряда фильтров: вправо с него — сразу в сетку
+      // (иначе nearest находил жанровый чип ниже и фокус нырял в ленту).
+      if (e.key === "ArrowRight" && cur?.id === "flt-eye") {
+        (app.querySelector(".grid-back") || app.querySelector(".tv-card:not(#grid-filters .tv-card)"))?.focus({ preventScroll: true });
+        return;
       }
       const next = nearest(cur, { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" }[e.key]);
       if (next) { next.focus({ preventScroll: true }); next.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" }); }
