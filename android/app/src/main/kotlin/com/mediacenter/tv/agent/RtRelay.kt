@@ -42,6 +42,9 @@ class RtRelay(
         private const val REQUEST_TTL_MS = 5 * 60 * 1000L
         private const val PART_CHARS = 700_000
         private const val HARVEST_TIMEOUT_MS = 150_000L
+        // Non-interactive challenge clears in ~10s, tapped Turnstile in ~30s; the server stops
+        // waiting at 200s and the activity fallback still needs its share.
+        private const val HEADLESS_TIMEOUT_MS = 80_000L
         // Android 12+ silently drops an activity start from a background service (BAL): the
         // WebView never opens and the harvest would just time out. If ClearanceActivity has not
         // reported onCreate within this window, fail fast so the server can pick another node.
@@ -139,9 +142,9 @@ class RtRelay(
             mapOf("rtRelay" to mapOf(
                 "ok" to true,               // the harvester is always present: it is this very app
                 "canHarvest" to true,
-                // Server ranks nodes by this: a phone with the overlay right clears the challenge
-                // by itself in the background; a TV needs its UI on screen (and taps Turnstile).
-                "autoHarvest" to (canDrawOverlays() || isTv()),
+                // Server ranks nodes by this: phones clear the challenge headlessly in the
+                // background, TVs tap Turnstile on their own activity while the UI is on screen.
+                "autoHarvest" to true,
                 "overlay" to canDrawOverlays(),
                 "tv" to isTv(),
                 "clearanceAt" to (c?.optLong("at") ?: null),
@@ -151,6 +154,21 @@ class RtRelay(
 
     private suspend fun harvest(fresh: Boolean): JSONObject {
         harvestWaiter?.let { return it.await() }
+        // Phones: headless WebView in this very process — works with any app on screen and with
+        // the screen off. TVs: the visible activity (its Turnstile needs a real, laid-out view).
+        if (!isTv()) {
+            val waiter = CompletableDeferred<JSONObject>()
+            harvestWaiter = waiter
+            HeadlessClearance(ctx).harvest(fresh, HEADLESS_TIMEOUT_MS) { cookie, ua, error ->
+                submitClearance(cookie, ua, error)
+            }
+            try {
+                return withTimeout(HEADLESS_TIMEOUT_MS + 5_000) { waiter.await() }
+            } catch (e: Exception) {
+                Log.e("rt: headless harvest failed (${e.message}), trying the activity")
+                harvestWaiter = null
+            }
+        }
         val waiter = CompletableDeferred<JSONObject>()
         val started = CompletableDeferred<Unit>()
         harvestWaiter = waiter
