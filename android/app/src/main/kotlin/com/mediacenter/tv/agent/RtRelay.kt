@@ -17,6 +17,9 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
+import android.content.res.Configuration
+import android.provider.Settings
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -31,6 +34,7 @@ class RtRelay(
     private val cacheFile = File(ctx.filesDir, "rt-clearance.json")
     @Volatile private var clearance: JSONObject? = null
     @Volatile private var harvestWaiter: CompletableDeferred<JSONObject>? = null
+    @Volatile private var harvestStarted: CompletableDeferred<Unit>? = null
     private val running = HashSet<String>()
     private var sub: ListenerRegistration? = null
 
@@ -38,7 +42,15 @@ class RtRelay(
         private const val REQUEST_TTL_MS = 5 * 60 * 1000L
         private const val PART_CHARS = 700_000
         private const val HARVEST_TIMEOUT_MS = 150_000L
+        // Android 12+ silently drops an activity start from a background service (BAL): the
+        // WebView never opens and the harvest would just time out. If ClearanceActivity has not
+        // reported onCreate within this window, fail fast so the server can pick another node.
+        private const val ACTIVITY_START_MS = 8_000L
         @Volatile var instance: RtRelay? = null
+
+        // ClearanceActivity.onCreate: proof that the start was not blocked.
+        @JvmStatic
+        fun harvestActivityStarted() { instance?.harvestStarted?.complete(Unit) }
 
         // Кука приходит из ClearanceActivity — она в ЭТОМ же процессе, так что ходить за ней
         // по HTTP незачем (и ненадёжно: сервер мог ещё не подняться). Если релей уже работает,
@@ -74,7 +86,7 @@ class RtRelay(
                 running.add(id)
                 scope.launch {
                     try {
-                        writeResult(id, perform(t))
+                        writeResult(id, perform(id, t))
                     } catch (e: Exception) {
                         Log.e("rt: ${e.message}")
                         try {
@@ -113,12 +125,25 @@ class RtRelay(
         harvestWaiter = null
     }
 
+    // "Display over other apps" is what lets a background service open ClearanceActivity on
+    // Android 12+; without it the harvest only works while our own UI is on screen (TV nodes).
+    private fun canDrawOverlays(): Boolean =
+        try { Settings.canDrawOverlays(ctx) } catch (_: Exception) { false }
+
+    private fun isTv(): Boolean =
+        (ctx.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
+
     private fun publishState() {
         val c = clearance
         db.collection("devices").document(config.deviceId).set(
             mapOf("rtRelay" to mapOf(
                 "ok" to true,               // the harvester is always present: it is this very app
                 "canHarvest" to true,
+                // Server ranks nodes by this: a phone with the overlay right clears the challenge
+                // by itself in the background; a TV needs its UI on screen (and taps Turnstile).
+                "autoHarvest" to (canDrawOverlays() || isTv()),
+                "overlay" to canDrawOverlays(),
+                "tv" to isTv(),
                 "clearanceAt" to (c?.optLong("at") ?: null),
                 "ua" to c?.optString("ua")
             )), SetOptions.merge())
@@ -127,16 +152,25 @@ class RtRelay(
     private suspend fun harvest(fresh: Boolean): JSONObject {
         harvestWaiter?.let { return it.await() }
         val waiter = CompletableDeferred<JSONObject>()
+        val started = CompletableDeferred<Unit>()
         harvestWaiter = waiter
+        harvestStarted = started
         val i = Intent(ctx, com.mediacenter.tv.ClearanceActivity::class.java)
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         i.putExtra("port", config.localPort)
         if (fresh) i.putExtra("fresh", true)
         try { ctx.startActivity(i) } catch (e: Exception) {
-            harvestWaiter = null
+            harvestWaiter = null; harvestStarted = null
             throw Exception("не открылась ClearanceActivity: ${e.message}")
         }
-        return withTimeout(HARVEST_TIMEOUT_MS) { waiter.await() }
+        if (withTimeoutOrNull(ACTIVITY_START_MS) { started.await() } == null) {
+            harvestWaiter = null; harvestStarted = null
+            throw Exception("нода не может открыть проверку Cloudflare: приложение не на экране" +
+                (if (canDrawOverlays()) "" else " (нужно право «поверх других приложений»)"))
+        }
+        try {
+            return withTimeout(HARVEST_TIMEOUT_MS) { waiter.await() }
+        } finally { harvestStarted = null }
     }
 
     private fun cookieHeader(serverCookie: String?): String {
@@ -152,8 +186,17 @@ class RtRelay(
         return head.contains("Just a moment", ignoreCase = true)
     }
 
-    private suspend fun perform(task: Map<String, Any?>): Map<String, Any?> {
-        if (loadClearance() == null) harvest(fresh = false)
+    // "challenge" is an interim status: the server keeps waiting past its usual deadline while
+    // the WebView (and, on a TV, the Turnstile tap) does its work instead of giving up at 90s.
+    private suspend fun markChallenge(id: String) {
+        try {
+            db.collection("rtRequests").document(id).update(
+                mapOf("status" to "challenge", "updatedAt" to FieldValue.serverTimestamp())).await()
+        } catch (_: Exception) {}
+    }
+
+    private suspend fun perform(id: String, task: Map<String, Any?>): Map<String, Any?> {
+        if (loadClearance() == null) { markChallenge(id); harvest(fresh = false) }
         suspend fun run(): FetchResult {
             val c = loadClearance() ?: throw Exception("нет cf_clearance")
             val headers = HashMap<String, String>()
@@ -169,6 +212,7 @@ class RtRelay(
         var r = run()
         if (isChallenge(r)) {
             Log.i("rt: Cloudflare challenge — refreshing cf_clearance")
+            markChallenge(id)
             harvest(fresh = true)
             r = run()
             if (isChallenge(r)) throw Exception("Cloudflare не пропустил даже со свежей cf_clearance")

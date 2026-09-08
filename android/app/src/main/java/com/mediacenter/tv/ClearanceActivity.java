@@ -55,6 +55,8 @@ public class ClearanceActivity extends Activity {
         super.onCreate(state);
         agentPort = getIntent().getIntExtra("port", 8088);
         startedAt = System.currentTimeMillis();
+        // Tell the relay the start was not blocked (Android 12+ BAL): it fails fast otherwise.
+        try { com.mediacenter.tv.agent.RtRelay.harvestActivityStarted(); } catch (Throwable ignored) {}
 
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
@@ -106,7 +108,11 @@ public class ClearanceActivity extends Activity {
     }
 
     // Спрашиваем у страницы, где виджет проверки, и бьём туда тапом. Без ответа — центр экрана.
-    private void tapChallenge() {
+    private void tapChallenge() { tapChallenge(false); }
+
+    // auto=true: nobody is at the remote (a search from the dashboard while the TV shows its
+    // own UI), so the poll taps the widget itself — but only when it is actually on the page.
+    private void tapChallenge(final boolean auto) {
         web.evaluateJavascript(
             "(function(){var f=document.querySelector('iframe[src*=\"challenges.cloudflare.com\"]')" +
             "||document.querySelector('#cf-turnstile,.cf-turnstile,#challenge-stage');" +
@@ -115,6 +121,7 @@ public class ClearanceActivity extends Activity {
             new android.webkit.ValueCallback<String>() {
                 @Override public void onReceiveValue(String v) {
                     float x = web.getWidth() / 2f, y = web.getHeight() / 2f;
+                    boolean found = false;
                     if (v != null) {
                         String clean = v.replace("\"", "").trim();
                         String[] parts = clean.split(",");
@@ -123,13 +130,21 @@ public class ClearanceActivity extends Activity {
                                 float scale = web.getScale();
                                 x = Float.parseFloat(parts[0]) * scale;
                                 y = Float.parseFloat(parts[1]) * scale - web.getScrollY();
+                                found = true;
                             } catch (Exception ignored) {}
                         }
                     }
+                    if (auto && !found) return;
+                    if (auto) autoTaps++;
                     sendTap(x, y);
                 }
             });
     }
+
+    private int autoTaps;
+    private long lastAutoTapAt;
+    private static final int AUTO_TAPS_MAX = 8;
+    private static final long AUTO_TAP_EVERY_MS = 6_000;
 
     private void sendTap(float x, float y) {
         long t = android.os.SystemClock.uptimeMillis();
@@ -169,6 +184,14 @@ public class ClearanceActivity extends Activity {
                 return;
             }
             hint.setText("Проверка rutracker… " + ((System.currentTimeMillis() - startedAt) / 1000) + "с");
+            // Interactive Turnstile (what TVs get): the tap is synthetic either way — the OK
+            // key was only ever its trigger — so press it ourselves while the interstitial stays.
+            long now = System.currentTimeMillis();
+            if (challenged && now - startedAt > 4_000 && now - lastAutoTapAt > AUTO_TAP_EVERY_MS
+                    && autoTaps < AUTO_TAPS_MAX) {
+                lastAutoTapAt = now;
+                tapChallenge(true);
+            }
             handler.postDelayed(this, POLL_MS);
         }
     };
