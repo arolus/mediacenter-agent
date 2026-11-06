@@ -2209,24 +2209,24 @@ document.addEventListener("keydown", (e) => {
 
   if (state.screen === "categories") {
     const tiles = [...app.querySelectorAll(".cat-tile")];
-    const vlc = document.getElementById("cat-vlc");
     const idx = tiles.indexOf(cur);
-    if (cur === vlc) {
-      if (e.key === "ArrowDown") { e.preventDefault(); tiles[0]?.focus(); }
-      else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); installVLC(); }
-      return;
-    }
-    if (cur === document.getElementById("cat-settings")) {
-      if (e.key === "ArrowDown") { e.preventDefault(); tiles[0]?.focus(); }
-      else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openSettings(); }
+    // Buttons above the tiles, top to bottom: settings gear, "install VLC", "update the app".
+    // ↑/↓ walk this column; the update button was unreachable from the remote before.
+    const column = ["cat-settings", "cat-vlc", "cat-app"].map((id) => document.getElementById(id)).filter(Boolean);
+    const ci = column.indexOf(cur);
+    if (ci >= 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        const tile = tiles[Math.max(0, CATS.findIndex((c) => c.type === state.type))] || tiles[0];
+        (column[ci + 1] || tile)?.focus();
+      } else if (e.key === "ArrowUp") { e.preventDefault(); column[ci - 1]?.focus(); }
+      else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); cur.click(); }
       return;
     }
     if (e.key === "ArrowRight") { e.preventDefault(); tiles[Math.min(tiles.length - 1, idx + 1)]?.focus(); }
     else if (e.key === "ArrowLeft") { e.preventDefault(); tiles[Math.max(0, idx - 1)]?.focus(); }
-    // вверх — к предложению установить VLC, если оно есть, иначе к шестерёнке настроек
-    else if (e.key === "ArrowUp" && (vlc || document.getElementById("cat-settings"))) {
-      e.preventDefault(); (vlc || document.getElementById("cat-settings")).focus();
-    }
+    // вверх — к ближайшей кнопке над плитками (обновление, VLC, шестерёнка настроек)
+    else if (e.key === "ArrowUp" && column.length) { e.preventDefault(); column[column.length - 1].focus(); }
     else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); cur?.dataset?.type && enterGrid(cur.dataset.type); }
     return;
   }
