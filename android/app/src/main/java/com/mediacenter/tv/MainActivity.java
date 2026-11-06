@@ -142,7 +142,11 @@ public class MainActivity extends Activity {
         // каждом запуске выглядел как навязчивый запрос лишних прав. Поэтому спрашиваем
         // ровно один раз за установку; отказ запоминаем и больше не возвращаемся к вопросу.
         SharedPreferences prefs = getSharedPreferences("tv", MODE_PRIVATE);
-        if (dpm != null && !dpm.isAdminActive(admin) && !prefs.getBoolean("adminAsked", false)) {
+        // A TV never needs it — and on a friend's TV a "device administrator" prompt on first
+        // launch reads as something to be afraid of.
+        boolean isTv = (getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_TYPE_MASK)
+            == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION;
+        if (dpm != null && !isTv && !dpm.isAdminActive(admin) && !prefs.getBoolean("adminAsked", false)) {
             prefs.edit().putBoolean("adminAsked", true).apply();
             try {
                 Intent it = new Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN);
@@ -657,6 +661,70 @@ public class MainActivity extends Activity {
         public boolean checkPin(String entered) {
             String pin = getSharedPreferences("tv", MODE_PRIVATE).getString("kioskPin", "");
             return pin == null || pin.isEmpty() || pin.equals(entered);
+        }
+
+        // Install a file the agent downloaded: "update" (newer MediaCenter build from GitHub
+        // releases) or "vlc" (official VLC build). Only these two known files — never a path from
+        // the page. Returns "started", "permission" (user must allow installs from this app
+        // first; the settings screen is opened) or "none".
+        @JavascriptInterface
+        public String installApk(String kind) {
+            java.io.File f;
+            if ("update".equals(kind)) {
+                String p = com.mediacenter.tv.agent.AppUpdater.pendingApk(MainActivity.this);
+                f = p == null ? null : new java.io.File(p);
+            } else if ("vlc".equals(kind)) {
+                f = new java.io.File(new java.io.File(getFilesDir(), "update"), "vlc.apk");
+            } else f = null;
+            if (f == null || !f.isFile()) return "none";
+            if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
+                runOnUiThread(() -> {
+                    try {
+                        startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                            Uri.parse("package:" + getPackageName())));
+                    } catch (Exception e) {
+                        Toast.makeText(MainActivity.this, "Разрешите установку приложений для MediaCenter в настройках",
+                            Toast.LENGTH_LONG).show();
+                    }
+                });
+                return "permission";
+            }
+            com.mediacenter.tv.agent.InstallReceiver.install(MainActivity.this, f);
+            return "started";
+        }
+
+        // VLC: Play Store first (it keeps VLC updated); "download" = no store on this TV, the page
+        // then fetches the APK through the agent and calls installApk("vlc").
+        @JavascriptInterface
+        public String installVlc() {
+            Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=org.videolan.vlc"));
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            if (i.resolveActivity(getPackageManager()) == null) return "download";
+            runOnUiThread(() -> { try { startActivity(i); } catch (Exception ignored) {} });
+            return "market";
+        }
+
+        // First-run screen, "Start": a standalone node needs no server, so its config is made
+        // right here. The agent restarts with it and broadcasts AGENT_READY, which moves this
+        // activity from enroll.html to the TV page (that one shows the phone-setup QR).
+        @JavascriptInterface
+        public void startStandalone() {
+            try {
+                if (com.mediacenter.tv.agent.Config.load(MainActivity.this) != null) return;
+                byte[] rnd = new byte[3];
+                new java.security.SecureRandom().nextBytes(rnd);
+                StringBuilder id = new StringBuilder("tv-");
+                for (byte b : rnd) id.append(String.format("%02x", b));
+                org.json.JSONObject cfg = new org.json.JSONObject()
+                    .put("mode", "local")
+                    .put("device", new org.json.JSONObject().put("id", id.toString()).put("name", Build.MODEL))
+                    .put("mediaRoot", "/storage/emulated/0");
+                String b64 = android.util.Base64.encodeToString(
+                    cfg.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8), android.util.Base64.NO_WRAP);
+                com.mediacenter.tv.agent.AgentService.start(MainActivity.this, b64);
+            } catch (Exception e) {
+                android.util.Log.e("MCWeb", "startStandalone: " + e.getMessage());
+            }
         }
 
         // Аварийный выход в системные настройки — доступен и с экрана «Жду агента…»,

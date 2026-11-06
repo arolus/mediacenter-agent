@@ -15,9 +15,6 @@ import android.os.Build
 import android.os.FileObserver
 import android.os.IBinder
 import android.util.Base64
-import com.google.firebase.firestore.FieldValue
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.SetOptions
 import com.mediacenter.tv.MainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -26,6 +23,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 import java.io.File
 
@@ -34,11 +32,13 @@ class AgentService : Service() {
     private var http: HttpServer? = null
     private var torrents: Torrents? = null
     private var relay: RtRelay? = null
-    private var commandsSub: com.google.firebase.firestore.ListenerRegistration? = null
+    private var backend: LocalBackend? = null
+    private var sources: Sources? = null
+    private var commandsSub: ListenerRegistration? = null
     private val observers = mutableListOf<FileObserver>()
     private var scanJob: Job? = null
     private lateinit var config: Config
-    private lateinit var db: FirebaseFirestore
+    private lateinit var db: Db
 
     companion object {
         const val CHANNEL = "agent"
@@ -106,7 +106,7 @@ class AgentService : Service() {
         config = cfg
         Storage.ensureDirs(this)
         try {
-            db = Fire.init(this, config)
+            db = if (config.isLocal) LocalDb.get(this) else FireDb(Fire.init(this, config))
         } catch (e: Exception) {
             Log.e("firebase: ${e.message}")
             notify("Firebase: ${e.message}")
@@ -127,10 +127,14 @@ class AgentService : Service() {
             "disk" to disk(),
             "lastSeen" to FieldValue.serverTimestamp()
         )
-        val existing = runCatching { devRef.get().await() }.getOrNull()
-        if (existing == null || !existing.exists() || existing.getString("name").isNullOrEmpty())
+        // Offline the TV must still come up from the local cache: never block boot on the server.
+        // get() falls back to the cache; if even that fails, leave the name alone (it may have been
+        // renamed on the dashboard), and the registration write is queued until the network is back.
+        val existing = withTimeoutOrNull(15_000) { runCatching { devRef.get().await() }.getOrNull() }
+        if (existing != null && (!existing.exists() || existing.getString("name").isNullOrEmpty()))
             base["name"] = config.deviceName
-        devRef.set(base, SetOptions.merge()).await()
+        if (!devRef.set(base, SetOptions.merge()).settle())
+            Log.e("device: server unreachable — starting offline, registration will sync later")
         Log.i("device registered: ${config.deviceName} (${config.deviceId})")
 
         http = HttpServer(this, db, config, scope,
@@ -141,7 +145,8 @@ class AgentService : Service() {
         AdbPort.start(this, scope)
         // Интерфейс приезжает сам, без переустановки APK: скачали новую версию — перезагрузили
         // страницы на ноде.
-        WebUpdater.start(this, scope) {
+        if (!config.webUpdate) WebUpdater.dir(this).deleteRecursively()
+        else WebUpdater.start(this, scope) {
             http?.reloadClients()
             // Плюс широковещательный сигнал активности: SSE спит, когда вкладка в фоне, и
             // старые страницы про команду «reload» ещё не знают.
@@ -153,6 +158,13 @@ class AgentService : Service() {
         // страницу, иначе после обновления APK телевизор крутил бы старый интерфейс.
         sendBroadcast(Intent("com.mediacenter.tv.AGENT_READY").setPackage(packageName))
 
+        if (db.isLocal) {
+            sources = Sources(this, scope).also { it.start() }
+            backend = LocalBackend(this, db, config, scope).also { it.start() }
+        }
+        // Self-update from GitHub releases in both modes: nodes away from home have no adb either.
+        AppUpdater.start(this, scope)
+        KeyServiceGuard.restore(this)
         torrents = Torrents(this, db, config, scope).also { it.start() }
         relay = RtRelay(this, db, config, scope).also { it.start() }
         commandsSub = Commands.watch(this, db, config, scope) { /* library listener refreshes UI */ }
@@ -163,8 +175,9 @@ class AgentService : Service() {
         notify("Нода ${config.deviceName} работает")
     }
 
+    // "4.0 (121)": the build number is what tells nodes apart after self-updates.
     private fun appVersion(): String = try {
-        packageManager.getPackageInfo(packageName, 0).versionName ?: "app"
+        "${packageManager.getPackageInfo(packageName, 0).versionName ?: "app"} (${AppUpdater.installedCode(this)})"
     } catch (_: Exception) { "app" }
 
     // Место — по РЕАЛЬНО выбранным носителям (медиатека на флешке), а не по mediaRoot из
@@ -185,16 +198,18 @@ class AgentService : Service() {
         }
     } catch (_: Exception) { null }
 
-    private fun heartbeat(devRef: com.google.firebase.firestore.DocumentReference) {
+    private fun heartbeat(devRef: DocumentReference) {
         scope.launch {
             while (true) {
                 try {
-                    devRef.set(mapOf(
+                    val ok = devRef.set(mapOf(
                         "online" to true, "lanIp" to lanIp(), "disk" to disk(),
                         // Порт беспроводной отладки меняется после каждой перезагрузки, и его
                         // приходилось диктовать руками. Пусть нода сама его сообщает.
                         "adbPort" to AdbPort.port,
-                        "lastSeen" to FieldValue.serverTimestamp()), SetOptions.merge()).await()
+                        "lastSeen" to FieldValue.serverTimestamp()), SetOptions.merge()).settle(20_000)
+                    // Offline the write only queues; report the cloud icon honestly.
+                    if (!ok) throw Exception("server did not confirm in 20 s (offline?)")
                     http?.firebaseOk = true
                     http?.lastFirebaseOk = System.currentTimeMillis()
                 } catch (e: Exception) {
@@ -319,6 +334,8 @@ class AgentService : Service() {
         observers.clear()
         commandsSub?.remove(); commandsSub = null
         relay?.stop(); relay = null
+        backend?.stop(); backend = null
+        sources?.stop(); sources = null
         torrents?.stop(); torrents = null
         http?.stopAll(); http = null
     }
@@ -357,6 +374,8 @@ class AgentService : Service() {
         observers.forEach { it.stopWatching() }
         commandsSub?.remove()
         relay?.stop()
+        backend?.stop()
+        sources?.stop()
         torrents?.stop()
         http?.stopAll()
         runCatching {
@@ -372,7 +391,8 @@ class AgentService : Service() {
 
 class BootReceiver : android.content.BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
-        if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
+        // After a self-update the new build must come up on its own — nobody is there with adb.
+        if (intent.action == Intent.ACTION_BOOT_COMPLETED || intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
             Log.i("boot: starting agent")
             AgentService.start(ctx)
         }

@@ -18,10 +18,10 @@ import android.webkit.CookieManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
 
-class HeadlessClearance(private val ctx: Context) {
+class HeadlessClearance(private val ctx: Context, private val probeUrl: String = RtRelay.DEFAULT_PROBE) {
+    private val origin = RtRelay.originOf(probeUrl)
+
     companion object {
-        private const val ORIGIN = "https://rutracker.org"
-        private const val PROBE_URL = "$ORIGIN/forum/tracker.php"
         private const val POLL_MS = 1500L
         private const val AUTO_TAPS_MAX = 8
         private const val AUTO_TAP_EVERY_MS = 6_000L
@@ -64,8 +64,8 @@ class HeadlessClearance(private val ctx: Context) {
                 cm.setAcceptThirdPartyCookies(w, true)
                 if (fresh) cm.removeAllCookies(null)
                 w.webViewClient = WebViewClient()
-                w.loadUrl(PROBE_URL)
-                Log.i("rt: headless WebView загрузил $PROBE_URL")
+                w.loadUrl(probeUrl)
+                Log.i("rt: headless WebView загрузил $probeUrl")
 
                 val startedAt = SystemClock.elapsedRealtime()
                 var taps = 0
@@ -74,7 +74,7 @@ class HeadlessClearance(private val ctx: Context) {
                     override fun run() {
                         val v = web ?: return
                         cm.flush()
-                        val cookie = cm.getCookie(ORIGIN)
+                        val cookie = cm.getCookie(origin)
                         val title = v.title
                         val challenged = title?.contains("just a moment", ignoreCase = true) == true
                         if (cookie != null && cookie.contains("cf_clearance") && !challenged) {

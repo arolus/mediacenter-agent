@@ -5,9 +5,6 @@
 package com.mediacenter.tv.agent
 
 import android.content.Context
-import com.google.firebase.firestore.FieldValue
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.SetOptions
 import java.io.File
 import java.security.MessageDigest
 
@@ -62,7 +59,7 @@ object Library {
         @Volatile var finishedAt = 0L
     }
 
-    suspend fun sync(ctx: Context, db: FirebaseFirestore, config: Config): Int {
+    suspend fun sync(ctx: Context, db: Db, config: Config): Int {
         // Медиатека ноды в общей памяти, а доступ «Все файлы» ещё не выдан: папки прочитаются
         // как пустые, и синхронизация СТЁРЛА БЫ всю библиотеку из Firestore (сотни записей
         // вместе с распознаванием). Молча ждём разрешения — приложение его запрашивает.
@@ -75,6 +72,10 @@ object Library {
         libCol.get().await().documents.forEach { existing[it.id] = it.data ?: emptyMap() }
         val seen = HashSet<String>()
         var changed = 0
+        // Offline every write would wait for a server that never answers. After the first
+        // unconfirmed one stop waiting: the rest go to the local cache and sync later.
+        var queued = false
+        suspend fun write(op: Op<Unit>) { if (!queued && !op.settle()) queued = true }
 
         // Медиатека может лежать на нескольких носителях сразу (встроенная память + флешки):
         // сканируем все выбранные, тип по-прежнему определяется папкой.
@@ -116,7 +117,7 @@ object Library {
                     if ((prev["sizeBytes"] as? Number)?.toLong() != f.file.length()) patch["sizeBytes"] = f.file.length()
                     if (prev["originalName"] == null) patch["originalName"] = f.file.name
                     if (prev["addedAt"] == null) patch["addedAt"] = f.file.lastModified()
-                    if (patch.isNotEmpty()) libCol.document(id).set(patch, SetOptions.merge()).await()
+                    if (patch.isNotEmpty()) write(libCol.document(id).set(patch, SetOptions.merge()))
                     continue
                 }
 
@@ -166,7 +167,7 @@ object Library {
                 docData["addedAt"] = (prev?.get("addedAt") as? Number)?.toLong() ?: f.file.lastModified()
                 docData["originalName"] = prev?.get("originalName") ?: f.file.name
                 docData["updatedAt"] = FieldValue.serverTimestamp()
-                libCol.document(id).set(docData).await()
+                write(libCol.document(id).set(docData))
                 changed++
                 Log.i("library: + $type | ${seriesDir?.plus("/") ?: ""}${f.file.name}")
             }
@@ -186,14 +187,14 @@ object Library {
         for ((id, prev) in existing) {
             if (id in seen) {
                 if (prev["offline"] == true)
-                    libCol.document(id).set(mapOf("offline" to false), SetOptions.merge()).await()
+                    write(libCol.document(id).set(mapOf("offline" to false), SetOptions.merge()))
                 continue
             }
             val path = prev["filePath"] as? String ?: ""
             val here = mounted.any { path.startsWith(it) }
-            if (here) { libCol.document(id).delete().await(); changed++ }          // файла правда нет
+            if (here) { write(libCol.document(id).delete()); changed++ }          // файла правда нет
             else if (prev["offline"] != true) {                                    // носитель вынут
-                libCol.document(id).set(mapOf("offline" to true), SetOptions.merge()).await()
+                write(libCol.document(id).set(mapOf("offline" to true), SetOptions.merge()))
                 changed++
             }
         }
@@ -201,7 +202,7 @@ object Library {
     }
 
     // After a torrent download / P2P transfer lands a file on disk.
-    suspend fun addFile(ctx: Context, db: FirebaseFirestore, config: Config,
+    suspend fun addFile(ctx: Context, db: Db, config: Config,
                         filePath: String, meta: Map<String, Any?>) {
         val libCol = db.collection("devices").document(config.deviceId).collection("library")
         val f = File(filePath)
@@ -220,6 +221,6 @@ object Library {
         data["originalName"] = f.name
         data["addedAt"] = System.currentTimeMillis()
         data["updatedAt"] = FieldValue.serverTimestamp()
-        libCol.document(libIdFor(filePath)).set(data).await()
+        libCol.document(libIdFor(filePath)).set(data).settle()
     }
 }

@@ -3,21 +3,17 @@
 package com.mediacenter.tv.agent
 
 import android.content.Context
-import com.google.firebase.firestore.FieldValue
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.ListenerRegistration
-import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import java.io.File
 
 object Commands {
-    fun watch(ctx: Context, db: FirebaseFirestore, config: Config, scope: CoroutineScope,
+    fun watch(ctx: Context, db: Db, config: Config, scope: CoroutineScope,
               onLibraryChanged: () -> Unit): ListenerRegistration {
         val col = db.collection("devices").document(config.deviceId).collection("commands")
         return col.whereEqualTo("status", "pending").addSnapshotListener { snap, _ ->
             snap?.documentChanges?.forEach { ch ->
-                if (ch.type != com.google.firebase.firestore.DocumentChange.Type.ADDED) return@forEach
+                if (ch.type != DocumentChange.Type.ADDED) return@forEach
                 val id = ch.document.id
                 val cmd = ch.document.data
                 scope.launch {
@@ -97,7 +93,7 @@ object Normalize {
     private fun sanitize(s: String) =
         s.replace(Regex("[\\\\/:*?\"<>|]+"), " ").replace(Regex("\\s+"), " ").trim()
 
-    suspend fun run(ctx: Context, db: FirebaseFirestore, config: Config): Int {
+    suspend fun run(ctx: Context, db: Db, config: Config): Int {
         // «Упорядочить» раскладывает по носителю, где файл уже лежит: перекладывать
         // фильмы между флешками без спроса — не наше дело.
         val dirs = Storage.scanDirs(ctx).mapValues { it.value.first() }

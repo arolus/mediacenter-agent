@@ -3,14 +3,12 @@
 //  - downloads/  : rutracker downloads (server supplies the .torrent; trackers come from it).
 // Privacy rules mirror the Node agent: transfers never announce outside the LAN; rutracker
 // downloads cap upload at 64 KB/s and the torrent is destroyed the moment it completes.
+// Standalone mode is the exception the user opts into: a finished download keeps seeding until
+// the ratio / days from the phone setup page are reached, under a session-wide upload cap.
 package com.mediacenter.tv.agent
 
 import android.content.Context
 import android.util.Base64
-import com.google.firebase.firestore.DocumentChange
-import com.google.firebase.firestore.FieldValue
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.ListenerRegistration
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import org.libtorrent4j.AlertListener
@@ -25,10 +23,11 @@ import org.libtorrent4j.alerts.AlertType
 import org.libtorrent4j.alerts.TorrentFinishedAlert
 import org.libtorrent4j.swig.settings_pack
 import java.io.File
+import org.json.JSONObject
 
 class Torrents(
     private val ctx: Context,
-    private val db: FirebaseFirestore,
+    private val db: Db,
     private val config: Config,
     private val scope: CoroutineScope
 ) {
@@ -37,6 +36,14 @@ class Torrents(
     private val jobs = HashMap<String, Job>()
     private val lastWrite = HashMap<String, Long>()
     private var subs = mutableListOf<ListenerRegistration>()
+    // Standalone seeding after completion: infoHash -> entry. Kept apart from `jobs`, which
+    // means "busy" (a days-long seed must not hold library scans back).
+    private val seeding = java.util.concurrent.ConcurrentHashMap<String, JSONObject>()
+    private val seedFile = File(ctx.filesDir, "seeding.json")
+    private var appliedUpKbps = -1
+
+    private fun seedPolicy(): JSONObject? =
+        if (db.isLocal) LocalSettings.seed(ctx).takeIf { it.optDouble("ratio", 0.0) > 0 } else null
 
     data class Job(
         val kind: String,           // "seed" | "transfer" | "download"
@@ -50,7 +57,9 @@ class Torrents(
     fun start() {
         val sp = SettingsPack().listenInterfaces("0.0.0.0:${config.torrentPort}")
         // Privacy: no DHT (transfers must never be announced outside the LAN); local discovery on.
-        sp.setEnableDht(false)
+        // Standalone has no LAN transfers to keep private, and DHT finds peers even where the
+        // tracker's announce hosts are blocked by the ISP (only search/.torrent then need a VPN).
+        sp.setEnableDht(db.isLocal)
         sp.setEnableLsd(true)
         // Скорость: качаем от ОДНОГО пира в своей же сети, поэтому важны не лимиты, а окно
         // запросов; плюс снимаем шифрование протокола — на 32-битном ARM телевизора оно
@@ -66,8 +75,8 @@ class Torrents(
         // Firebase задыхался, а запись на его USB (потолок 2,4 МБ/с) от параллельности только
         // проигрывает — последовательная строго быстрее.
         swig.set_int(org.libtorrent4j.swig.settings_pack.int_types.active_downloads.swigValue(), 2)
-        swig.set_int(org.libtorrent4j.swig.settings_pack.int_types.active_seeds.swigValue(), 2)
-        swig.set_int(org.libtorrent4j.swig.settings_pack.int_types.active_limit.swigValue(), 5)
+        swig.set_int(org.libtorrent4j.swig.settings_pack.int_types.active_seeds.swigValue(), if (db.isLocal) 4 else 2)
+        swig.set_int(org.libtorrent4j.swig.settings_pack.int_types.active_limit.swigValue(), if (db.isLocal) 8 else 5)
         swig.set_int(org.libtorrent4j.swig.settings_pack.int_types.whole_pieces_threshold.swigValue(), 20)
         swig.set_int(org.libtorrent4j.swig.settings_pack.int_types.request_queue_time.swigValue(), 10)
         swig.set_int(org.libtorrent4j.swig.settings_pack.int_types.send_buffer_watermark.swigValue(), 6 * 1024 * 1024)
@@ -88,6 +97,7 @@ class Torrents(
             }
         })
         session.start(SessionParams(sp))
+        if (db.isLocal) { applyUploadCap(); restoreSeeding() }
         watchdog()
         watchTransfers()
         watchDownloads()
@@ -107,6 +117,7 @@ class Torrents(
                     val h = try { session.find(org.libtorrent4j.Sha1Hash.parseHex(hash)) } catch (_: Exception) { null }
                     if (h != null && h.isValid && h.status().isFinished) finished(h)
                 }
+                if (db.isLocal) try { applyUploadCap(); checkSeeding() } catch (e: Exception) { Log.e("seed: ${e.message}") }
             }
         }
     }
@@ -175,7 +186,8 @@ class Torrents(
         val infoHash = hash
         val col = if (job.kind == "download") "downloads" else "transfers"
         jobs.remove(hash)
-        // stop seeding IMMEDIATELY (public tracker already announced us)
+        // stop seeding IMMEDIATELY (public tracker already announced us). In standalone mode the
+        // user may want to seed: that restarts from the file's final place (see startSeeding).
         try { session.remove(h) } catch (_: Exception) {}
         scope.launch {
             // Качали в буфер — перекладываем на носитель. Пока идёт копирование, задача
@@ -203,7 +215,7 @@ class Torrents(
                 if (job.kind == "download") {
                     val t = job.meta
                     val tid = t["tid"] as? String
-                    val rutrackerUrl = tid?.let { "https://rutracker.org/forum/viewtopic.php?t=$it" }
+                    val rutrackerUrl = if (db.isLocal) null else tid?.let { "https://rutracker.org/forum/viewtopic.php?t=$it" }
                     Library.addFile(ctx, db, config, dest.path, mapOf(
                         "type" to (t["type"] ?: "movie"),
                         "title" to t["title"], "year" to t["year"],
@@ -218,6 +230,7 @@ class Torrents(
                                 "savedAt" to FieldValue.serverTimestamp())).await()
                     }
                     db.collection("downloads").document(job.docId).delete().await()
+                    (t["torrentFile"] as? String)?.let { tf -> if (seedPolicy() != null) startSeeding(tf, best, dest) }
                 } else {
                     val t = job.meta
                     Library.addFile(ctx, db, config, dest.path, mapOf(
@@ -243,6 +256,81 @@ class Torrents(
                 Log.i("torrent done: ${dest.name}")
             } catch (e: Exception) { Log.e("torrent finish: ${e.message}") }
         }
+    }
+
+    // ---- standalone seeding -------------------------------------------------------------------
+    // Re-adds the finished torrent pointing at the file where it ended up (after the staging move
+    // and flattening): only the main file is wanted, renamed to its final name, in seed mode —
+    // no multi-gigabyte hash check on a TV's USB stick, pieces are verified as they are served.
+    private fun startSeeding(tfB64: String, fileIndex: Int, dest: File) {
+        try {
+            val entry = JSONObject().put("tf", tfB64).put("index", fileIndex)
+                .put("dir", dest.parentFile!!.path).put("name", dest.name).put("size", dest.length())
+                .put("up", 0L).put("startedAt", System.currentTimeMillis())
+            val hash = addSeed(entry) ?: return
+            seeding[hash] = entry
+            saveSeeding()
+            Log.i("seed: раздаю ${dest.name}")
+        } catch (e: Exception) { Log.e("seed start: ${e.message}") }
+    }
+
+    private fun addSeed(e: JSONObject): String? {
+        val file = File(e.getString("dir"), e.getString("name"))
+        if (!file.isFile) return null
+        val ti = TorrentInfo(Base64.decode(e.getString("tf"), Base64.DEFAULT))
+        val idx = e.getInt("index")
+        ti.renameFile(idx, e.getString("name"))
+        val prios = Array(ti.numFiles()) { if (it == idx) org.libtorrent4j.Priority.DEFAULT else org.libtorrent4j.Priority.IGNORE }
+        session.download(ti, file.parentFile, null, prios, null, org.libtorrent4j.TorrentFlags.SEED_MODE)
+        return ti.infoHash().toHex()
+    }
+
+    private fun restoreSeeding() {
+        val arr = try { org.json.JSONArray(seedFile.readText()) } catch (_: Exception) { return }
+        for (i in 0 until arr.length()) {
+            val e = arr.optJSONObject(i) ?: continue
+            e.put("up", e.optLong("total", e.optLong("up")))
+            try { addSeed(e)?.let { seeding[it] = e } } catch (ex: Exception) { Log.e("seed restore: ${ex.message}") }
+        }
+        if (seeding.isNotEmpty()) Log.i("seed: продолжаю раздачу ${seeding.size}")
+        saveSeeding()
+    }
+
+    private fun saveSeeding() {
+        try { seedFile.writeText(org.json.JSONArray(seeding.values.toList()).toString()) } catch (_: Exception) {}
+    }
+
+    // Uploaded total = what earlier runs gave ("up", saved) + this handle's own counter, which
+    // libtorrent restarts from zero on every re-add.
+    private fun checkSeeding() {
+        val policy = seedPolicy()
+        for ((hash, e) in seeding.toList()) {
+            val h = try { session.find(org.libtorrent4j.Sha1Hash.parseHex(hash)) } catch (_: Exception) { null }
+            val file = File(e.getString("dir"), e.getString("name"))
+            val total = e.optLong("up") + (if (h != null && h.isValid) h.status().totalPayloadUpload() else 0L)
+            e.put("total", total)
+            val size = e.optLong("size", 1).coerceAtLeast(1)
+            val days = policy?.optInt("days", 7) ?: 0
+            val done = policy == null || !file.isFile ||
+                total.toDouble() / size >= policy.optDouble("ratio", 1.0) ||
+                System.currentTimeMillis() - e.optLong("startedAt") > days * 86_400_000L
+            if (done) {
+                try { if (h != null && h.isValid) session.remove(h) } catch (_: Exception) {}
+                seeding.remove(hash)
+                Log.i("seed: раздача ${e.getString("name")} завершена (отдано ${total / 1048576} МБ)")
+            }
+        }
+        saveSeeding()
+    }
+
+    private fun applyUploadCap() {
+        val kbps = if (seedPolicy() != null) LocalSettings.seed(ctx).optInt("uploadKbps", 2048) else 0
+        if (kbps == appliedUpKbps) return
+        appliedUpKbps = kbps
+        val sp = SettingsPack()
+        sp.uploadRateLimit(if (kbps > 0) kbps * 1024 else 0)
+        session.applySettings(sp)
+        Log.i("seed: лимит отдачи ${if (kbps > 0) "$kbps КБ/с" else "без ограничений"}")
     }
 
     // Задачу убрали из Firestore (кнопка «Остановить» в дашборде) — прекращаем и раздачу,
@@ -442,8 +530,9 @@ class Torrents(
             jobs[hash] = Job("download", id, t, dir, if (stage != null) target else null)
             session.download(ti, dir)
             session.find(ti.infoHash())?.let { h ->
-                // never become a meaningful seeder on a public tracker
-                h.setUploadLimit(64 * 1024)
+                // never become a meaningful seeder on a public tracker (unless the standalone user
+                // chose to seed — then the session-wide cap from the setup page applies)
+                if (seedPolicy() == null) h.setUploadLimit(64 * 1024)
                 h.setFlags(org.libtorrent4j.TorrentFlags.SEQUENTIAL_DOWNLOAD)
             }
             db.collection("downloads").document(id).update("status", "downloading")

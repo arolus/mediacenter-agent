@@ -1,8 +1,10 @@
 <!DOCTYPE html>
-<!-- First-run screen: the node has no config yet. Shows a QR that opens the dashboard with
-     an enrollment token; the owner approves there and the agent picks the config up from
-     the `enroll` Cloud Function. Opened by MainActivity as
-     file:///android_asset/tv/enroll.html#<token>|<device model> -->
+<!-- First-run screen: the node has no config yet. Two ways in:
+     - standalone (default): MCApp.startStandalone() writes a local config, the agent boots without
+       a server and the TV page then shows the phone-setup QR;
+     - server: a QR that opens the dashboard with an enrollment token; the owner approves there
+       and the agent picks the config up from the `enroll` Cloud Function.
+     Opened by MainActivity as file:///android_asset/tv/enroll.html#<token>|<device model> -->
 <html lang="ru">
 <head>
 <meta charset="utf-8" />
@@ -22,10 +24,28 @@
   .dots::after { content: ""; animation: d 1.5s steps(4) infinite; }
   @keyframes d { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
   .ok { color: #34d399; font-weight: 700; font-size: clamp(16px, 3vh, 24px); }
+  .btn { display: block; width: min(560px, 80vw); margin: 10px auto 0; padding: 18px 24px;
+    border-radius: 18px; border: 2px solid #3f3f46; background: #18181b; color: #e4e4e7;
+    font: inherit; font-size: clamp(16px, 2.8vh, 22px); font-weight: 700; outline: none;
+    transition: transform .12s, border-color .12s, box-shadow .12s; }
+  .btn small { display: block; margin-top: 4px; font-weight: 400; color: #a1a1aa;
+    font-size: clamp(12px, 2vh, 15px); }
+  .btn.primary { background: #4c1d95; border-color: #7c3aed; }
+  .btn:focus { transform: scale(1.03); border-color: #c4b5fd; box-shadow: 0 0 0 6px rgba(139, 92, 246, .35); }
+  #server { display: none; }
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="wrap" id="choose">
+  <h1>MediaCenter</h1>
+  <p>Медиатека для этого телевизора. Как будем работать?</p>
+  <button class="btn primary" id="go-local" autofocus>Начать
+    <small>Всё хранится на телевизоре, настройка — с телефона</small></button>
+  <button class="btn" id="go-server">Подключить к серверу MediaCenter
+    <small>Если у вас уже есть свой сервер и панель управления</small></button>
+  <p id="local-status" style="margin-top:18px"></p>
+</div>
+<div class="wrap" id="server">
   <h1>Добавить это устройство в MediaCenter</h1>
   <p>Наведи камеру телефона на код — откроется страница подтверждения.</p>
   <div id="qr"></div>
@@ -47,6 +67,32 @@
   document.getElementById("qr").innerHTML = q.createImgTag(8, 0);
   // The agent polls the server; once the config lands it broadcasts and MainActivity
   // reloads into the normal TV page. This handler is just in case the page outlives that.
+  var chooser = document.getElementById("choose");
+  var server = document.getElementById("server");
+  var local = document.getElementById("go-local");
+  var srv = document.getElementById("go-server");
+  local.focus();
+  local.onclick = function () {
+    if (!window.MCApp || !MCApp.startStandalone) return;
+    local.disabled = srv.disabled = true;
+    var st = document.getElementById("local-status");
+    st.className = "dots"; st.textContent = "Запускаюсь";
+    MCApp.startStandalone();
+  };
+  srv.onclick = function () { chooser.style.display = "none"; server.style.display = "flex"; };
+  // Remote control: up/down move between the two buttons, Back returns from the QR.
+  document.addEventListener("keydown", function (e) {
+    if (server.style.display === "flex") return;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      (document.activeElement === local ? srv : local).focus();
+    }
+  });
+  window.mcHandleBack = function () {
+    if (server.style.display !== "flex") return false;
+    server.style.display = "none"; chooser.style.display = "flex"; srv.focus();
+    return true;
+  };
   window.mcEnrolled = function () {
     document.getElementById("status").className = "ok";
     document.getElementById("status").textContent = "Устройство добавлено! Запускаюсь…";

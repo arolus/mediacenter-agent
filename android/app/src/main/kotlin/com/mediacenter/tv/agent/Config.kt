@@ -7,6 +7,11 @@ import org.json.JSONObject
 import java.io.File
 
 class Config(val json: JSONObject) {
+    // "local" = standalone (no server, data on the device); anything else = cloud node.
+    val mode: String get() = json.optString("mode", "cloud")
+    val isLocal: Boolean get() = mode == "local"
+    // false = always serve the web UI built into the APK (testing an unreleased build).
+    val webUpdate: Boolean get() = json.optBoolean("webUpdate", true)
     val deviceId: String get() = json.optJSONObject("device")?.optString("id") ?: "node"
     val deviceName: String get() = json.optJSONObject("device")?.optString("name") ?: deviceId
     val authEmail: String get() = json.optJSONObject("auth")?.optString("email") ?: ""

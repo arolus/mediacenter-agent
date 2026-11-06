@@ -46,3 +46,30 @@ fun httpFetch(
     c.disconnect()
     return FetchResult(status, hdrs, bytes)
 }
+
+// Large files (APKs) straight to disk instead of into memory. Follows redirects by hand:
+// HttpURLConnection will not cross between http and https on its own, and mirrors do.
+fun httpDownload(url: String, out: java.io.File, timeoutMs: Int = 60000) {
+    var u = url
+    repeat(6) {
+        val c = URL(u).openConnection() as HttpURLConnection
+        c.instanceFollowRedirects = false
+        c.connectTimeout = timeoutMs
+        c.readTimeout = timeoutMs
+        try {
+            val st = c.responseCode
+            if (st in 300..399) {
+                u = URL(URL(u), c.getHeaderField("Location") ?: throw java.io.IOException("redirect without Location")).toString()
+                return@repeat
+            }
+            if (st != 200) throw java.io.IOException("HTTP $st")
+            val tmp = java.io.File(out.path + ".part")
+            c.inputStream.use { input -> tmp.outputStream().use { input.copyTo(it, 256 * 1024) } }
+            val len = c.contentLengthLong
+            if (len > 0 && tmp.length() != len) { tmp.delete(); throw java.io.IOException("скачано не целиком") }
+            if (!tmp.renameTo(out)) throw java.io.IOException("не удалось сохранить файл")
+            return
+        } finally { c.disconnect() }
+    }
+    throw java.io.IOException("слишком много перенаправлений")
+}

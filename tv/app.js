@@ -225,11 +225,95 @@ const spinner = (label) => `
     </svg>
     <div class="text-lg text-zinc-400">${label}</div>
   </div>`;
+/* ---------- Standalone mode: phone setup QR ----------
+   A standalone node (no server) is configured from a phone: the TV shows a QR with its own LAN
+   address and a setup token, the phone page (tv/setup.html) saves the keys on the TV. Shown full
+   screen until the required TMDb key is set, and from Settings later on. Cloud nodes and older
+   agents (no /api/setup-state) never see any of this. */
+let setupState = null;
+async function refreshSetupState() {
+  try {
+    const r = await fetch("/api/setup-state", { cache: "no-store" });
+    setupState = r.ok ? await r.json() : null;
+  } catch (_) { setupState = null; }
+  return setupState;
+}
+const isStandalone = () => !!(setupState && setupState.mode === "local");
+
+function loadQrLib() {
+  if (window.qrcode) return Promise.resolve();
+  return new Promise((ok, fail) => {
+    const s = document.createElement("script");
+    s.src = "/qrcode.js"; s.onload = ok; s.onerror = fail;
+    document.head.appendChild(s);
+  });
+}
+
+async function showSetupQr(firstRun) {
+  if (document.getElementById("setup-box")) return;
+  await refreshSetupState();
+  if (!setupState || !setupState.setupUrl) return;
+  try { await loadQrLib(); } catch (_) {}
+  const box = document.createElement("div");
+  box.id = "setup-box";
+  box.dataset.firstRun = firstRun ? "1" : "";
+  box.className = "fixed top-0 right-0 bottom-0 left-0 z-[60] flex items-center justify-center bg-zinc-950 px-12 py-8";
+  let qr = "";
+  try {
+    const q = qrcode(0, "M"); q.addData(setupState.setupUrl); q.make();
+    qr = q.createImgTag(8, 0);
+  } catch (_) {}
+  box.innerHTML = `
+    <div class="flex items-center">
+      <div id="setup-qr" class="flex-none rounded-2xl bg-white p-4 shadow-[0_0_60px_rgba(139,92,246,0.35)]">${qr}</div>
+      <div class="ml-12 max-w-xl">
+        <div class="text-[clamp(22px,calc(var(--uivh)*4.2),36px)] font-extrabold">${firstRun ? "Настройте с телефона" : "Настройка с телефона"}</div>
+        <ol class="mt-5 list-decimal space-y-2 pl-6 text-[clamp(15px,calc(var(--uivh)*2.5),20px)] text-zinc-300">
+          <li>Подключите телефон к той же сети Wi-Fi, что и телевизор.</li>
+          <li>Наведите камеру телефона на код и откройте ссылку.</li>
+          <li>${firstRun ? "Вставьте ключ TMDb — там же пошаговая инструкция, как его получить." : "Поменяйте ключи, раздачу или детский режим."}</li>
+        </ol>
+        <div class="mt-5 break-all text-sm text-zinc-500">${esc(setupState.setupUrl.replace(/\?t=.*/, ""))}</div>
+        ${firstRun
+          ? '<div id="setup-wait" class="mt-6 text-lg text-violet-300">Жду настройки…</div>'
+          : `<button id="setup-close" tabindex="0" class="mt-8 flex cursor-pointer items-center rounded-2xl border border-white/15 bg-white/5 px-5 py-3 text-lg font-semibold text-zinc-200 outline-none transition focus:scale-[1.03] focus:border-violet-400 focus:ring-4 focus:ring-violet-500/40">${ICONS.back("mr-2 h-5 w-5")} Назад</button>`}
+      </div>
+    </div>`;
+  document.body.appendChild(box);
+  const img = box.querySelector("#setup-qr img");
+  if (img) { img.style.display = "block"; img.style.width = "auto"; img.style.height = "clamp(200px, calc(var(--uivh) * 42), 360px)"; }
+  document.getElementById("setup-close")?.addEventListener("click", closeSetupQr);
+  document.getElementById("setup-close")?.focus();
+  if (firstRun) {
+    // The phone saves the key on the TV; as soon as it is there, get out of the way.
+    const t = setInterval(async () => {
+      if (!document.getElementById("setup-box")) { clearInterval(t); return; }
+      await refreshSetupState();
+      if (setupState && setupState.configured) {
+        clearInterval(t);
+        box.remove();
+        await refreshDeviceName();   // the phone page usually renames the TV in the same go
+        await refreshKiosk();
+        if (await reloadLibrary()) rerenderKeepingFocus(); else render();
+      }
+    }, 3000);
+  }
+}
+
+function closeSetupQr() {
+  const box = document.getElementById("setup-box");
+  if (!box || box.dataset.firstRun) return false;
+  box.remove();
+  openSettings();
+  return true;
+}
+
 async function load() {
   // Просим агента закрепить системную альбомную ориентацию (если у Termux есть права).
   try { fetch("/api/ensure-landscape").catch(() => {}); } catch (_) {}
   await refreshDeviceName();
   await refreshKiosk();
+  if ((await refreshSetupState()) && isStandalone() && !setupState.configured) showSetupQr(true);
   try { const st = await (await fetch("/api/player-status")).json(); playerMissing = st && st.installed === false; } catch (_) {}
   // Наше TV-приложение: предлагаем поставить (в браузере) или обновить (везде)
   try {
@@ -647,6 +731,17 @@ function renderCategories() {
 }
 
 async function installVLC() {
+  // In the app: Play Store if the TV has one, otherwise the official APK via our installer.
+  if (IN_APP && window.MCApp && MCApp.installVlc) {
+    if (MCApp.installVlc() === "market") return;
+    showOverlay("Скачиваю VLC… это минута-две");
+    try {
+      const r = await (await fetch("/api/install-player", { cache: "no-store" })).json();
+      if (!r.ready) throw new Error(r.error || "не удалось");
+      installAnswer(MCApp.installApk("vlc"), "VLC");
+    } catch (e) { showOverlay("⚠️ " + e.message); setTimeout(hideOverlay, 5000); }
+    return;
+  }
   showOverlay("Скачиваю VLC…");
   try {
     const r = await (await fetch("/api/install-player")).json();
@@ -659,7 +754,16 @@ async function installVLC() {
 
 // Установка/обновление нашего WebView-приложения: агент кладёт APK из своего репо
 // в Загрузки и открывает системный установщик (подтвердить на телефоне).
+// What the installer bridge said, in words for the remote-control user.
+function installAnswer(res, what) {
+  if (res === "started") showOverlay(`Подтвердите установку ${what} на экране`);
+  else if (res === "permission") showOverlay("Разрешите установку приложений для MediaCenter и нажмите ещё раз");
+  else showOverlay("⚠️ Файл установки не найден — попробуйте позже");
+  setTimeout(hideOverlay, 6000);
+}
+
 async function installApp() {
+  if (IN_APP && window.MCApp && MCApp.installApk) { installAnswer(MCApp.installApk("update"), "обновления"); return; }
   showOverlay("Готовлю APK…");
   try {
     const r = await (await fetch("/api/install-app")).json();
@@ -1936,6 +2040,7 @@ function exitApp() {
 window.mcHandleBack = () => {
   // Оверлеи — первыми, иначе Back уходил в историю ПОД ними: трейлер оставался играть
   // поверх уже сменившегося экрана, и выйти из него было нечем.
+  if (document.getElementById("setup-box")) { closeSetupQr(); return true; }
   if (document.getElementById("settings-box")) { closeSettings(); return true; }
   if (closeTrailerInline()) return true;
   if (document.getElementById("pin-pad")) { closePinPad(); return true; }
@@ -1967,6 +2072,14 @@ window.addEventListener("popstate", (e) => applyState(e.state || { screen: "cate
 /* ---------- Навигация пультом ---------- */
 document.addEventListener("keydown", (e) => {
   armOrientation(); // первая клавиша — момент для fullscreen + landscape-lock
+  // Phone-setup QR covers everything: keys must not reach the screen underneath. Only Enter
+  // on "Back" and Back itself do anything (first run has no way out until the key is set).
+  const setupBox = document.getElementById("setup-box");
+  if (setupBox) {
+    if (["Escape", "Backspace", "GoBack", "BrowserBack"].includes(e.key)) { e.preventDefault(); closeSetupQr(); return; }
+    if (e.key !== "Enter") { e.preventDefault(); document.getElementById("setup-close")?.focus(); }
+    return;
+  }
   // Трейлер поверх всего: любая «назад» закрывает его и возвращает в медиатеку
   // Экран настроек: ↑/↓ по носителям, OK — включить/выключить, ←/→ — лимит, Back — выход.
   const st = document.getElementById("settings-box");
@@ -1984,7 +2097,7 @@ document.addEventListener("keydown", (e) => {
     single("#st-limit");
     group(".st-mode");
     st.querySelectorAll(".st-dl-row").forEach((el) => rows.push([el]));
-    group("#st-files, #st-copy, #st-webupd, #st-usb");
+    group("#st-files, #st-setup, #st-copy, #st-webupd, #st-usb");
     single("#st-close");
     const ri = rows.findIndex((r) => r.includes(document.activeElement));
     const ci = ri >= 0 ? rows[ri].indexOf(document.activeElement) : 0;
@@ -2635,6 +2748,7 @@ function paintSettings() {
         только по разрешению: нажмите «Подключить USB» и выберите её в системном окне.</div>
       <div class="mt-3 flex space-x-3">
         ${IN_APP && storageState.needsAllFiles ? `<div id="st-files" tabindex="0" class="cursor-pointer rounded-2xl border border-amber-500/60 bg-amber-500/10 px-5 py-3 text-base font-semibold text-amber-200 outline-none transition focus:scale-[1.03] focus:border-amber-300 focus:ring-4 focus:ring-amber-500/25">Дать доступ к файлам…</div>` : ""}
+        ${isStandalone() ? `<div id="st-setup" tabindex="0" class="cursor-pointer rounded-2xl border border-violet-500/60 bg-violet-500/10 px-5 py-3 text-base font-semibold text-violet-100 outline-none transition focus:scale-[1.03] focus:border-violet-300 focus:ring-4 focus:ring-violet-500/25">Настройка с телефона…</div>` : ""}
         <div id="st-copy" tabindex="0" class="cursor-pointer rounded-2xl border border-zinc-800 bg-zinc-900/70 px-5 py-3 text-base font-semibold text-zinc-200 outline-none transition focus:scale-[1.03] focus:border-violet-400 focus:ring-4 focus:ring-violet-500/25">Копировать фильмы…</div>
         <div id="st-webupd" tabindex="0" class="cursor-pointer rounded-2xl border border-zinc-800 bg-zinc-900/70 px-5 py-3 text-base font-semibold text-zinc-200 outline-none transition focus:scale-[1.03] focus:border-violet-400 focus:ring-4 focus:ring-violet-500/25">Обновить интерфейс</div>
         ${IN_APP ? `<div id="st-usb" tabindex="0" class="cursor-pointer rounded-2xl border border-zinc-800 bg-zinc-900/70 px-5 py-3 text-base font-semibold text-zinc-200 outline-none transition focus:scale-[1.03] focus:border-violet-400 focus:ring-4 focus:ring-violet-500/25">Подключить USB…</div>` : ""}
@@ -2651,6 +2765,10 @@ function paintSettings() {
     else { showOverlay("Доступно только в приложении"); setTimeout(hideOverlay, 2000); }
   });
   document.getElementById("st-copy")?.addEventListener("click", openCopy);
+  document.getElementById("st-setup")?.addEventListener("click", () => {
+    document.getElementById("settings-box")?.remove();
+    showSetupQr(false);
+  });
   // Интерфейс агент обновляет сам раз в десять минут; кнопка — чтобы не ждать после выката.
   document.getElementById("st-webupd")?.addEventListener("click", async () => {
     showOverlay("Проверяю обновление…");

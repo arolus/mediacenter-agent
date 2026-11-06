@@ -13,10 +13,6 @@ import android.content.Context
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
-import com.google.firebase.firestore.FieldValue
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.ListenerRegistration
-import com.google.firebase.firestore.SetOptions
 import fi.iki.elonen.NanoHTTPD
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -30,7 +26,7 @@ import java.security.MessageDigest
 
 class HttpServer(
     private val ctx: Context,
-    private val db: FirebaseFirestore,
+    private val db: Db,
     private val config: Config,
     private val scope: CoroutineScope,
     private val onPlay: (item: JSONObject, url: String, pkg: String, subtitles: String?, fromStart: Boolean) -> Unit,
@@ -50,6 +46,7 @@ class HttpServer(
     @Volatile var firebaseOk: Boolean = false
 
     private val subs = mutableListOf<ListenerRegistration>()
+    private val setup = SetupApi(ctx, db, config)
     private val sseClients = java.util.Collections.synchronizedList(mutableListOf<PipedOutputStream>())
     private val libCache = File(ctx.filesDir, "library.json")
     private val kioskCache = File(ctx.filesDir, "kiosk.json")
@@ -199,6 +196,8 @@ class HttpServer(
                     else err("только с localhost", Response.Status.FORBIDDEN)
                 uri == "/api/kiosk-exit" -> kioskExit(session)
                 uri == "/api/rt-clearance" -> rtClearance(session)
+                uri == "/api/setup-state" -> json(setup.state(isLocal(session)))
+                uri.startsWith("/api/setup") -> setupApi(session, uri, q)
                 uri == "/api/play" -> play(q["id"], q["via"] == "app", q["from"] == "start")
                 uri == "/api/watched" -> setWatched(q["id"], q["set"] != "0")
                 uri == "/api/trailer" -> trailer(q["id"])
@@ -245,10 +244,18 @@ class HttpServer(
                 uri == "/api/player-status" -> json(JSONObject()
                     .put("installed", isPackageInstalled(config.playerPackage))
                     .put("package", config.playerPackage))
-                uri == "/api/install-player" -> err("VLC ставится вручную из магазина или по adb", Response.Status.NOT_IMPLEMENTED)
-                uri == "/api/app-status" -> json(JSONObject()
-                    .put("installed", true).put("apkAvailable", false)
-                    .put("versionName", appVersion()))
+                // Download the official VLC build; the page then asks the app to install it
+                // (MCApp.installApk("vlc")) — an installer prompt needs the foreground activity.
+                uri == "/api/install-player" -> try {
+                    val f = AppUpdater.downloadVlc(ctx)
+                    json(JSONObject().put("ready", true).put("sizeBytes", f.length()))
+                } catch (e: Exception) { err("VLC не скачался: ${e.message}", Response.Status.SERVICE_UNAVAILABLE) }
+                uri == "/api/app-status" -> {
+                    val pending = AppUpdater.pendingApk(ctx) != null
+                    json(JSONObject()
+                        .put("installed", true).put("apkAvailable", pending).put("updateAvailable", pending)
+                        .put("versionName", appVersion()))
+                }
                 uri == "/api/install-app" -> err("агент внутри приложения — отдельная установка не нужна", Response.Status.NOT_IMPLEMENTED)
                 uri == "/api/ensure-landscape" -> json(JSONObject().put("ok", false))
                 uri == "/api/mediainfo" -> mediaInfo(q["id"])
@@ -455,6 +462,27 @@ class HttpServer(
         } catch (e: Exception) { err(e.message ?: "bad json", Response.Status.BAD_REQUEST) }
     }
 
+    // Phone setup page (standalone mode). The token from the TV's QR is required for everything.
+    private fun setupApi(session: IHTTPSession, uri: String, q: Map<String, String>): Response {
+        if (!setup.authorized(q["t"])) return err("ссылка устарела — отсканируйте QR на телевизоре заново", Response.Status.FORBIDDEN)
+        val body = if (session.method == Method.POST)
+            (try { JSONObject(readBody(session)) } catch (_: Exception) { JSONObject() }) else JSONObject()
+        return kotlinx.coroutines.runBlocking {
+            when {
+                uri == "/api/setup" && session.method == Method.POST -> {
+                    val r = setup.save(body)
+                    notifyClients()
+                    json(r)
+                }
+                uri == "/api/setup" -> json(setup.get())
+                uri == "/api/setup/check" -> json(setup.check(body))
+                uri == "/api/setup/report" -> newFixedLengthResponse(Response.Status.OK, "text/plain; charset=utf-8", setup.report())
+                uri.startsWith("/api/setup/source-") -> json(setup.source(uri.removePrefix("/api/setup/source-"), body))
+                else -> err("нет такого метода", Response.Status.NOT_FOUND)
+            }
+        }
+    }
+
     private fun readBody(session: IHTTPSession): String {
         val files = HashMap<String, String>()
         return try { session.parseBody(files); files["postData"] ?: "" } catch (_: Exception) { "" }
@@ -480,7 +508,8 @@ class HttpServer(
                 // укладываются в 20-40с, и пользователь видел «сервер не ответил» у поиска,
                 // который на самом деле успешно завершался следом.
                 val started = System.currentTimeMillis()
-                while (System.currentTimeMillis() - started < 90000) {
+                val limit = if (db.isLocal) 220_000 else 90_000
+                while (System.currentTimeMillis() - started < limit) {
                     kotlinx.coroutines.delay(1200)
                     val d = ref.get().await()
                     when (d.getString("status")) {
@@ -552,14 +581,14 @@ class HttpServer(
                 return r
             }
             val len = end - start + 1
-            val fis = FileInputStream(f)
+            val fis = StreamTouch(f)
             fis.skip(start)
             val r = newFixedLengthResponse(Response.Status.PARTIAL_CONTENT, mime, fis, len)
             r.addHeader("Accept-Ranges", "bytes")
             r.addHeader("Content-Range", "bytes $start-$end/${f.length()}")
             return r
         }
-        val r = newFixedLengthResponse(Response.Status.OK, mime, FileInputStream(f), f.length())
+        val r = newFixedLengthResponse(Response.Status.OK, mime, StreamTouch(f), f.length())
         r.addHeader("Accept-Ranges", "bytes")
         return r
     }
@@ -745,6 +774,7 @@ class HttpServer(
             r.addHeader("Cache-Control", "no-cache")
             return r
         }
+        if (db.isLocal) return localJson(cache) { LocalBackend.instance?.person(name) }
         val pid = config.firebase.optString("projectId")
         val url = "https://us-central1-$pid.cloudfunctions.net/person?name=" +
             java.net.URLEncoder.encode(name, "UTF-8")
@@ -758,6 +788,16 @@ class HttpServer(
         } catch (e: Exception) { err(e.message ?: "нет связи", Response.Status.SERVICE_UNAVAILABLE) }
     }
 
+    // Standalone: the same JSON the Cloud Function would return, built on the device and cached.
+    private fun localJson(cache: File, build: () -> JSONObject?): Response = try {
+        val o = build() ?: return err("не найдено в TMDb", Response.Status.NOT_FOUND)
+        val text = o.toString()
+        cache.writeText(text)
+        newFixedLengthResponse(Response.Status.OK, "application/json; charset=utf-8", text)
+    } catch (e: ApiKeyException) {
+        err("нужен ключ TMDb — откройте «Настройка с телефона»", Response.Status.SERVICE_UNAVAILABLE)
+    } catch (e: Exception) { err(e.message ?: "нет связи", Response.Status.SERVICE_UNAVAILABLE) }
+
     // Карточка ещё не скачанного фильма (из фильмографии или коллекции): те же данные,
     // что у своих фильмов, но с сервера — TMDb-ключа на ноде нет. Кэш на диске вечный:
     // описание и актёры не меняются, а сеть на ноде может и отсутствовать.
@@ -770,6 +810,7 @@ class HttpServer(
             r.addHeader("Cache-Control", "no-cache")
             return r
         }
+        if (db.isLocal) return localJson(cache) { LocalBackend.instance?.movie(k, tmdbId) }
         val pid = config.firebase.optString("projectId")
         val url = "https://us-central1-$pid.cloudfunctions.net/movie?kind=$k&tmdbId=" +
             java.net.URLEncoder.encode(tmdbId, "UTF-8")
@@ -987,7 +1028,11 @@ class HttpServer(
 
     // ---- static (assets/tv) ------------------------------------------------------------------
     private fun static(uri: String): Response {
-        val rel = if (uri == "/") "index.html" else uri.trimStart('/')
+        val rel = when (uri) {
+            "/" -> "index.html"
+            "/setup" -> "setup.html"
+            else -> uri.trimStart('/')
+        }
         return try {
             // Скачанная веб-часть важнее вшитой (см. WebUpdater); нет её или файла в ней —
             // молча отдаём то, что приехало вместе с APK.
@@ -1008,5 +1053,16 @@ class HttpServer(
         } catch (_: Exception) {
             newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "not found")
         }
+    }
+}
+
+// A video file being read by a player (or a LAN transfer). Every read stamps the time, so the
+// self-updater can tell "someone is watching" from "idle" even during one long request.
+object Streams { @Volatile var lastReadAt = 0L }
+
+private class StreamTouch(f: File) : FileInputStream(f) {
+    override fun read(b: ByteArray, off: Int, len: Int): Int {
+        Streams.lastReadAt = System.currentTimeMillis()
+        return super.read(b, off, len)
     }
 }

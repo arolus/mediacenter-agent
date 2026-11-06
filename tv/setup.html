@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<!-- Standalone setup, opened on a phone from the QR the TV shows (/setup?t=<token>).
+     Served by the TV's own agent over the LAN: no server, no account. Keys are verified on
+     the TV before they are stored and are never sent back to this page. -->
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MediaCenter — настройка</title>
+<style>
+  :root { --bg:#09090b; --card:#18181b; --line:#27272a; --text:#f4f4f5; --mute:#a1a1aa;
+    --dim:#71717a; --acc:#8b5cf6; --ok:#34d399; --bad:#f87171; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.45 -apple-system, BlinkMacSystemFont, Roboto, "Segoe UI", sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 20px 16px 64px; }
+  h1 { font-size: 24px; margin: 4px 0 2px; }
+  .sub { color: var(--mute); margin: 0 0 18px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+    padding: 16px; margin: 14px 0; }
+  h2 { font-size: 18px; margin: 0 0 4px; display: flex; align-items: center; justify-content: space-between; }
+  .tag { font-size: 12px; font-weight: 600; border-radius: 999px; padding: 2px 10px; }
+  .tag.req { background: #4c1d95; color: #ddd6fe; }
+  .tag.opt { background: #27272a; color: var(--mute); }
+  .tag.done { background: #064e3b; color: #a7f3d0; }
+  p.hint { color: var(--mute); font-size: 14px; margin: 4px 0 10px; }
+  details { margin: 8px 0 12px; }
+  summary { color: #c4b5fd; cursor: pointer; font-size: 15px; }
+  ol { margin: 8px 0 0; padding-left: 22px; color: #d4d4d8; font-size: 14px; }
+  ol li { margin: 6px 0; }
+  a { color: #c4b5fd; }
+  code { background: #27272a; border-radius: 6px; padding: 1px 6px; font-size: 13px; }
+  label { display: block; font-size: 14px; color: var(--mute); margin: 10px 0 4px; }
+  input, select { width: 100%; font: inherit; color: var(--text); background: #0f0f12;
+    border: 1px solid var(--line); border-radius: 12px; padding: 12px; outline: none; }
+  input:focus, select:focus { border-color: var(--acc); }
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; min-width: 0; }
+  button { font: inherit; font-weight: 600; color: #fff; background: var(--acc); border: 0;
+    border-radius: 12px; padding: 12px 16px; cursor: pointer; }
+  button.ghost { background: #27272a; color: var(--text); }
+  button:disabled { opacity: .5; }
+  .msg { font-size: 14px; margin-top: 8px; min-height: 1em; }
+  .msg.ok { color: var(--ok); } .msg.bad { color: var(--bad); }
+  .switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 10px 0; }
+  .switch input { width: 22px; height: 22px; flex: none; accent-color: var(--acc); }
+  .warn { background: #422006; border: 1px solid #854d0e; color: #fde68a; border-radius: 12px;
+    padding: 10px 12px; font-size: 14px; margin: 8px 0; }
+  #fatal { display: none; }
+  .src { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 12px; }
+  .src:first-child { border-top: 0; padding-top: 0; margin-top: 0; }
+  .src-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .src-head b { font-size: 16px; }
+  .captcha { margin-top: 10px; }
+  .captcha img { display: block; max-width: 100%; background: #fff; border-radius: 8px; margin: 6px 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>MediaCenter</h1>
+  <p class="sub">Настройка телевизора <b id="dev-name">…</b>. Всё сохраняется только на нём.</p>
+
+  <section id="fatal"><h2>Не открывается</h2><p class="hint" id="fatal-text"></p></section>
+
+  <div id="app">
+  <section>
+    <h2>Название <span class="tag opt">по желанию</span></h2>
+    <p class="hint">Как телевизор будет подписан в приложении.</p>
+    <div class="row"><input id="name" maxlength="60" /><button class="ghost" style="flex:none" data-save="name">Сохранить</button></div>
+    <div class="msg" id="msg-name"></div>
+  </section>
+
+  <section>
+    <h2>Ключ TMDb <span class="tag req" id="tag-tmdb">обязательно</span></h2>
+    <p class="hint">TMDb — база фильмов: по ней телевизор узнаёт названия, постеры, описания и актёров. Ключ бесплатный, получить его — минут пять.</p>
+    <details id="how-tmdb">
+      <summary>Как получить ключ</summary>
+      <ol>
+        <li>Зарегистрируйтесь на <a href="https://www.themoviedb.org/signup" target="_blank" rel="noopener">themoviedb.org/signup</a> и подтвердите почту по ссылке из письма.</li>
+        <li>Откройте <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">themoviedb.org/settings/api</a> и нажмите «Create» (или «Request an API Key»), тип — <b>Developer</b>, примите условия.</li>
+        <li>В анкете хватит простых ответов: Application Name — <code>Home media</code>, Application URL — <code>http://localhost</code>, Application Summary — <code>Personal media library</code>. Остальные поля — ваши данные.</li>
+        <li>После отправки на той же странице появятся <b>API Key</b> и <b>API Read Access Token</b>. Скопируйте любой из них и вставьте ниже.</li>
+      </ol>
+    </details>
+    <label for="tmdb">Ключ или токен</label>
+    <input id="tmdb" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="вставьте ключ" />
+    <div style="margin-top:10px"><button data-save="tmdb">Проверить и сохранить</button></div>
+    <div class="msg" id="msg-tmdb"></div>
+  </section>
+
+  <section>
+    <h2>Ключ OMDb <span class="tag opt" id="tag-omdb">по желанию</span></h2>
+    <p class="hint">Нужен для рейтингов IMDb на карточках. Без него показывается рейтинг TMDb.</p>
+    <details>
+      <summary>Как получить ключ</summary>
+      <ol>
+        <li>Откройте <a href="https://www.omdbapi.com/apikey.aspx" target="_blank" rel="noopener">omdbapi.com/apikey.aspx</a>, выберите <b>FREE</b> (1000 запросов в день), укажите почту и имя, в «Use» — <code>personal media library</code>.</li>
+        <li>В письме будет ключ и ссылка активации. <b>Сначала откройте ссылку</b> — без неё ключ не работает.</li>
+        <li>Вставьте ключ ниже.</li>
+      </ol>
+    </details>
+    <label for="omdb">Ключ</label>
+    <input id="omdb" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="вставьте ключ" />
+    <div class="row" style="margin-top:10px">
+      <button data-save="omdb">Проверить и сохранить</button>
+      <button class="ghost" data-clear="omdb">Убрать</button>
+    </div>
+    <div class="msg" id="msg-omdb"></div>
+  </section>
+
+  <section>
+    <h2>Источник поиска <span class="tag opt" id="tag-src">по желанию</span></h2>
+    <p class="hint">Чтобы искать и скачивать фильмы прямо с телевизора, подключите источник. Это файл или ссылка — их даёт тот, кто поделился с вами MediaCenter. Без источника телевизор просто показывает то, что уже лежит на нём и на флешке.</p>
+    <div id="sources"></div>
+    <div id="src-add">
+      <label for="src-url">Ссылка на источник</label>
+      <div class="row"><input id="src-url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://…" />
+        <button style="flex:none" data-src-add="url">Добавить</button></div>
+      <label for="src-file">или файл</label>
+      <input type="file" id="src-file" accept=".js,text/javascript,text/plain" />
+      <div class="msg" id="msg-src"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Раздача <span class="tag opt">по желанию</span></h2>
+    <p class="hint">Скачанный фильм какое-то время раздаётся другим. Трекеры за это ценят, а у кого рейтинг низкий, тому ограничивают скачивание.</p>
+    <div class="warn">Пока идёт раздача, ваш IP-адрес виден другим участникам. Если вы живёте в стране, где за раздачу преследуют, поставьте «не раздавать».</div>
+    <label for="seed-ratio">Раздавать, пока не отдадим</label>
+    <select id="seed-ratio">
+      <option value="0">не раздавать</option>
+      <option value="0.5">половину скачанного</option>
+      <option value="1">столько же, сколько скачали</option>
+      <option value="2">вдвое больше</option>
+    </select>
+    <div class="row">
+      <div><label for="seed-days">но не дольше</label>
+        <select id="seed-days">
+          <option value="1">1 дня</option><option value="3">3 дней</option>
+          <option value="7">недели</option><option value="30">месяца</option>
+        </select></div>
+      <div><label for="seed-up">скорость отдачи</label>
+        <select id="seed-up">
+          <option value="512">до 0,5 МБ/с</option><option value="2048">до 2 МБ/с</option>
+          <option value="8192">до 8 МБ/с</option><option value="0">без ограничений</option>
+        </select></div>
+    </div>
+    <div style="margin-top:10px"><button class="ghost" data-save="seed">Сохранить</button></div>
+    <div class="msg" id="msg-seed"></div>
+  </section>
+
+  <section>
+    <h2>Детский режим <span class="tag opt">по желанию</span></h2>
+    <p class="hint">В детском режиме на телевизоре нельзя удалять фильмы, искать новые и открывать настройки.</p>
+    <div class="switch"><span>Детский режим</span><input type="checkbox" id="kids-mode" /></div>
+    <div class="switch"><span>Выход из приложения только по коду</span><input type="checkbox" id="kids-exit" /></div>
+    <label for="kids-pin">Код (4–8 цифр) <span id="pin-state" style="color:var(--dim)"></span></label>
+    <input id="kids-pin" inputmode="numeric" maxlength="8" autocomplete="off" placeholder="оставьте пустым, чтобы не менять" />
+    <div style="margin-top:10px"><button class="ghost" data-save="kids">Сохранить</button></div>
+    <div class="msg" id="msg-kids"></div>
+  </section>
+  <section>
+    <h2>Если что-то не работает</h2>
+    <p class="hint">Отчёт — это журнал работы телевизора за последнее время. Ключи и пароли в нём заменены точками. Отправьте его тому, кто помогает вам с MediaCenter.</p>
+    <div class="row"><button class="ghost" id="report">Отправить отчёт</button></div>
+    <div class="msg" id="msg-report"></div>
+  </section>
+  </div>
+</main>
+<script>
+  var token = new URLSearchParams(location.search).get("t") || "";
+  var $ = function (id) { return document.getElementById(id); };
+  var state = null;
+
+  function api(path, body) {
+    return fetch(path + (path.indexOf("?") < 0 ? "?" : "&") + "t=" + encodeURIComponent(token), body ? {
+      method: "POST", headers: { "Content-Type": "application/json; charset=utf-8" }, body: JSON.stringify(body)
+    } : { cache: "no-store" }).then(function (r) {
+      return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || ("HTTP " + r.status)); return j; });
+    });
+  }
+
+  function msg(key, text, ok) {
+    var el = $("msg-" + key);
+    el.textContent = text || "";
+    el.className = "msg " + (text ? (ok ? "ok" : "bad") : "");
+  }
+
+  function setTag(key, set, required) {
+    var el = $("tag-" + key);
+    el.className = "tag " + (set ? "done" : required ? "req" : "opt");
+    el.textContent = set ? "готово" : required ? "обязательно" : "по желанию";
+  }
+
+  function paint(s) {
+    state = s;
+    $("dev-name").textContent = s.device.name;
+    if (document.activeElement !== $("name")) $("name").value = s.device.name;
+    setTag("tmdb", s.tmdb.set, true);
+    setTag("omdb", s.omdb.set, false);
+    $("tmdb").placeholder = s.tmdb.set ? "сохранён " + s.tmdb.hint + " — вставьте новый, чтобы заменить" : "вставьте ключ";
+    $("omdb").placeholder = s.omdb.set ? "сохранён " + s.omdb.hint : "вставьте ключ";
+    $("how-tmdb").open = !s.tmdb.set;
+    pick($("seed-ratio"), String(s.seed.ratio));
+    pick($("seed-days"), String(s.seed.days));
+    pick($("seed-up"), String(s.seed.uploadKbps));
+    $("kids-mode").checked = s.kids.mode === "kids";
+    $("kids-exit").checked = !!s.kids.exitPin;
+    $("pin-state").textContent = s.kids.pinSet ? "· задан" : "· не задан";
+    paintSources(s.sources || []);
+  }
+
+  function esc(t) { var d = document.createElement("div"); d.textContent = t == null ? "" : String(t); return d.innerHTML; }
+
+  // Each installed source: its own settings form (from the plugin), login, captcha, update/remove.
+  function paintSources(list) {
+    var tag = $("tag-src");
+    var ok = list.some(function (x) { return x.loggedIn; });
+    tag.className = "tag " + (ok ? "done" : "opt");
+    tag.textContent = ok ? "готово" : list.length ? "нужен вход" : "по желанию";
+    $("sources").innerHTML = list.map(function (src) {
+      return '<div class="src" data-id="' + esc(src.id) + '">' +
+        '<div class="src-head"><b>' + esc(src.name) + '</b><span style="color:var(--dim);font-size:13px">' +
+          (src.loggedIn ? '<span style="color:var(--ok)">вход выполнен</span> · ' : '') + 'v' + esc(src.version) + '</span></div>' +
+        src.settings.map(function (f) {
+          return '<label>' + esc(f.label) + (f.type === "password" && f.set ? ' <span style="color:var(--dim)">· сохранён</span>' : '') + '</label>' +
+            '<input data-key="' + esc(f.key) + '" type="' + (f.type === "password" ? "password" : "text") + '" autocomplete="off" autocapitalize="off" spellcheck="false" value="' +
+            esc(f.value || "") + '" placeholder="' + (f.type === "password" && f.set ? "оставьте пустым, чтобы не менять" : "") + '" />';
+        }).join("") +
+        '<div class="captcha" hidden><div class="hint">Источник просит ввести символы с картинки:</div><img alt="" />' +
+          '<div class="row"><input data-captcha autocomplete="off" autocapitalize="off" spellcheck="false" /><button style="flex:none" data-src-captcha>Отправить</button></div></div>' +
+        '<div class="row" style="margin-top:10px"><button data-src-save>Сохранить и войти</button>' +
+          (src.url ? '<button class="ghost" style="flex:none" data-src-update>Обновить</button>' : '') +
+          '<button class="ghost" style="flex:none" data-src-remove>Удалить</button></div>' +
+        '<div class="msg"></div></div>';
+    }).join("");
+    $("src-add").style.display = list.length ? "none" : "";
+  }
+
+  function srcMsg(box, text, ok) { var m = box.querySelector(".msg"); m.textContent = text || ""; m.className = "msg " + (text ? (ok ? "ok" : "bad") : ""); }
+
+  function srcResult(box, r) {
+    var cap = box && box.querySelector(".captcha");
+    if (r.state) paint(r.state);
+    box = box && document.querySelector('.src[data-id="' + box.getAttribute("data-id") + '"]');
+    if (!box) return;
+    cap = box.querySelector(".captcha");
+    if (r.captcha) {
+      cap.hidden = false;
+      cap.querySelector("img").src = r.captcha.image;
+      cap.setAttribute("data-state", JSON.stringify(r.captcha.state == null ? null : r.captcha.state));
+      srcMsg(box, "Введите символы с картинки", false);
+      cap.querySelector("input").focus();
+    } else if (r.error) srcMsg(box, r.error, false);
+    else srcMsg(box, "Вход выполнен — можно искать с телевизора", true);
+  }
+
+  function srcCall(action, body, box) {
+    if (box) srcMsg(box, action === "save" || action === "login" ? "Вхожу… (первый раз может занять минуту)" : "Минуту…", true);
+    return api("/api/setup/source-" + action, body).then(function (r) { srcResult(box, r); return r; })
+      .catch(function (e) { if (box) srcMsg(box, e.message, false); });
+  }
+
+  $("src-file").addEventListener("change", function () {
+    var f = this.files && this.files[0];
+    if (!f) return;
+    var rd = new FileReader();
+    rd.onload = function () {
+      msg("src", "Добавляю…", true);
+      api("/api/setup/source-add", { code: String(rd.result) }).then(function (r) {
+        if (r.state) paint(r.state);
+        msg("src", r.error || "", !r.error);
+      }).catch(function (e) { msg("src", e.message, false); });
+    };
+    rd.readAsText(f);
+  });
+
+  // Values outside the list (set elsewhere) still show up instead of silently snapping.
+  function pick(sel, v) {
+    var found = false;
+    for (var i = 0; i < sel.options.length; i++) if (Number(sel.options[i].value) === Number(v)) { sel.selectedIndex = i; found = true; }
+    if (!found) { var o = document.createElement("option"); o.value = v; o.textContent = v; sel.appendChild(o); sel.value = v; }
+  }
+
+  function save(key, body, okText) {
+    msg(key, "Сохраняю…", true);
+    return api("/api/setup", body).then(function (s) {
+      var e = s.errors && (s.errors[key] || s.errors.pin);
+      paint(s);
+      if (e) msg(key, e, false); else msg(key, okText, true);
+      return !e;
+    }).catch(function (e) { msg(key, e.message, false); return false; });
+  }
+
+  document.addEventListener("click", function (ev) {
+    var b = ev.target.closest("button");
+    if (!b) return;
+    var srcBox = b.closest(".src");
+    if (b.hasAttribute("data-src-add")) {
+      var u = $("src-url").value.trim();
+      if (!u) { msg("src", "Вставьте ссылку", false); return; }
+      msg("src", "Скачиваю источник…", true);
+      api("/api/setup/source-add", { url: u }).then(function (r) {
+        if (r.state) paint(r.state);
+        msg("src", r.error || "", !r.error);
+        if (!r.error) $("src-url").value = "";
+      }).catch(function (e) { msg("src", e.message, false); });
+      return;
+    }
+    if (srcBox) {
+      var id = srcBox.getAttribute("data-id");
+      if (b.hasAttribute("data-src-save")) {
+        var values = {};
+        srcBox.querySelectorAll("input[data-key]").forEach(function (i) { values[i.getAttribute("data-key")] = i.value.trim(); });
+        srcCall("save", { id: id, values: values }, srcBox);
+      }
+      if (b.hasAttribute("data-src-captcha")) {
+        var cap = srcBox.querySelector(".captcha");
+        srcCall("login", { id: id, captcha: { answer: cap.querySelector("input").value.trim(),
+          state: JSON.parse(cap.getAttribute("data-state") || "null") } }, srcBox);
+      }
+      if (b.hasAttribute("data-src-update")) srcCall("update", { id: id }, srcBox);
+      if (b.hasAttribute("data-src-remove") && confirm("Удалить источник?")) srcCall("remove", { id: id }, null);
+      return;
+    }
+    var k = b.getAttribute("data-save"), c = b.getAttribute("data-clear");
+    if (c === "omdb") { save("omdb", { omdbKey: "" }, "Ключ убран"); return; }
+    if (k === "name") save("name", { name: $("name").value }, "Сохранено");
+    if (k === "tmdb") {
+      var v = $("tmdb").value.trim();
+      if (!v) { msg("tmdb", "Вставьте ключ", false); return; }
+      b.disabled = true;
+      save("tmdb", { tmdbKey: v }, "Ключ работает — телевизор начинает распознавать фильмы")
+        .then(function (ok) { b.disabled = false; if (ok) $("tmdb").value = ""; });
+    }
+    if (k === "omdb") {
+      var o = $("omdb").value.trim();
+      if (!o) { msg("omdb", "Вставьте ключ", false); return; }
+      b.disabled = true;
+      save("omdb", { omdbKey: o }, "Ключ работает").then(function (ok) { b.disabled = false; if (ok) $("omdb").value = ""; });
+    }
+    if (k === "seed") save("seed", { seed: {
+      ratio: Number($("seed-ratio").value), days: Number($("seed-days").value), uploadKbps: Number($("seed-up").value)
+    } }, "Сохранено");
+    if (k === "kids") {
+      var kids = { mode: $("kids-mode").checked ? "kids" : "normal", exitPin: $("kids-exit").checked };
+      var pin = $("kids-pin").value.trim();
+      if (pin) kids.pin = pin;
+      if ((kids.mode === "kids" || kids.exitPin) && !pin && !state.kids.pinSet) {
+        msg("kids", "Задайте код — без него из детского режима не выйти", false); return;
+      }
+      save("kids", { kids: kids }, "Сохранено").then(function (ok) { if (ok) $("kids-pin").value = ""; });
+    }
+  });
+
+  // Share sheet on phones (messengers, mail); otherwise copy to the clipboard.
+  $("report").addEventListener("click", function () {
+    msg("report", "Собираю…", true);
+    fetch("/api/setup/report?t=" + encodeURIComponent(token), { cache: "no-store" }).then(function (r) { return r.text(); })
+      .then(function (text) {
+        var file = null;
+        try { file = new File([text], "mediacenter-report.txt", { type: "text/plain" }); } catch (_) {}
+        if (file && navigator.canShare && navigator.canShare({ files: [file] }))
+          return navigator.share({ files: [file], title: "MediaCenter — отчёт" }).then(function () { msg("report", "Отправлено", true); });
+        if (navigator.share) return navigator.share({ title: "MediaCenter — отчёт", text: text }).then(function () { msg("report", "Отправлено", true); });
+        var ta = document.createElement("textarea");
+        ta.value = text; document.body.appendChild(ta); ta.select();
+        var ok = false; try { ok = document.execCommand("copy"); } catch (_) {}
+        ta.remove();
+        msg("report", ok ? "Отчёт скопирован — вставьте его в сообщение" : "Не удалось скопировать", ok);
+      }).catch(function (e) { if (e && e.name !== "AbortError") msg("report", e.message, false); });
+  });
+
+  api("/api/setup").then(paint).catch(function (e) {
+    $("app").style.display = "none";
+    $("fatal").style.display = "block";
+    $("fatal-text").textContent = e.message + ". Телефон должен быть в той же сети Wi-Fi, что и телевизор.";
+  });
+</script>
+</body>
+</html>

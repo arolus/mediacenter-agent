@@ -3,21 +3,19 @@
 // Harvesting the cookie is easier here than in the Node agent: ClearanceActivity lives in
 // THIS app, and CookieManager is per-process — no localhost POST hop needed, but we keep the
 // /api/rt-clearance endpoint so the flow (and manual runs) stay compatible.
+// The same Cloudflare-aware transport serves standalone search sources (fetch()): clearance is
+// kept per site origin; the cloud relay uses the default one.
 package com.mediacenter.tv.agent
 
 import android.content.Context
 import android.content.Intent
 import android.util.Base64
-import com.google.firebase.firestore.DocumentChange
-import com.google.firebase.firestore.FieldValue
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.ListenerRegistration
-import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.sync.withLock
 import android.content.res.Configuration
 import android.provider.Settings
 import org.json.JSONObject
@@ -27,12 +25,14 @@ import java.util.zip.GZIPOutputStream
 
 class RtRelay(
     private val ctx: Context,
-    private val db: FirebaseFirestore,
+    private val db: Db,
     private val config: Config,
     private val scope: CoroutineScope
 ) {
-    private val cacheFile = File(ctx.filesDir, "rt-clearance.json")
-    @Volatile private var clearance: JSONObject? = null
+    private val clearances = java.util.concurrent.ConcurrentHashMap<String, JSONObject>()   // origin -> {cookie, ua, at}
+    private val inflight = java.util.concurrent.ConcurrentHashMap<String, CompletableDeferred<JSONObject>>()
+    private val harvestLock = kotlinx.coroutines.sync.Mutex()   // one WebView harvest at a time
+    @Volatile private var harvestOrigin: String = DEFAULT_ORIGIN
     @Volatile private var harvestWaiter: CompletableDeferred<JSONObject>? = null
     @Volatile private var harvestStarted: CompletableDeferred<Unit>? = null
     private val running = HashSet<String>()
@@ -50,6 +50,15 @@ class RtRelay(
         // reported onCreate within this window, fail fast so the server can pick another node.
         private const val ACTIVITY_START_MS = 8_000L
         @Volatile var instance: RtRelay? = null
+        const val DEFAULT_ORIGIN = "https://rutracker.org"
+        const val DEFAULT_PROBE = "$DEFAULT_ORIGIN/forum/tracker.php"
+
+        fun originOf(url: String): String = java.net.URL(url).let { "${it.protocol}://${it.host}" }
+
+        // The default origin keeps its historical file name; other sites get their own.
+        private fun cacheFile(ctx: Context, origin: String): File =
+            if (origin == DEFAULT_ORIGIN) File(ctx.filesDir, "rt-clearance.json")
+            else File(ctx.filesDir, "cf-" + origin.substringAfter("://").replace(Regex("[^A-Za-z0-9.-]"), "_") + ".json")
 
         // ClearanceActivity.onCreate: proof that the start was not blocked.
         @JvmStatic
@@ -59,16 +68,20 @@ class RtRelay(
         // по HTTP незачем (и ненадёжно: сервер мог ещё не подняться). Если релей уже работает,
         // отдаём ему; иначе просто кладём на диск — он подхватит при старте.
         @JvmStatic
-        fun deliverClearance(ctx: Context, cookie: String?, ua: String?, error: String?) {
+        fun deliverClearance(ctx: Context, cookie: String?, ua: String?, error: String?) =
+            deliverClearance(ctx, cookie, ua, error, DEFAULT_ORIGIN)
+
+        @JvmStatic
+        fun deliverClearance(ctx: Context, cookie: String?, ua: String?, error: String?, origin: String) {
             val r = instance
-            if (r != null) { r.submitClearance(cookie, ua, error); return }
+            if (r != null) { r.submitClearance(cookie, ua, error, origin); return }
             if (error != null || cookie == null || ua == null) {
                 Log.e("rt: WebView не добыл куку: ${error ?: "пусто"}")
                 return
             }
             val c = JSONObject().put("cookie", cookie).put("ua", ua).put("at", System.currentTimeMillis())
             try {
-                File(ctx.filesDir, "rt-clearance.json").writeText(c.toString())
+                cacheFile(ctx, origin).writeText(c.toString())
                 Log.i("rt: cf_clearance сохранена до старта релея")
             } catch (e: Exception) { Log.e("rt: не сохранил куку: ${e.message}") }
         }
@@ -76,7 +89,7 @@ class RtRelay(
 
     fun start() {
         instance = this
-        loadClearance()
+        loadClearance(DEFAULT_ORIGIN)
         publishState()
         sub = db.collection("rtRequests").addSnapshotListener { snap, _ ->
             snap?.documentChanges?.forEach { ch ->
@@ -105,20 +118,21 @@ class RtRelay(
 
     fun stop() { sub?.remove(); instance = null }
 
-    private fun loadClearance(): JSONObject? {
-        clearance?.let { return it }
-        clearance = try { JSONObject(cacheFile.readText()) } catch (_: Exception) { null }
-        return clearance
+    private fun loadClearance(origin: String): JSONObject? {
+        clearances[origin]?.let { return it }
+        val c = try { JSONObject(cacheFile(ctx, origin).readText()) } catch (_: Exception) { null }
+        if (c != null) clearances[origin] = c
+        return c
     }
 
     // Called from the HTTP server when ClearanceActivity posts the cookie.
-    fun submitClearance(cookie: String?, ua: String?, error: String?) {
+    fun submitClearance(cookie: String?, ua: String?, error: String?, origin: String = harvestOrigin) {
         val w = harvestWaiter
         if (error == null && cookie != null && ua != null) {
             val c = JSONObject().put("cookie", cookie).put("ua", ua).put("at", System.currentTimeMillis())
-            clearance = c
-            try { cacheFile.writeText(c.toString()) } catch (_: Exception) {}
-            publishState()
+            clearances[origin] = c
+            try { cacheFile(ctx, origin).writeText(c.toString()) } catch (_: Exception) {}
+            if (origin == DEFAULT_ORIGIN) publishState()
             Log.i("rt: cf_clearance сохранена (ua=${ua.take(40)})")
             w?.complete(c)
         } else {
@@ -137,7 +151,7 @@ class RtRelay(
         (ctx.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
 
     private fun publishState() {
-        val c = clearance
+        val c = clearances[DEFAULT_ORIGIN]
         db.collection("devices").document(config.deviceId).set(
             mapOf("rtRelay" to mapOf(
                 "ok" to true,               // the harvester is always present: it is this very app
@@ -152,15 +166,33 @@ class RtRelay(
             )), SetOptions.merge())
     }
 
-    private suspend fun harvest(fresh: Boolean): JSONObject {
-        harvestWaiter?.let { return it.await() }
+    // Concurrent requests for the same site share one harvest; different sites queue up (there
+    // is one ClearanceActivity and one headless slot).
+    private suspend fun harvest(fresh: Boolean, origin: String, probe: String): JSONObject {
+        inflight[origin]?.let { return it.await() }
+        val d = CompletableDeferred<JSONObject>()
+        inflight[origin] = d
+        try {
+            val c = harvestLock.withLock {
+                harvestOrigin = origin
+                harvestOnce(fresh, origin, probe)
+            }
+            d.complete(c)
+            return c
+        } catch (e: Exception) {
+            d.completeExceptionally(e)
+            throw e
+        } finally { inflight.remove(origin) }
+    }
+
+    private suspend fun harvestOnce(fresh: Boolean, origin: String, probe: String): JSONObject {
         // Phones: headless WebView in this very process — works with any app on screen and with
         // the screen off. TVs: the visible activity (its Turnstile needs a real, laid-out view).
         if (!isTv()) {
             val waiter = CompletableDeferred<JSONObject>()
             harvestWaiter = waiter
-            HeadlessClearance(ctx).harvest(fresh, HEADLESS_TIMEOUT_MS) { cookie, ua, error ->
-                submitClearance(cookie, ua, error)
+            HeadlessClearance(ctx, probe).harvest(fresh, HEADLESS_TIMEOUT_MS) { cookie, ua, error ->
+                submitClearance(cookie, ua, error, origin)
             }
             try {
                 return withTimeout(HEADLESS_TIMEOUT_MS + 5_000) { waiter.await() }
@@ -176,6 +208,7 @@ class RtRelay(
         val i = Intent(ctx, com.mediacenter.tv.ClearanceActivity::class.java)
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         i.putExtra("port", config.localPort)
+        i.putExtra("probe", probe)
         if (fresh) i.putExtra("fresh", true)
         try { ctx.startActivity(i) } catch (e: Exception) {
             harvestWaiter = null; harvestStarted = null
@@ -191,8 +224,8 @@ class RtRelay(
         } finally { harvestStarted = null }
     }
 
-    private fun cookieHeader(serverCookie: String?): String {
-        val cf = (loadClearance()?.optString("cookie") ?: "")
+    private fun cookieHeader(serverCookie: String?, origin: String = DEFAULT_ORIGIN): String {
+        val cf = (loadClearance(origin)?.optString("cookie") ?: "")
             .split(";").map { it.trim() }.firstOrNull { it.startsWith("cf_clearance=") }
         return listOfNotNull(serverCookie?.ifEmpty { null }, cf).joinToString("; ")
     }
@@ -213,10 +246,76 @@ class RtRelay(
         } catch (_: Exception) {}
     }
 
+    // Standalone search sources: one HTTP request to any site, from this device, with Cloudflare
+    // handled transparently. Unlike the cloud relay, nothing is harvested up front — most sites
+    // never challenge; on a challenge we harvest for that site's origin and retry once.
+    suspend fun fetch(url: String, method: String = "GET", headers: Map<String, String> = emptyMap(),
+                      body: ByteArray? = null, cookie: String? = null, probe: String? = null,
+                      followRedirects: Boolean = false): FetchResult {
+        val origin = originOf(url)
+        fun run(): FetchResult {
+            val h = HashMap<String, String>()
+            h["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+            h["Accept-Language"] = "ru-RU,ru;q=0.9,en;q=0.8"
+            h.putAll(headers)
+            val c = loadClearance(origin)
+            c?.optString("ua")?.ifEmpty { null }?.let { h["User-Agent"] = it }
+            val ck = cookieHeader(cookie, origin)
+            if (ck.isNotEmpty()) h["Cookie"] = ck
+            return httpFetch(url, method, h, body, followRedirects = followRedirects)
+        }
+        fun attempt(): FetchResult {
+            val r = try { run() } catch (e: java.io.IOException) { throw unreachable(origin, e) }
+            if (isIspStub(r, origin)) throw blocked(origin)
+            return r
+        }
+        var r = attempt()
+        if (isChallenge(r)) {
+            Log.i("cf: challenge on $origin — harvesting clearance")
+            harvest(fresh = loadClearance(origin) != null, origin = origin, probe = probe ?: "$origin/")
+            r = attempt()
+            if (isChallenge(r)) throw Exception("Cloudflare не пропустил даже со свежей cf_clearance")
+        }
+        return r
+    }
+
+    // The request never reached the site. Either there is no internet at all, or this network
+    // blocks the site (an ISP block shows up as a timeout, reset or failed TLS handshake) — a
+    // neutral reachability probe tells the two apart, so the user gets the right advice.
+    private fun unreachable(origin: String, e: Exception): Exception {
+        val online = try {
+            httpFetch("https://www.google.com/generate_204", timeoutMs = 8000).status in 200..399
+        } catch (_: Exception) { false }
+        Log.e("cf: $origin unreachable (${e.javaClass.simpleName}: ${e.message}), internet ${if (online) "ok" else "down"}")
+        return if (online) blocked(origin)
+               else Exception("Нет связи с интернетом — проверьте подключение телевизора")
+    }
+
+    private fun blocked(origin: String) = Exception("Сайт ${origin.substringAfter("://")} недоступен из вашей сети — " +
+        "похоже, его блокирует провайдер. Включите VPN на роутере или на телевизоре и попробуйте снова.")
+
+    // Some ISPs answer for a blocked site themselves: a redirect to their warning page or a short
+    // "access restricted" stub instead of the site.
+    private fun isIspStub(r: FetchResult, origin: String): Boolean {
+        val loc = r.headers["location"]?.firstOrNull()
+        if (r.status in 300..399 && loc != null) {
+            val host = try { java.net.URL(java.net.URL(origin), loc).host } catch (_: Exception) { "" }
+            val own = java.net.URL(origin).host
+            if (host.isNotEmpty() && !host.endsWith(own) && Regex("warning|block|zapret|rkn|stop|restrict", RegexOption.IGNORE_CASE).containsMatchIn(host + loc))
+                return true
+        }
+        if (r.status in 200..299 && r.body.size in 1..20_000) {
+            val text = (String(r.body, Charsets.UTF_8) + String(r.body, charset("windows-1251"))).lowercase()
+            if (text.contains("роскомнадзор") || text.contains("единый реестр") || text.contains("доступ к ресурсу ограничен"))
+                return true
+        }
+        return false
+    }
+
     private suspend fun perform(id: String, task: Map<String, Any?>): Map<String, Any?> {
-        if (loadClearance() == null) { markChallenge(id); harvest(fresh = false) }
+        if (loadClearance(DEFAULT_ORIGIN) == null) { markChallenge(id); harvest(false, DEFAULT_ORIGIN, DEFAULT_PROBE) }
         suspend fun run(): FetchResult {
-            val c = loadClearance() ?: throw Exception("нет cf_clearance")
+            val c = loadClearance(DEFAULT_ORIGIN) ?: throw Exception("нет cf_clearance")
             val headers = HashMap<String, String>()
             headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
             headers["Accept-Language"] = "ru-RU,ru;q=0.9,en;q=0.8"
@@ -231,7 +330,7 @@ class RtRelay(
         if (isChallenge(r)) {
             Log.i("rt: Cloudflare challenge — refreshing cf_clearance")
             markChallenge(id)
-            harvest(fresh = true)
+            harvest(true, DEFAULT_ORIGIN, DEFAULT_PROBE)
             r = run()
             if (isChallenge(r)) throw Exception("Cloudflare не пропустил даже со свежей cf_clearance")
         }

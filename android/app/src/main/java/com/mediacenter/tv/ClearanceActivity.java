@@ -18,6 +18,7 @@ package com.mediacenter.tv;
 
 import android.app.Activity;
 import android.graphics.Color;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -36,8 +37,10 @@ import java.net.URL;
 
 public class ClearanceActivity extends Activity {
     private static final String TAG = "MCClearance";
-    private static final String ORIGIN = "https://rutracker.org";
-    private static final String PROBE_URL = ORIGIN + "/forum/tracker.php";
+    // The site to clear: the cloud relay's default, or whatever a standalone search source asks
+    // for (intent extra "probe"). Set in onCreate.
+    private String probeUrl = com.mediacenter.tv.agent.RtRelay.DEFAULT_PROBE;
+    private String origin = com.mediacenter.tv.agent.RtRelay.DEFAULT_ORIGIN;
     private static final long POLL_MS = 1500;
     // Телевизор поднимает WebView и рисует Turnstile заметно дольше приставки, а интерактивную
     // галочку ещё нужно успеть нажать пультом — отсюда запас в 5 минут (у Cloudflare сама
@@ -61,7 +64,12 @@ public class ClearanceActivity extends Activity {
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
         hint = new TextView(this);
-        hint.setText("Проверка rutracker… если появится галочка — нажмите OK на пульте");
+        String probe = getIntent().getStringExtra("probe");
+        if (probe != null && probe.startsWith("http")) {
+            probeUrl = probe;
+            origin = com.mediacenter.tv.agent.RtRelay.Companion.originOf(probe);
+        }
+        hint.setText("Проверка " + Uri.parse(origin).getHost() + "… если появится галочка — нажмите OK на пульте");
         hint.setTextColor(Color.WHITE);
         hint.setGravity(Gravity.CENTER);
         root.addView(hint, new FrameLayout.LayoutParams(
@@ -92,7 +100,7 @@ public class ClearanceActivity extends Activity {
         if (getIntent().getBooleanExtra("fresh", false)) cm.removeAllCookies(null);
 
         web.setWebViewClient(new WebViewClient());
-        web.loadUrl(PROBE_URL);
+        web.loadUrl(probeUrl);
         handler.postDelayed(poll, POLL_MS);
     }
 
@@ -171,7 +179,7 @@ public class ClearanceActivity extends Activity {
         @Override public void run() {
             if (reported) return;
             CookieManager.getInstance().flush();
-            String cookie = CookieManager.getInstance().getCookie(ORIGIN);
+            String cookie = CookieManager.getInstance().getCookie(origin);
             String title = web.getTitle();
             boolean challenged = title != null && title.toLowerCase().contains("just a moment");
             if (cookie != null && cookie.contains("cf_clearance") && !challenged) {
@@ -183,7 +191,7 @@ public class ClearanceActivity extends Activity {
                         + (GIVE_UP_MS / 1000) + "s (title=" + title + ")");
                 return;
             }
-            hint.setText("Проверка rutracker… " + ((System.currentTimeMillis() - startedAt) / 1000) + "с");
+            hint.setText("Проверка " + Uri.parse(origin).getHost() + "… " + ((System.currentTimeMillis() - startedAt) / 1000) + "с");
             // Interactive Turnstile (what TVs get): the tap is synthetic either way — the OK
             // key was only ever its trigger — so press it ourselves while the interstitial stays.
             long now = System.currentTimeMillis();
@@ -202,7 +210,7 @@ public class ClearanceActivity extends Activity {
         reported = true;
         Log.i(TAG, error == null ? "clearance obtained, ua=" + ua : "failed: " + error);
         try {
-            com.mediacenter.tv.agent.RtRelay.deliverClearance(getApplicationContext(), cookie, ua, error);
+            com.mediacenter.tv.agent.RtRelay.deliverClearance(getApplicationContext(), cookie, ua, error, origin);
         } catch (Throwable t) {
             Log.i(TAG, "in-process delivery failed: " + t.getMessage());
         }

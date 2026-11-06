@@ -13,6 +13,11 @@
          activity (ClearanceActivity, the Cloudflare WebView) only for apps allowed to draw
          over other apps. Granted once by hand: appops set … SYSTEM_ALERT_WINDOW allow. -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Granted by hand over adb (pm grant), never at install: lets the agent re-enable its own
+         accessibility service (KeyService), which Android drops when the APK is updated. -->
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
     <!-- Scanning shared storage when mediaRoot points there (box); app-private dirs need none -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
@@ -86,8 +91,12 @@
         <receiver android:name=".agent.BootReceiver" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+
+        <!-- PackageInstaller results (self-update, VLC): shows the system confirmation. -->
+        <receiver android:name=".agent.InstallReceiver" android:exported="false" />
 
         <service
             android:name=".Screensaver"
