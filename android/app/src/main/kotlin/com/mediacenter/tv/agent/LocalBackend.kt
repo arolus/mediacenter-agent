@@ -193,7 +193,8 @@ class LocalBackend(
         val isSeries = after["type"] == "series" || after["season"] != null || after["episode"] != null
         val kind = if (isSeries) "tv" else "movie"
         val known = (after["tmdbId"] as? Number)?.toLong()
-        val m = if (known != null) detailsMemo(kind, known, year) else enrich(title, year, isSeries)
+        val m = if (known != null) detailsMemo(kind, known, year)
+            else enrich(title, year, isSeries, (after["originalName"] ?: after["fileName"]) as? String)
         if (m == null) {
             lib.document(id).update(mapOf("tmdbTried" to true, "enrichV" to ENRICH_V)).await()
             Log.i("enrich: $title — не найдено")
@@ -222,14 +223,35 @@ class LocalBackend(
         return v
     }
 
-    private fun enrich(title: String, year: Int?, isSeries: Boolean): JSONObject? {
+    // TMDb search treats "е" and "ё" as different letters ("Унесенные призраками" finds nothing):
+    // on a miss try "ё" in each "е" position, one at a time.
+    private fun yoVariants(t: String): List<String> = t.indices
+        .filter { t[it] == 'е' || t[it] == 'Е' }.take(6)
+        .map { t.substring(0, it) + (if (t[it] == 'е') 'ё' else 'Ё') + t.substring(it + 1) }
+
+    // "spirited_away.avi" -> "spirited away": last resort when the stored title finds nothing.
+    private fun titleFromFileName(name: String?): String = (name ?: "")
+        .replace(Regex("\\.[a-zA-Z0-9]{2,4}$"), "").replace(Regex("[._]+"), " ")
+        .replace(Regex("\\b(19|20)\\d{2}\\b.*$"), "")
+        .replace(Regex("(?i)\\b(2160p|1080p|720p|4k|bdrip|webrip|web-dl|hdrip|dvdrip|bluray|x264|x265|hevc)\\b.*$"), "")
+        .replace(Regex("[\\[(].*$"), "").trim()
+
+    private fun enrich(title: String, year: Int?, isSeries: Boolean, fileName: String?): JSONObject? {
         val kind = if (isSeries) "tv" else "movie"
+        fun search(t: String) = tmdb("search/$kind?include_adult=false&query=${enc(t)}").optJSONArray("results") ?: JSONArray()
         val q = "search/$kind?include_adult=false&query=${enc(title)}" +
             (if (year != null) (if (kind == "tv") "&first_air_date_year=$year" else "&year=$year") else "")
         var results = tmdb(q).optJSONArray("results") ?: JSONArray()
         // A year in a file name is often off by one ("1961" vs TMDb 1962) — retry without it.
-        if (results.length() == 0 && year != null)
-            results = tmdb("search/$kind?include_adult=false&query=${enc(title)}").optJSONArray("results") ?: JSONArray()
+        if (results.length() == 0 && year != null) results = search(title)
+        if (results.length() == 0) for (t in yoVariants(title)) {
+            results = search(t)
+            if (results.length() > 0) break
+        }
+        if (results.length() == 0) {
+            val fromFile = titleFromFileName(fileName)
+            if (fromFile.isNotEmpty() && !fromFile.equals(title, ignoreCase = true)) results = search(fromFile)
+        }
         if (results.length() == 0) return null
         var top = results.getJSONObject(0)
         if (year != null) {

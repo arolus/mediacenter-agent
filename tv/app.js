@@ -202,6 +202,25 @@ async function pollHealth() {
   } catch (_) {}
 }
 setInterval(pollHealth, 10000);
+
+// Our TV app: offer to install it (in a browser) or to update it (everywhere). The agent
+// finds a new release in the background minutes after the page has loaded, so keep asking.
+async function refreshAppOffer() {
+  let offer = null;
+  try {
+    const st = await (await fetch("/api/app-status")).json();
+    if (st && st.apkAvailable) {
+      if (!st.installed && !IN_APP) offer = "install";
+      else if (st.updateAvailable) offer = "update";
+    }
+  } catch (_) { return false; }
+  if (offer === appOffer) return false;
+  appOffer = offer;
+  return true;
+}
+setInterval(async () => {
+  if (await refreshAppOffer() && state.screen === "categories") rerenderKeepingFocus();
+}, 60000);
 pollHealth();
 
 // Прогресс сканирования в самом верху шапки (жёлтым, рядом с процентом закачек):
@@ -315,14 +334,7 @@ async function load() {
   await refreshKiosk();
   if ((await refreshSetupState()) && isStandalone() && !setupState.configured) showSetupQr(true);
   try { const st = await (await fetch("/api/player-status")).json(); playerMissing = st && st.installed === false; } catch (_) {}
-  // Наше TV-приложение: предлагаем поставить (в браузере) или обновить (везде)
-  try {
-    const st = await (await fetch("/api/app-status")).json();
-    if (st && st.apkAvailable) {
-      if (!st.installed && !IN_APP) appOffer = "install";
-      else if (st.updateAvailable) appOffer = "update";
-    }
-  } catch (_) {}
+  await refreshAppOffer();
   await reloadLibrary();
   await loadDownloads(); // активные загрузки — для прогресса на «призраках»
   history.replaceState({ screen: "categories" }, ""); // корневая запись истории
